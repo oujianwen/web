@@ -1,0 +1,1325 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>造桥承重赛 —— 什么形状的桥最结实</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    height: 100%; width: 100%; overflow: hidden; background: #87CEEB;
+    touch-action: none;
+    font-family: system-ui, -apple-system, sans-serif;
+    color: #fff;
+  }
+  canvas {
+    display: block;
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+  }
+
+  .status {
+    position: fixed;
+    top: 20px; left: 50%;
+    transform: translateX(-50%);
+    padding: 12px 26px;
+    background: rgba(16, 22, 38, 0.85);
+    border-radius: 30px;
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    font-size: 15px;
+    font-weight: 700;
+    z-index: 10;
+    white-space: nowrap;
+    max-width: 92vw;
+    text-align: center;
+    transition: all 0.3s;
+  }
+
+  .readout {
+    position: fixed;
+    top: 20px; right: 20px;
+    padding: 14px 18px;
+    background: rgba(16, 22, 38, 0.85);
+    border-radius: 16px;
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    font-size: 13px;
+    z-index: 10;
+    line-height: 1.9;
+    min-width: 170px;
+  }
+  .readout .row {
+    display: flex;
+    justify-content: space-between;
+    gap: 14px;
+  }
+  .readout .lbl { color: #8898b0; }
+  .readout .num {
+    color: #ffd54f;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+  }
+  .readout .num.best { color: #7fdd6e; }
+
+  .panel {
+    position: fixed;
+    bottom: 18px; left: 50%;
+    transform: translateX(-50%);
+    width: min(600px, 94vw);
+    background: rgba(16, 22, 38, 0.9);
+    padding: 16px 22px;
+    border-radius: 20px;
+    backdrop-filter: blur(14px);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  }
+  .panel .row {
+    display: grid;
+    grid-template-columns: 90px 1fr;
+    align-items: center;
+    gap: 12px;
+    font-size: 13px;
+  }
+  .panel .lbl {
+    font-weight: 700;
+    font-size: 14px;
+    white-space: nowrap;
+  }
+  .panel .bridge-btns {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 8px;
+  }
+  .panel .bridge-btn {
+    padding: 10px 6px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    background: rgba(255, 255, 255, 0.06);
+    color: #fff;
+    font-weight: 800;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.15s;
+    text-align: center;
+  }
+  .panel .bridge-btn.active {
+    background: linear-gradient(135deg, #5eb3ff, #7fdd6e);
+    color: #061020;
+    border-color: transparent;
+    box-shadow: 0 4px 12px rgba(94, 179, 255, 0.4);
+  }
+  .panel .actions {
+    display: grid;
+    grid-template-columns: 1.6fr 1fr;
+    gap: 10px;
+    margin-top: 4px;
+  }
+  .panel .actions button {
+    padding: 13px 18px;
+    border: none;
+    border-radius: 14px;
+    font-weight: 800;
+    font-size: 15px;
+    cursor: pointer;
+    letter-spacing: 0.5px;
+    transition: transform 0.12s, box-shadow 0.2s;
+  }
+  .panel .actions button:active {
+    transform: translateY(1px);
+  }
+  .panel .btn-drop {
+    background: linear-gradient(135deg, #ffb055, #ff6b6b);
+    color: #1a0a00;
+    box-shadow: 0 4px 14px rgba(255, 140, 60, 0.35);
+  }
+  .panel .btn-drop:hover:not(:disabled) {
+    box-shadow: 0 6px 20px rgba(255, 140, 60, 0.5);
+  }
+  .panel .btn-drop:disabled {
+    background: rgba(120, 130, 150, 0.3);
+    color: rgba(255, 255, 255, 0.35);
+    cursor: not-allowed;
+    box-shadow: none;
+  }
+  .panel .btn-reset {
+    background: rgba(255, 255, 255, 0.12);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+  }
+  .panel .btn-reset:hover {
+    background: rgba(255, 255, 255, 0.22);
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div class="status" id="status">🌉 选一种桥，往桥上丢石头试试</div>
+
+<div class="readout">
+  <div class="row"><span class="lbl">当前桥型</span><span class="num" id="typeVal">平板桥</span></div>
+  <div class="row"><span class="lbl">已放石头</span><span class="num" id="countVal">0</span></div>
+  <div class="row"><span class="lbl">本次</span><span class="num" id="lastVal">--</span></div>
+  <div class="row"><span class="lbl">最好</span><span class="num best" id="bestVal">--</span></div>
+</div>
+
+<div class="panel">
+  <div class="row">
+    <span class="lbl">🌉 桥型</span>
+    <div class="bridge-btns">
+      <button class="bridge-btn active" data-type="flat">平板桥</button>
+      <button class="bridge-btn" data-type="arch">拱桥</button>
+      <button class="bridge-btn" data-type="truss">桁架桥</button>
+    </div>
+  </div>
+  <div class="actions">
+    <button class="btn-drop" id="btnDrop">🪨 丢一块石头</button>
+    <button class="btn-reset" id="btnReset">🔄 重置</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+<script>
+/* ============================================================
+   造桥承重赛 —— 什么形状的桥最结实
+   ------------------------------------------------------------
+   教材依据：
+   第四章积木区 —— 搭建桥梁、结构力学、平衡稳固
+   第七章 STEM —— 设计、制作、测试、精进
+   第五章「简易机械」—— 结构、平衡
+
+   核心概念：
+   ① 不同形状的桥，能承受的重量不同
+   ② 平板桥最简单，但最不结实
+   ③ 拱桥能把重量分散到两边，比平板结实
+   ④ 桁架桥用三角形搭骨架，最结实
+   ⑤ 三角形是稳定的形状
+   ============================================================ */
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+const statusEl = document.getElementById('status');
+const typeValEl = document.getElementById('typeVal');
+const countValEl = document.getElementById('countVal');
+const lastValEl = document.getElementById('lastVal');
+const bestValEl = document.getElementById('bestVal');
+const btnDrop = document.getElementById('btnDrop');
+const btnReset = document.getElementById('btnReset');
+const bridgeBtns = document.querySelectorAll('.bridge-btn');
+
+let W = 800, H = 600, DPR = 1, S = 1;
+let time = 0;
+
+/* ---------- 场景 ---------- */
+const scene = {
+  groundY: 0,
+  riverLeftX: 0,
+  riverRightX: 0,
+  bridgeY: 0
+};
+
+/* ---------- 桥 ---------- */
+const bridge = {
+  type: 'flat',
+  sag: 0,             // 下沉量
+  sagTarget: 0,       // 目标下沉量
+  broken: false,
+  breakProgress: 0,
+  shake: 0,
+  lastBreakCount: 0
+};
+
+/* ---------- 桥型参数 ---------- */
+const BRIDGE_INFO = {
+  flat:  { name: '平板桥', capacity: 5,  sagScale: 24, barWidth: 10, color: '#a06840' },
+  arch:  { name: '拱桥',   capacity: 9,  sagScale: 14, barWidth: 10, color: '#c89060' },
+  truss: { name: '桁架桥', capacity: 14, sagScale: 9,  barWidth: 8,  color: '#8899aa' }
+};
+
+/* ---------- 石头 ---------- */
+let stones = [];
+let fallingStones = [];
+
+/* ---------- 结果记录 ---------- */
+const results = {
+  last: null,
+  best: { flat: null, arch: null, truss: null }
+};
+
+/* ---------- 视觉 ---------- */
+let sparks = [];
+let dust = [];
+let clouds = [];
+
+/* ============================================================
+   尺寸
+============================================================ */
+function resize() {
+  let w = window.innerWidth || document.documentElement.clientWidth || 800;
+  let h = window.innerHeight || document.documentElement.clientHeight || 600;
+  if (w < 200) w = 800;
+  if (h < 200) h = 600;
+
+  W = w;
+  H = h;
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+
+  canvas.width = Math.floor(W * DPR);
+  canvas.height = Math.floor(H * DPR);
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+  S = Math.max(0.55, Math.min(1.15, H / 800));
+
+  layoutScene();
+  initClouds();
+}
+
+function layoutScene() {
+  scene.groundY = H * 0.62;
+  scene.riverLeftX = W * 0.22;
+  scene.riverRightX = W * 0.78;
+  scene.bridgeY = scene.groundY - 10 * S;
+}
+
+function initClouds() {
+  clouds = [];
+  for (let i = 0; i < 4; i++) {
+    const n = 4 + Math.floor(Math.random() * 3);
+    const puffs = [];
+    for (let j = 0; j < n; j++) {
+      puffs.push({
+        dx: (j - n / 2) * 30 * S + (Math.random() - 0.5) * 16 * S,
+        dy: (Math.random() - 0.5) * 12 * S,
+        r: (18 + Math.random() * 16) * S
+      });
+    }
+    clouds.push({
+      x: Math.random() * W,
+      y: 40 * S + Math.random() * (scene.groundY * 0.3),
+      scale: 0.5 + Math.random() * 0.7,
+      speed: 12 + Math.random() * 18,
+      puffs: puffs
+    });
+  }
+}
+
+/* ============================================================
+   音效
+============================================================ */
+let audioCtx = null;
+function initAudio() {
+  if (!audioCtx) {
+    try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
+  }
+}
+function beep(freq, dur, vol, type, delay) {
+  vol = vol || 0.07;
+  type = type || 'sine';
+  delay = delay || 0;
+  if (!audioCtx) return;
+  const t0 = audioCtx.currentTime + delay;
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(freq, t0);
+  o.connect(g);
+  g.connect(audioCtx.destination);
+  g.gain.setValueAtTime(vol, t0);
+  g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+  o.start(t0);
+  o.stop(t0 + dur);
+}
+function sfxDrop() { beep(360, 0.10, 0.06, 'triangle'); beep(240, 0.14, 0.05, 'triangle', 0.08); }
+function sfxClick() { beep(520, 0.06, 0.05, 'triangle'); }
+function sfxBreak() {
+  beep(180, 0.14, 0.10, 'square');
+  beep(120, 0.18, 0.09, 'square', 0.10);
+  beep(80, 0.24, 0.08, 'square', 0.22);
+}
+function sfxWin() {
+  beep(523, 0.12, 0.09);
+  beep(659, 0.12, 0.09, 'sine', 0.10);
+  beep(784, 0.14, 0.09, 'sine', 0.20);
+  beep(1046, 0.28, 0.10, 'sine', 0.34);
+}
+
+/* ============================================================
+   物理与逻辑
+============================================================ */
+function getCapacity() {
+  return BRIDGE_INFO[bridge.type].capacity;
+}
+
+function update(dt) {
+  time += dt;
+
+  // 桥的下沉：总重量 / 承重上限
+  const totalWeight = stones.length;
+  const cap = getCapacity();
+  const weightRatio = totalWeight / cap;
+  bridge.sagTarget = weightRatio * BRIDGE_INFO[bridge.type].sagScale * S;
+
+  // 平滑过渡
+  bridge.sag += (bridge.sagTarget - bridge.sag) * Math.min(1, dt * 4);
+  bridge.shake *= Math.exp(-dt * 4);
+
+  // 判断断裂
+  if (!bridge.broken && totalWeight > cap) {
+    bridge.broken = true;
+    bridge.breakProgress = 0;
+    sfxBreak();
+    bridge.shake = 1;
+    bridge.lastBreakCount = totalWeight;
+
+    // 记录成绩
+    const survived = cap;
+    results.last = survived;
+    lastValEl.textContent = survived + ' 块';
+
+    const curBest = results.best[bridge.type];
+    if (curBest === null || survived > curBest) {
+      results.best[bridge.type] = survived;
+      sfxWin();
+      spawnSparks(W / 2, scene.bridgeY - 40 * S);
+    }
+    updateReadout();
+
+    // 断裂时让所有石头掉落
+    for (const s of stones) {
+      fallingStones.push({
+        x: s.x, y: s.y,
+        vx: (Math.random() - 0.5) * 200,
+        vy: -Math.random() * 200 - 100,
+        rot: s.rot,
+        rotSpeed: (Math.random() - 0.5) * 10,
+        size: s.size,
+        color: s.color,
+        life: 1
+      });
+    }
+    stones = [];
+
+    statusEl.textContent = '💥 桥断了！它撑到第 ' + survived + ' 块石头';
+    statusEl.style.color = '#ff6b6b';
+  }
+
+  // 断裂进度
+  if (bridge.broken) {
+    bridge.breakProgress = Math.min(1, bridge.breakProgress + dt * 2);
+  }
+
+  // 掉落的石头
+  for (const f of fallingStones) {
+    f.x += f.vx * dt;
+    f.y += f.vy * dt;
+    f.vy += 700 * dt;
+    f.rot += f.rotSpeed * dt;
+    f.life -= dt * 0.5;
+    if (f.y > H + 100) f.life = 0;
+  }
+  fallingStones = fallingStones.filter(f => f.life > 0);
+
+  // 云
+  for (const c of clouds) {
+    c.x += c.speed * dt;
+    if (c.x - 200 * S > W) {
+      c.x = -200 * S;
+      c.y = 40 * S + Math.random() * (scene.groundY * 0.3);
+    }
+  }
+
+  // 粒子
+  for (const s of sparks) {
+    s.x += s.vx * dt;
+    s.y += s.vy * dt;
+    s.vy += 260 * dt;
+    s.vx *= 0.96;
+    s.life -= dt * 1.3;
+  }
+  sparks = sparks.filter(s => s.life > 0);
+
+  for (const d of dust) {
+    d.x += d.vx * dt;
+    d.y += d.vy * dt;
+    d.vy += 60 * dt;
+    d.life -= dt * 1.4;
+    d.size *= 0.98;
+  }
+  dust = dust.filter(d => d.life > 0);
+
+  // 更新按钮
+  btnDrop.disabled = bridge.broken;
+  countValEl.textContent = stones.length;
+}
+
+/* ============================================================
+   丢石头
+============================================================ */
+function dropStone() {
+  if (bridge.broken) return;
+
+  initAudio();
+  sfxDrop();
+
+  const cap = getCapacity();
+  // 位置：随机偏向中间（中间受力最大，也更真实）
+  const t = 0.5 + (Math.random() - 0.5) * 0.6;
+  const leftX = scene.riverLeftX;
+  const rightX = scene.riverRightX;
+  const midX = leftX + (rightX - leftX) * t;
+  const sagOffset = getSagAt(t);
+
+  // 石头大小：越接近承重上限越大一点（视觉上更有说服力）
+  const ratio = stones.length / cap;
+  const size = (10 + Math.random() * 4 + ratio * 5) * S;
+
+  stones.push({
+    x: midX,
+    y: scene.bridgeY + sagOffset - size * 0.6,
+    t: t,
+    size: size,
+    rot: Math.random() * Math.PI * 2,
+    color: ['#8a92a0', '#6a7280', '#a8b0be', '#7a5a3a'][Math.floor(Math.random() * 4)]
+  });
+
+  // 抖动
+  bridge.shake = 0.6 + stones.length / cap * 0.4;
+
+  // 灰尘
+  spawnDust(midX, scene.bridgeY + sagOffset);
+
+  updateStatus();
+}
+
+function getSagAt(t) {
+  // 桥面下沉在中点最大，两端为 0
+  return Math.sin(Math.PI * t) * bridge.sag;
+}
+
+function spawnDust(x, y) {
+  for (let i = 0; i < 6; i++) {
+    dust.push({
+      x: x + (Math.random() - 0.5) * 20 * S,
+      y: y + (Math.random() - 0.5) * 8 * S,
+      vx: (Math.random() - 0.5) * 60,
+      vy: -Math.random() * 40,
+      size: (2 + Math.random() * 3) * S,
+      life: 1
+    });
+  }
+}
+
+function spawnSparks(x, y) {
+  for (let i = 0; i < 20; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const v = 80 + Math.random() * 160;
+    sparks.push({
+      x: x, y: y,
+      vx: Math.cos(a) * v,
+      vy: Math.sin(a) * v - 50,
+      life: 1,
+      size: 3 + Math.random() * 3,
+      color: ['#ffe066', '#fff7c4', '#7fdd6e'][i % 3]
+    });
+  }
+}
+
+function updateStatus() {
+  if (bridge.broken) return;
+  const cap = getCapacity();
+  const n = stones.length;
+  const name = BRIDGE_INFO[bridge.type].name;
+
+  if (n === 0) {
+    statusEl.textContent = '🌉 ' + name + '准备好了，丢一块石头试试';
+    statusEl.style.color = '#ffffff';
+  } else if (n < cap * 0.5) {
+    statusEl.textContent = '🌉 ' + name + '：稳稳的，还能放更多';
+    statusEl.style.color = '#7fdd6e';
+  } else if (n < cap) {
+    statusEl.textContent = '⚠️ ' + name + '：有点弯了，快撑不住了';
+    statusEl.style.color = '#ffd54f';
+  } else {
+    statusEl.textContent = '😰 ' + name + '：快到极限了……';
+    statusEl.style.color = '#ffb055';
+  }
+}
+
+function updateReadout() {
+  typeValEl.textContent = BRIDGE_INFO[bridge.type].name;
+  const best = results.best[bridge.type];
+  bestValEl.textContent = best === null ? '--' : best + ' 块';
+}
+
+/* ============================================================
+   绘制：天空与背景
+============================================================ */
+function drawSky() {
+  const g = ctx.createLinearGradient(0, 0, 0, scene.groundY);
+  g.addColorStop(0, '#6FBEE0');
+  g.addColorStop(0.6, '#A8DDF0');
+  g.addColorStop(1, '#DFF3E4');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, scene.groundY);
+}
+
+function drawSun() {
+  const sx = W * 0.86;
+  const sy = H * 0.13;
+  const r = 40 * S;
+
+  const glow = ctx.createRadialGradient(sx, sy, r * 0.5, sx, sy, r * 4);
+  glow.addColorStop(0, 'rgba(255, 245, 180, 0.7)');
+  glow.addColorStop(0.4, 'rgba(255, 240, 160, 0.22)');
+  glow.addColorStop(1, 'rgba(255, 240, 160, 0)');
+  ctx.fillStyle = glow;
+  ctx.beginPath();
+  ctx.arc(sx, sy, r * 4, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.arc(sx, sy, r, 0, Math.PI * 2);
+  ctx.fillStyle = '#FFF7C4';
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.arc(sx, sy, r * 0.82, 0, Math.PI * 2);
+  ctx.fillStyle = '#FFFCE0';
+  ctx.fill();
+}
+
+function drawClouds() {
+  for (const c of clouds) {
+    ctx.save();
+    ctx.translate(c.x, c.y);
+    ctx.scale(c.scale, c.scale);
+    ctx.beginPath();
+    for (const p of c.puffs) {
+      ctx.moveTo(p.dx + p.r, p.dy);
+      ctx.arc(p.dx, p.dy, p.r, 0, Math.PI * 2);
+    }
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+function drawHills() {
+  ctx.fillStyle = '#9FD8B0';
+  ctx.beginPath();
+  ctx.moveTo(0, scene.groundY);
+  for (let x = 0; x <= W; x += 16) {
+    const y = scene.groundY - 55 * S
+      - Math.sin(x * 0.004 + 1.5) * 42 * S
+      - Math.sin(x * 0.011 + 0.3) * 16 * S;
+    ctx.lineTo(x, y);
+  }
+  ctx.lineTo(W, scene.groundY);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = '#7BC98D';
+  ctx.beginPath();
+  ctx.moveTo(0, scene.groundY);
+  for (let x = 0; x <= W; x += 16) {
+    const y = scene.groundY - 28 * S
+      - Math.sin(x * 0.006 + 3.2) * 22 * S
+      - Math.sin(x * 0.015 + 1.1) * 10 * S;
+    ctx.lineTo(x, y);
+  }
+  ctx.lineTo(W, scene.groundY);
+  ctx.closePath();
+  ctx.fill();
+}
+
+/* ============================================================
+   绘制：河流
+============================================================ */
+function drawRiver() {
+  const leftX = scene.riverLeftX;
+  const rightX = scene.riverRightX;
+  const topY = scene.groundY;
+
+  // 河水
+  const g = ctx.createLinearGradient(0, topY, 0, H);
+  g.addColorStop(0, '#5EB3FF');
+  g.addColorStop(0.5, '#3A7FCC');
+  g.addColorStop(1, '#1E4A88');
+  ctx.fillStyle = g;
+  ctx.fillRect(leftX, topY, rightX - leftX, H - topY);
+
+  // 水波
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
+  ctx.lineWidth = 1.6 * S;
+  for (let i = 0; i < 4; i++) {
+    const y = topY + 20 * S + i * 28 * S;
+    ctx.beginPath();
+    for (let x = leftX; x <= rightX; x += 8) {
+      const offset = Math.sin(x * 0.05 + time * 1.5 + i * 1.2) * 3 * S;
+      if (x === leftX) ctx.moveTo(x, y + offset);
+      else ctx.lineTo(x, y + offset);
+    }
+    ctx.stroke();
+  }
+
+  // 岸边波浪线
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.55)';
+  ctx.lineWidth = 2 * S;
+  ctx.beginPath();
+  for (let x = leftX; x <= rightX; x += 8) {
+    const y = topY + Math.sin(x * 0.06 + time * 2) * 2.5 * S;
+    if (x === leftX) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+}
+
+/* ============================================================
+   绘制：两岸
+============================================================ */
+function drawBanks() {
+  const leftX = scene.riverLeftX;
+  const rightX = scene.riverRightX;
+  const topY = scene.groundY;
+
+  // 左岸
+  const leftGrad = ctx.createLinearGradient(0, topY, 0, H);
+  leftGrad.addColorStop(0, '#7BD17F');
+  leftGrad.addColorStop(0.4, '#5BB85F');
+  leftGrad.addColorStop(1, '#3A7A40');
+  ctx.fillStyle = leftGrad;
+  ctx.fillRect(0, topY, leftX, H - topY);
+
+  // 右岸
+  ctx.fillStyle = leftGrad;
+  ctx.fillRect(rightX, topY, W - rightX, H - topY);
+
+  // 岸边高光线
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
+  ctx.lineWidth = 2.5 * S;
+  ctx.beginPath();
+  ctx.moveTo(0, topY);
+  ctx.lineTo(leftX, topY);
+  ctx.moveTo(rightX, topY);
+  ctx.lineTo(W, topY);
+  ctx.stroke();
+
+  // 岸边阴影
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.12)';
+  ctx.fillRect(leftX - 12 * S, topY + 2 * S, 12 * S, H - topY);
+  ctx.fillRect(rightX, topY + 2 * S, 12 * S, H - topY);
+}
+
+/* ============================================================
+   绘制：桥
+============================================================ */
+function getBridgeCurve(t) {
+  // t 从 0 到 1，返回桥面在该处的 y
+  const leftX = scene.riverLeftX;
+  const rightX = scene.riverRightX;
+  const x = leftX + (rightX - leftX) * t;
+  const y = scene.bridgeY + Math.sin(Math.PI * t) * bridge.sag;
+  return { x: x, y: y };
+}
+
+function drawBridge() {
+  const type = bridge.type;
+  const info = BRIDGE_INFO[type];
+
+  // 抖动偏移
+  const shakeX = bridge.shake > 0.01 ? Math.sin(time * 60) * 3 * S * bridge.shake : 0;
+  const shakeY = bridge.shake > 0.01 ? Math.cos(time * 55) * 2 * S * bridge.shake : 0;
+
+  ctx.save();
+  ctx.translate(shakeX, shakeY);
+
+  if (type === 'flat') {
+    drawFlatBridge(info);
+  } else if (type === 'arch') {
+    drawArchBridge(info);
+  } else if (type === 'truss') {
+    drawTrussBridge(info);
+  }
+
+  ctx.restore();
+}
+
+/* ---------- 平板桥 ---------- */
+function drawFlatBridge(info) {
+  const samples = 40;
+  const leftX = scene.riverLeftX;
+  const rightX = scene.riverRightX;
+
+  // 桥墩（左右各一个）
+  drawPillar(leftX, info);
+  drawPillar(rightX, info);
+
+  // 桥面（如果断裂，分两段画）
+  if (bridge.broken) {
+    const breakT = 0.5;
+    const breakPt = getBridgeCurve(breakT);
+
+    // 左半段
+    ctx.beginPath();
+    ctx.moveTo(leftX, getBridgeCurve(0).y);
+    for (let i = 0; i <= 20; i++) {
+      const t = i / 20 * breakT;
+      const p = getBridgeCurve(t);
+      ctx.lineTo(p.x, p.y);
+    }
+    // 断裂后下垂
+    const sagDrop = bridge.breakProgress * 100 * S;
+    ctx.lineTo(breakPt.x - 10 * S, breakPt.y + sagDrop);
+    ctx.strokeStyle = info.color;
+    ctx.lineWidth = info.barWidth * S;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+
+    // 右半段
+    ctx.beginPath();
+    ctx.moveTo(rightX, getBridgeCurve(1).y);
+    for (let i = 0; i <= 20; i++) {
+      const t = 1 - i / 20 * (1 - breakT);
+      const p = getBridgeCurve(t);
+      ctx.lineTo(p.x, p.y);
+    }
+    ctx.lineTo(breakPt.x + 10 * S, breakPt.y + sagDrop);
+    ctx.stroke();
+
+    // 桥面的断口高亮
+    ctx.strokeStyle = 'rgba(255, 100, 100, 0.9)';
+    ctx.lineWidth = 2 * S;
+    ctx.beginPath();
+    ctx.moveTo(breakPt.x - 12 * S, breakPt.y);
+    ctx.lineTo(breakPt.x - 10 * S, breakPt.y + sagDrop);
+    ctx.moveTo(breakPt.x + 12 * S, breakPt.y);
+    ctx.lineTo(breakPt.x + 10 * S, breakPt.y + sagDrop);
+    ctx.stroke();
+  } else {
+    // 完整的桥面
+    ctx.beginPath();
+    for (let i = 0; i <= samples; i++) {
+      const t = i / samples;
+      const p = getBridgeCurve(t);
+      if (i === 0) ctx.moveTo(p.x, p.y);
+      else ctx.lineTo(p.x, p.y);
+    }
+    ctx.strokeStyle = info.color;
+    ctx.lineWidth = info.barWidth * S;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+
+    // 桥面高光
+    ctx.beginPath();
+    for (let i = 0; i <= samples; i++) {
+      const t = i / samples;
+      const p = getBridgeCurve(t);
+      if (i === 0) ctx.moveTo(p.x, p.y - 2 * S);
+      else ctx.lineTo(p.x, p.y - 2 * S);
+    }
+    ctx.strokeStyle = 'rgba(255, 220, 180, 0.5)';
+    ctx.lineWidth = 2 * S;
+    ctx.stroke();
+  }
+}
+
+function drawPillar(x, info) {
+  // 桥墩（从桥面下沿到地面）
+  const bridgeCurve = getBridgeCurve(0);
+  const topY = bridgeCurve.y - info.barWidth * 0.5 * S;
+  ctx.fillStyle = '#6a4a2a';
+  ctx.fillRect(x - 14 * S, topY, 28 * S, scene.groundY - topY + 20 * S);
+  ctx.strokeStyle = '#3a2410';
+  ctx.lineWidth = 1.5 * S;
+  ctx.strokeRect(x - 14 * S, topY, 28 * S, scene.groundY - topY + 20 * S);
+
+  // 桥墩纹理
+  ctx.strokeStyle = 'rgba(0, 0, 0, 0.3)';
+  ctx.lineWidth = 1 * S;
+  for (let i = 0; i < 3; i++) {
+    const yy = topY + 20 * S + i * 22 * S;
+    ctx.beginPath();
+    ctx.moveTo(x - 14 * S, yy);
+    ctx.lineTo(x + 14 * S, yy);
+    ctx.stroke();
+  }
+}
+
+/* ---------- 拱桥 ---------- */
+function drawArchBridge(info) {
+  const leftX = scene.riverLeftX;
+  const rightX = scene.riverRightX;
+
+  drawPillar(leftX, info);
+  drawPillar(rightX, info);
+
+  // 拱形支撑
+  const archTopY = scene.bridgeY + 60 * S;
+  const archHeight = 50 * S;
+
+  ctx.beginPath();
+  ctx.moveTo(leftX, scene.groundY);
+  ctx.quadraticCurveTo(
+    (leftX + rightX) / 2, scene.groundY - archHeight * 2,
+    rightX, scene.groundY
+  );
+  ctx.strokeStyle = '#a06840';
+  ctx.lineWidth = 10 * S;
+  ctx.lineCap = 'round';
+  ctx.stroke();
+
+  // 拱形的内部阴影
+  ctx.beginPath();
+  ctx.moveTo(leftX, scene.groundY);
+  ctx.quadraticCurveTo(
+    (leftX + rightX) / 2, scene.groundY - archHeight * 2,
+    rightX, scene.groundY
+  );
+  ctx.strokeStyle = 'rgba(255, 220, 180, 0.4)';
+  ctx.lineWidth = 3 * S;
+  ctx.stroke();
+
+  // 拱和桥面之间的支撑柱
+  for (let i = 1; i < 6; i++) {
+    const t = i / 6;
+    const x = leftX + (rightX - leftX) * t;
+    // 拱的 y（二次贝塞尔）
+    const archY = (1 - t) * (1 - t) * scene.groundY
+      + 2 * (1 - t) * t * (scene.groundY - archHeight * 2)
+      + t * t * scene.groundY;
+    const bridgeCurve = getBridgeCurve(t);
+    ctx.beginPath();
+    ctx.moveTo(x, archY);
+    ctx.lineTo(x, bridgeCurve.y);
+    ctx.strokeStyle = 'rgba(160, 104, 64, 0.7)';
+    ctx.lineWidth = 2.5 * S;
+    ctx.stroke();
+  }
+
+  // 桥面（平板一样）
+  drawFlatBridgeTop(info);
+}
+
+/* ---------- 桁架桥 ---------- */
+function drawTrussBridge(info) {
+  const leftX = scene.riverLeftX;
+  const rightX = scene.riverRightX;
+
+  drawPillar(leftX, info);
+  drawPillar(rightX, info);
+
+  const trussHeight = 60 * S;
+
+  // 上方三角形骨架
+  const panels = 6;
+  const panelW = (rightX - leftX) / panels;
+
+  // 下弦杆（桥面下方加一条平行线，增强立体感）
+  ctx.beginPath();
+  for (let i = 0; i <= 40; i++) {
+    const t = i / 40;
+    const p = getBridgeCurve(t);
+    if (i === 0) ctx.moveTo(p.x, p.y + 8 * S);
+    else ctx.lineTo(p.x, p.y + 8 * S);
+  }
+  ctx.strokeStyle = '#5a6a7a';
+  ctx.lineWidth = 4 * S;
+  ctx.stroke();
+
+  // 三角形骨架
+  for (let i = 0; i < panels; i++) {
+    const t0 = i / panels;
+    const t1 = (i + 1) / panels;
+    const p0 = getBridgeCurve(t0);
+    const p1 = getBridgeCurve(t1);
+    const pMid = getBridgeCurve((t0 + t1) / 2);
+
+    const topY = Math.min(p0.y, p1.y) - trussHeight;
+
+    // 上弦杆
+    ctx.beginPath();
+    ctx.moveTo(p0.x, topY);
+    ctx.lineTo(p1.x, topY);
+    ctx.strokeStyle = info.color;
+    ctx.lineWidth = 5 * S;
+    ctx.stroke();
+
+    // 竖杆
+    ctx.beginPath();
+    ctx.moveTo(p0.x, topY);
+    ctx.lineTo(p0.x, p0.y);
+    ctx.moveTo(p1.x, topY);
+    ctx.lineTo(p1.x, p1.y);
+    ctx.strokeStyle = info.color;
+    ctx.lineWidth = 3.5 * S;
+    ctx.stroke();
+
+    // 斜杆（形成三角形）
+    ctx.beginPath();
+    ctx.moveTo(p0.x, topY);
+    ctx.lineTo(p1.x, p1.y);
+    ctx.strokeStyle = 'rgba(136, 153, 170, 0.85)';
+    ctx.lineWidth = 2.5 * S;
+    ctx.stroke();
+  }
+
+  // 桥面
+  drawFlatBridgeTop(info);
+
+  // 桥面高亮
+  ctx.beginPath();
+  for (let i = 0; i <= 40; i++) {
+    const t = i / 40;
+    const p = getBridgeCurve(t);
+    if (i === 0) ctx.moveTo(p.x, p.y - 2 * S);
+    else ctx.lineTo(p.x, p.y - 2 * S);
+  }
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+  ctx.lineWidth = 1.8 * S;
+  ctx.stroke();
+}
+
+function drawFlatBridgeTop(info) {
+  if (bridge.broken) {
+    const breakPt = getBridgeCurve(0.5);
+    const sagDrop = bridge.breakProgress * 100 * S;
+
+    ctx.beginPath();
+    ctx.moveTo(scene.riverLeftX, getBridgeCurve(0).y);
+    for (let i = 0; i <= 20; i++) {
+      const t = i / 20 * 0.5;
+      const p = getBridgeCurve(t);
+      ctx.lineTo(p.x, p.y);
+    }
+    ctx.lineTo(breakPt.x - 10 * S, breakPt.y + sagDrop);
+    ctx.strokeStyle = info.color;
+    ctx.lineWidth = info.barWidth * S;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(scene.riverRightX, getBridgeCurve(1).y);
+    for (let i = 0; i <= 20; i++) {
+      const t = 1 - i / 20 * 0.5;
+      const p = getBridgeCurve(t);
+      ctx.lineTo(p.x, p.y);
+    }
+    ctx.lineTo(breakPt.x + 10 * S, breakPt.y + sagDrop);
+    ctx.stroke();
+  } else {
+    ctx.beginPath();
+    for (let i = 0; i <= 40; i++) {
+      const t = i / 40;
+      const p = getBridgeCurve(t);
+      if (i === 0) ctx.moveTo(p.x, p.y);
+      else ctx.lineTo(p.x, p.y);
+    }
+    ctx.strokeStyle = info.color;
+    ctx.lineWidth = info.barWidth * S;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+  }
+}
+
+/* ============================================================
+   绘制：石头
+============================================================ */
+function drawStones() {
+  for (const s of stones) {
+    const sag = getSagAt(s.t);
+    const y = scene.bridgeY + sag - s.size * 0.6;
+
+    ctx.save();
+    ctx.translate(s.x, y);
+    ctx.rotate(s.rot);
+
+    // 石头主体
+    const g = ctx.createRadialGradient(-s.size * 0.3, -s.size * 0.3, s.size * 0.1, 0, 0, s.size);
+    g.addColorStop(0, '#b8c0cc');
+    g.addColorStop(0.6, s.color);
+    g.addColorStop(1, 'rgba(0, 0, 0, 0.5)');
+
+    ctx.beginPath();
+    // 不规则的多边形石头
+    const n = 7;
+    for (let i = 0; i < n; i++) {
+      const a = (Math.PI * 2 / n) * i;
+      const rr = s.size * (0.85 + Math.sin(i * 2.3) * 0.15);
+      const x = Math.cos(a) * rr;
+      const y = Math.sin(a) * rr;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.fillStyle = g;
+    ctx.fill();
+
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.4)';
+    ctx.lineWidth = 1.2 * S;
+    ctx.stroke();
+
+    // 高光
+    ctx.beginPath();
+    ctx.arc(-s.size * 0.3, -s.size * 0.3, s.size * 0.2, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+    ctx.fill();
+
+    ctx.restore();
+  }
+}
+
+function drawFallingStones() {
+  for (const f of fallingStones) {
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, f.life * 1.5);
+    ctx.translate(f.x, f.y);
+    ctx.rotate(f.rot);
+
+    const g = ctx.createRadialGradient(-f.size * 0.3, -f.size * 0.3, f.size * 0.1, 0, 0, f.size);
+    g.addColorStop(0, '#b8c0cc');
+    g.addColorStop(0.6, f.color);
+    g.addColorStop(1, 'rgba(0, 0, 0, 0.5)');
+
+    ctx.beginPath();
+    const n = 7;
+    for (let i = 0; i < n; i++) {
+      const a = (Math.PI * 2 / n) * i;
+      const rr = f.size * (0.85 + Math.sin(i * 2.3) * 0.15);
+      const x = Math.cos(a) * rr;
+      const y = Math.sin(a) * rr;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.fillStyle = g;
+    ctx.fill();
+
+    ctx.restore();
+  }
+}
+
+/* ============================================================
+   绘制：粒子
+============================================================ */
+function drawDust() {
+  for (const d of dust) {
+    ctx.save();
+    ctx.globalAlpha = d.life * 0.5;
+    ctx.beginPath();
+    ctx.arc(d.x, d.y, d.size, 0, Math.PI * 2);
+    ctx.fillStyle = '#c8b890';
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+function drawSparks() {
+  for (const s of sparks) {
+    ctx.save();
+    ctx.globalAlpha = s.life;
+    ctx.translate(s.x, s.y);
+    drawStar(0, 0, s.size, s.size * 0.42, 5);
+    ctx.fillStyle = s.color;
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+function drawStar(cx, cy, outer, inner, points) {
+  ctx.beginPath();
+  for (let i = 0; i < points * 2; i++) {
+    const r = i % 2 === 0 ? outer : inner;
+    const a = (Math.PI / points) * i - Math.PI / 2;
+    const x = cx + Math.cos(a) * r;
+    const y = cy + Math.sin(a) * r;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+}
+
+/* ============================================================
+   绘制：承重指示条
+============================================================ */
+function drawCapacityBar() {
+  const cap = getCapacity();
+  const n = stones.length;
+  const ratio = Math.min(1, n / cap);
+
+  const barW = 220 * S;
+  const barH = 12 * S;
+  const bx = W / 2 - barW / 2;
+  const by = 78 * S;
+
+  // 底
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+  roundRect(bx, by, barW, barH, barH / 2);
+  ctx.fill();
+
+  // 填充
+  if (n > 0) {
+    const g = ctx.createLinearGradient(bx, 0, bx + barW, 0);
+    if (ratio < 0.6) {
+      g.addColorStop(0, '#7fdd6e');
+      g.addColorStop(1, '#5eb3ff');
+    } else if (ratio < 0.9) {
+      g.addColorStop(0, '#ffd54f');
+      g.addColorStop(1, '#ffb055');
+    } else {
+      g.addColorStop(0, '#ff6b6b');
+      g.addColorStop(1, '#c43030');
+    }
+    ctx.fillStyle = g;
+    roundRect(bx, by, barW * ratio, barH, barH / 2);
+    ctx.fill();
+  }
+
+  // 边框
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
+  ctx.lineWidth = 1.4 * S;
+  roundRect(bx, by, barW, barH, barH / 2);
+  ctx.stroke();
+}
+
+function roundRect(x, y, w, h, r) {
+  const rr = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.lineTo(x + w - rr, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+  ctx.lineTo(x + w, y + h - rr);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+  ctx.lineTo(x + rr, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+  ctx.lineTo(x, y + rr);
+  ctx.quadraticCurveTo(x, y, x + rr, y);
+  ctx.closePath();
+}
+
+/* ============================================================
+   渲染
+============================================================ */
+function render() {
+  ctx.clearRect(0, 0, W, H);
+
+  drawSky();
+  drawSun();
+  drawClouds();
+  drawHills();
+  drawRiver();
+  drawBanks();
+  drawBridge();
+  drawStones();
+  drawFallingStones();
+  drawDust();
+  drawSparks();
+  drawCapacityBar();
+}
+
+/* ============================================================
+   交互与按钮
+============================================================ */
+btnDrop.addEventListener('click', function () {
+  dropStone();
+});
+
+btnReset.addEventListener('click', function () {
+  initAudio();
+  sfxClick();
+
+  stones = [];
+  fallingStones = [];
+  sparks = [];
+  dust = [];
+  bridge.sag = 0;
+  bridge.sagTarget = 0;
+  bridge.broken = false;
+  bridge.breakProgress = 0;
+  bridge.shake = 0;
+
+  updateReadout();
+  statusEl.textContent = '🌉 ' + BRIDGE_INFO[bridge.type].name + '准备好了，丢一块石头试试';
+  statusEl.style.color = '#ffffff';
+  countValEl.textContent = '0';
+  lastValEl.textContent = results.last === null ? '--' : results.last + ' 块';
+  btnDrop.disabled = false;
+});
+
+bridgeBtns.forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    initAudio();
+    sfxClick();
+
+    bridgeBtns.forEach(function (b) { b.classList.remove('active'); });
+    btn.classList.add('active');
+
+    bridge.type = btn.dataset.type;
+    bridge.sag = 0;
+    bridge.sagTarget = 0;
+    bridge.broken = false;
+    bridge.breakProgress = 0;
+    bridge.shake = 0;
+    stones = [];
+    fallingStones = [];
+    sparks = [];
+    dust = [];
+
+    updateReadout();
+    countValEl.textContent = '0';
+    statusEl.textContent = '🌉 ' + BRIDGE_INFO[bridge.type].name + '准备好了，丢一块石头试试';
+    statusEl.style.color = '#ffffff';
+    lastValEl.textContent = '--';
+    btnDrop.disabled = false;
+  });
+});
+
+canvas.addEventListener('dblclick', function (e) { e.preventDefault(); });
+
+/* ============================================================
+   启动
+============================================================ */
+resize();
+updateReadout();
+updateStatus();
+
+window.addEventListener('resize', function () {
+  resize();
+  render();
+});
+
+if (window.ResizeObserver) {
+  new ResizeObserver(function () {
+    const cw = canvas.clientWidth;
+    const ch = canvas.clientHeight;
+    if (cw > 0 && ch > 0 && (Math.abs(cw - W) > 1 || Math.abs(ch - H) > 1)) {
+      resize();
+      render();
+    }
+  }).observe(canvas);
+}
+
+render();
+requestAnimationFrame(function () {
+  resize();
+  render();
+});
+
+gsap.ticker.add(function (t, deltaTime) {
+  const dt = Math.min(deltaTime || 16, 50) / 1000;
+  update(dt);
+  render();
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,819 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>光的颜色实验室 —— 红绿蓝能混出什么颜色</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    height: 100%; width: 100%; overflow: hidden; background: #05060a;
+    touch-action: none;
+    font-family: system-ui, -apple-system, sans-serif;
+    color: #fff;
+  }
+  canvas { display: block; position: absolute; inset: 0; }
+
+  .status {
+    position: fixed;
+    top: 18px; left: 50%;
+    transform: translateX(-50%);
+    padding: 12px 26px;
+    background: rgba(16, 22, 38, 0.85);
+    border-radius: 30px;
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    font-size: 15px; font-weight: 700;
+    z-index: 10; white-space: nowrap; max-width: 92vw;
+    text-align: center; transition: all 0.3s;
+  }
+
+  .readout {
+    position: fixed;
+    top: 18px; right: 18px;
+    padding: 14px 18px;
+    background: rgba(16, 22, 38, 0.88);
+    border-radius: 16px;
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    font-size: 13px; z-index: 10;
+    line-height: 1.9; min-width: 170px;
+  }
+  .readout .row {
+    display: flex; justify-content: space-between; gap: 12px;
+  }
+  .readout .lbl { color: #8898b0; }
+  .readout .num {
+    font-weight: 800; font-variant-numeric: tabular-nums;
+  }
+  .readout .num.r { color: #ff7070; }
+  .readout .num.g { color: #70ff70; }
+  .readout .num.b { color: #70a8ff; }
+  .readout .divider {
+    margin: 6px 0; border-top: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  .readout .color-name {
+    font-size: 17px; font-weight: 800; color: #ffd54f;
+    text-align: center;
+  }
+  .readout .swatch {
+    width: 100%; height: 32px;
+    border-radius: 8px; margin-top: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: #000;
+    transition: background 0.15s;
+  }
+
+  .panel {
+    position: fixed;
+    bottom: 16px; left: 50%;
+    transform: translateX(-50%);
+    width: min(680px, 94vw);
+    background: rgba(16, 22, 38, 0.92);
+    padding: 14px 22px;
+    border-radius: 18px;
+    backdrop-filter: blur(14px);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    z-index: 10;
+    display: flex; flex-direction: column; gap: 10px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  }
+  .panel .row {
+    display: grid;
+    grid-template-columns: 60px 1fr 46px;
+    align-items: center; gap: 12px; font-size: 13px;
+  }
+  .panel .lbl {
+    font-weight: 800; font-size: 14px; white-space: nowrap;
+  }
+  .panel .lbl.r { color: #ff7070; }
+  .panel .lbl.g { color: #70ff70; }
+  .panel .lbl.b { color: #70a8ff; }
+  .panel input[type="range"] {
+    width: 100%; height: 6px; cursor: pointer;
+    -webkit-appearance: none; appearance: none;
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 3px;
+    outline: none;
+  }
+  .panel input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    background: #fff;
+    cursor: grab;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  }
+  .panel input#r::-webkit-slider-thumb { border: 3px solid #ff4040; }
+  .panel input#g::-webkit-slider-thumb { border: 3px solid #40ff40; }
+  .panel input#b::-webkit-slider-thumb { border: 3px solid #4080ff; }
+  .panel input[type="range"]::-moz-range-thumb {
+    width: 20px; height: 20px; border-radius: 50%;
+    background: #fff; cursor: grab;
+  }
+  .panel .val {
+    text-align: right; font-weight: 800; font-size: 14px;
+    font-variant-numeric: tabular-nums;
+  }
+  .panel .val.r { color: #ff7070; }
+  .panel .val.g { color: #70ff70; }
+  .panel .val.b { color: #70a8ff; }
+
+  .panel .presets {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 6px;
+    margin-top: 4px;
+  }
+  .panel .preset-btn {
+    padding: 8px 4px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    background: rgba(255, 255, 255, 0.06);
+    color: #fff;
+    font-weight: 800; font-size: 12px;
+    cursor: pointer; transition: all 0.15s;
+    text-align: center; white-space: nowrap;
+  }
+  .panel .preset-btn:hover {
+    background: rgba(255, 255, 255, 0.15);
+  }
+  .panel .preset-btn:active {
+    transform: translateY(1px);
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div class="status" id="status">💡 拖动红、绿、蓝三盏灯，看看能混出什么颜色</div>
+
+<div class="readout">
+  <div class="row"><span class="lbl">R</span><span class="num r" id="rVal">0</span></div>
+  <div class="row"><span class="lbl">G</span><span class="num g" id="gVal">0</span></div>
+  <div class="row"><span class="lbl">B</span><span class="num b" id="bVal">0</span></div>
+  <div class="divider"></div>
+  <div class="color-name" id="colorName">黑色</div>
+  <div class="swatch" id="swatch"></div>
+</div>
+
+<div class="panel">
+  <div class="row">
+    <span class="lbl r">🔴 红光</span>
+    <input type="range" id="r" min="0" max="100" value="0">
+    <span class="val r" id="rSliderVal">0</span>
+  </div>
+  <div class="row">
+    <span class="lbl g">🟢 绿光</span>
+    <input type="range" id="g" min="0" max="100" value="0">
+    <span class="val g" id="gSliderVal">0</span>
+  </div>
+  <div class="row">
+    <span class="lbl b">🔵 蓝光</span>
+    <input type="range" id="b" min="0" max="100" value="0">
+    <span class="val b" id="bSliderVal">0</span>
+  </div>
+  <div class="presets">
+    <button class="preset-btn" data-r="100" data-g="0" data-b="0" style="border-color:rgba(255,80,80,0.5)">红</button>
+    <button class="preset-btn" data-r="0" data-g="100" data-b="0" style="border-color:rgba(80,255,80,0.5)">绿</button>
+    <button class="preset-btn" data-r="0" data-g="0" data-b="100" style="border-color:rgba(80,160,255,0.5)">蓝</button>
+    <button class="preset-btn" data-r="100" data-g="100" data-b="0">黄</button>
+    <button class="preset-btn" data-r="0" data-g="100" data-b="100">青</button>
+    <button class="preset-btn" data-r="100" data-g="0" data-b="100">紫</button>
+    <button class="preset-btn" data-r="100" data-g="100" data-b="100">白</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+<script>
+/* ============================================================
+   光的颜色实验室 —— 红绿蓝能混出什么颜色
+   ------------------------------------------------------------
+   教材依据：
+   第五章第三节「光」—— 光的颜色
+   第六章「光影好朋友」—— 彩绘玻璃、颜色混合
+   第五章「天气」—— 彩虹
+   英国《发展至关重要》—— 探索光的颜色、混色
+
+   核心概念：
+   ① 红、绿、蓝是"光的三原色"
+   ② 三束光叠加在一起，会混合出新颜色（加法混色）
+   ③ 红 + 绿 = 黄；绿 + 蓝 = 青；红 + 蓝 = 紫红
+   ④ 红 + 绿 + 蓝 = 白
+   ⑤ 关掉所有灯 = 黑（没有光就没有颜色）
+   ⑥ 这和颜料混色不同（颜料是三原色红黄蓝，越混越暗）
+   ============================================================ */
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+const statusEl = document.getElementById('status');
+const rSlider = document.getElementById('r');
+const gSlider = document.getElementById('g');
+const bSlider = document.getElementById('b');
+const rSliderVal = document.getElementById('rSliderVal');
+const gSliderVal = document.getElementById('gSliderVal');
+const bSliderVal = document.getElementById('bSliderVal');
+const rValEl = document.getElementById('rVal');
+const gValEl = document.getElementById('gVal');
+const bValEl = document.getElementById('bVal');
+const colorNameEl = document.getElementById('colorName');
+const swatchEl = document.getElementById('swatch');
+const presetBtns = document.querySelectorAll('.preset-btn');
+
+let W = 800, H = 600, DPR = 1, S = 1;
+let time = 0;
+
+/* ---------- 状态 ---------- */
+const state = {
+  r: 0,      // 0 ~ 1
+  g: 0,
+  b: 0,
+  // 平滑显示的强度（做过渡动画用）
+  rSmooth: 0,
+  gSmooth: 0,
+  bSmooth: 0
+};
+
+/* ---------- 场景 ---------- */
+const scene = {
+  screen: { x: 0, y: 0, w: 0, h: 0 },
+  lights: []
+};
+
+/* ============================================================
+   尺寸
+============================================================ */
+function resize() {
+  let w = window.innerWidth || document.documentElement.clientWidth || 800;
+  let h = window.innerHeight || document.documentElement.clientHeight || 600;
+  if (w < 200) w = 800;
+  if (h < 200) h = 600;
+
+  W = w;
+  H = h;
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+
+  canvas.width = Math.floor(W * DPR);
+  canvas.height = Math.floor(H * DPR);
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+  S = Math.max(0.55, Math.min(1.15, H / 800));
+
+  layoutScene();
+}
+
+function layoutScene() {
+  // 屏幕（中央）
+  scene.screen.w = Math.min(W * 0.52, 460 * S);
+  scene.screen.h = Math.min(H * 0.48, 340 * S);
+  scene.screen.x = W * 0.5 - scene.screen.w / 2;
+  scene.screen.y = H * 0.42 - scene.screen.h / 2;
+
+  const sc = scene.screen;
+  const scx = sc.x + sc.w / 2;
+  const scy = sc.y + sc.h / 2;
+
+  // 三盏灯的位置：红在左上，绿在右上，蓝在正下方
+  scene.lights = [
+    {
+      id: 'r',
+      color: [255, 60, 60],
+      x: sc.x - 60 * S,
+      y: sc.y - 50 * S,
+      targetX: scx - sc.w * 0.12,
+      targetY: scy + sc.h * 0.05,
+      glowR: sc.w * 0.85
+    },
+    {
+      id: 'g',
+      color: [60, 255, 80],
+      x: sc.x + sc.w + 60 * S,
+      y: sc.y - 50 * S,
+      targetX: scx + sc.w * 0.12,
+      targetY: scy + sc.h * 0.05,
+      glowR: sc.w * 0.85
+    },
+    {
+      id: 'b',
+      color: [70, 140, 255],
+      x: scx,
+      y: sc.y + sc.h + 90 * S,
+      targetX: scx,
+      targetY: scy + sc.h * 0.15,
+      glowR: sc.w * 0.85
+    }
+  ];
+}
+
+/* ============================================================
+   音效
+============================================================ */
+let audioCtx = null;
+function initAudio() {
+  if (!audioCtx) {
+    try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
+  }
+}
+function beep(freq, dur, vol, type, delay) {
+  vol = vol == null ? 0.06 : vol;
+  type = type || 'sine';
+  delay = delay || 0;
+  if (!audioCtx) return;
+  const t0 = audioCtx.currentTime + delay;
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(freq, t0);
+  o.connect(g);
+  g.connect(audioCtx.destination);
+  g.gain.setValueAtTime(vol, t0);
+  g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+  o.start(t0);
+  o.stop(t0 + dur);
+}
+function sfxClick() { beep(520, 0.06, 0.05, 'triangle'); }
+
+/* ============================================================
+   颜色名称判断
+============================================================ */
+function getColorName(r, g, b) {
+  // r, g, b 都是 0~255
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const sum = r + g + b;
+
+  // 全黑
+  if (max < 30) return '黑色（没有光）';
+  // 全白（三个都很接近且都很亮）
+  if (max - min < 30 && max > 200) return '白色';
+  // 灰色
+  if (max - min < 40 && max > 40 && max < 220) return '灰色';
+
+  // 判断主色
+  const rBig = r > 100;
+  const gBig = g > 100;
+  const bBig = b > 100;
+
+  if (rBig && gBig && bBig) return '接近白色';
+  if (rBig && gBig) {
+    if (r > g + 40) return '橙色';
+    if (g > r + 40) return '黄绿色';
+    return '黄色';
+  }
+  if (gBig && bBig) {
+    if (g > b + 40) return '青绿色';
+    if (b > g + 40) return '天蓝色';
+    return '青色';
+  }
+  if (rBig && bBig) {
+    if (r > b + 40) return '粉红色';
+    if (b > r + 40) return '蓝紫色';
+    return '紫红色';
+  }
+  if (rBig) return r > 200 ? '红色' : '暗红色';
+  if (gBig) return g > 200 ? '绿色' : '暗绿色';
+  if (bBig) return b > 200 ? '蓝色' : '暗蓝色';
+
+  return '暗色';
+}
+
+/* ============================================================
+   更新
+============================================================ */
+function update(dt) {
+  time += dt;
+
+  // 平滑
+  state.rSmooth += (state.r - state.rSmooth) * Math.min(1, dt * 8);
+  state.gSmooth += (state.g - state.gSmooth) * Math.min(1, dt * 8);
+  state.bSmooth += (state.b - state.bSmooth) * Math.min(1, dt * 8);
+
+  updateUI();
+}
+
+function updateUI() {
+  const r = Math.round(state.r * 255);
+  const g = Math.round(state.g * 255);
+  const b = Math.round(state.b * 255);
+
+  rValEl.textContent = r;
+  gValEl.textContent = g;
+  bValEl.textContent = b;
+
+  const name = getColorName(r, g, b);
+  colorNameEl.textContent = name;
+
+  // 色块显示
+  swatchEl.style.background = 'rgb(' + r + ',' + g + ',' + b + ')';
+
+  // 状态提示
+  if (state.r < 0.05 && state.g < 0.05 && state.b < 0.05) {
+    statusEl.textContent = '🌑 三盏灯都关着，屏幕一片漆黑';
+    statusEl.style.color = '#8898b0';
+  } else if (state.r > 0.9 && state.g > 0.9 && state.b > 0.9) {
+    statusEl.textContent = '⚪ 红 + 绿 + 蓝 = 白！三种光全开就是白光';
+    statusEl.style.color = '#ffffff';
+  } else if (state.r > 0.8 && state.g > 0.8 && state.b < 0.2) {
+    statusEl.textContent = '🟡 红 + 绿 = 黄！两种光混出了新颜色';
+    statusEl.style.color = '#ffe066';
+  } else if (state.g > 0.8 && state.b > 0.8 && state.r < 0.2) {
+    statusEl.textContent = '🩵 绿 + 蓝 = 青！';
+    statusEl.style.color = '#7fffea';
+  } else if (state.r > 0.8 && state.b > 0.8 && state.g < 0.2) {
+    statusEl.textContent = '💜 红 + 蓝 = 紫红！';
+    statusEl.style.color = '#ff8fe0';
+  } else if (state.r > 0.8 && state.g < 0.2 && state.b < 0.2) {
+    statusEl.textContent = '🔴 只有红光，屏幕是红色';
+    statusEl.style.color = '#ff7070';
+  } else if (state.g > 0.8 && state.r < 0.2 && state.b < 0.2) {
+    statusEl.textContent = '🟢 只有绿光，屏幕是绿色';
+    statusEl.style.color = '#70ff70';
+  } else if (state.b > 0.8 && state.r < 0.2 && state.g < 0.2) {
+    statusEl.textContent = '🔵 只有蓝光，屏幕是蓝色';
+    statusEl.style.color = '#70a8ff';
+  } else {
+    statusEl.textContent = '💡 试着调一调三盏灯的强度，看看颜色怎么变';
+    statusEl.style.color = '#ffffff';
+  }
+}
+
+/* ============================================================
+   绘制：背景
+============================================================ */
+function drawBackground() {
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#0a0e1a');
+  g.addColorStop(0.5, '#050710');
+  g.addColorStop(1, '#020308');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+}
+
+/* ============================================================
+   绘制：屏幕（含混合色）
+============================================================ */
+function drawScreen() {
+  const sc = scene.screen;
+
+  // 屏幕外框阴影
+  ctx.save();
+  ctx.shadowBlur = 40 * S;
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
+  ctx.fillStyle = '#000';
+  ctx.beginPath();
+  roundRect(sc.x, sc.y, sc.w, sc.h, 12 * S);
+  ctx.fill();
+  ctx.restore();
+
+  // 屏幕里的混色
+  ctx.save();
+  ctx.beginPath();
+  roundRect(sc.x, sc.y, sc.w, sc.h, 12 * S);
+  ctx.clip();
+
+  // 底色（纯黑）
+  ctx.fillStyle = '#000';
+  ctx.fillRect(sc.x, sc.y, sc.w, sc.h);
+
+  // 三束光斑叠加（关键：lighter 模式让颜色相加）
+  ctx.globalCompositeOperation = 'lighter';
+
+  const lights = scene.lights;
+  const smoothList = [state.rSmooth, state.gSmooth, state.bSmooth];
+
+  for (let i = 0; i < lights.length; i++) {
+    const light = lights[i];
+    const intensity = smoothList[i];
+    if (intensity < 0.005) continue;
+
+    const [cr, cg, cb] = light.color;
+    const grad = ctx.createRadialGradient(
+      light.targetX, light.targetY, 0,
+      light.targetX, light.targetY, light.glowR
+    );
+    grad.addColorStop(0, 'rgba(' + cr + ',' + cg + ',' + cb + ',' + intensity + ')');
+    grad.addColorStop(0.55, 'rgba(' + cr + ',' + cg + ',' + cb + ',' + (intensity * 0.65) + ')');
+    grad.addColorStop(1, 'rgba(' + cr + ',' + cg + ',' + cb + ',0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(sc.x, sc.y, sc.w, sc.h);
+  }
+
+  ctx.restore();
+
+  // 屏幕边框
+  ctx.beginPath();
+  roundRect(sc.x, sc.y, sc.w, sc.h, 12 * S);
+  ctx.strokeStyle = 'rgba(160, 180, 220, 0.35)';
+  ctx.lineWidth = 2.5 * S;
+  ctx.stroke();
+
+  // 边框内高光
+  ctx.beginPath();
+  roundRect(sc.x + 2 * S, sc.y + 2 * S, sc.w - 4 * S, sc.h - 4 * S, 10 * S);
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+  ctx.lineWidth = 1 * S;
+  ctx.stroke();
+
+  // 屏幕标题
+  ctx.font = 'bold ' + Math.round(11 * S) + 'px system-ui, sans-serif';
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillText('白 屏', sc.x + sc.w / 2, sc.y + 8 * S);
+}
+
+/* ============================================================
+   绘制：三盏灯
+============================================================ */
+function drawLights() {
+  const sc = scene.screen;
+  const lights = scene.lights;
+  const smoothList = [state.rSmooth, state.gSmooth, state.bSmooth];
+
+  for (let i = 0; i < lights.length; i++) {
+    const light = lights[i];
+    const intensity = smoothList[i];
+    const [cr, cg, cb] = light.color;
+
+    // ---- 光束（从灯到屏幕中心的锥形光） ----
+    if (intensity > 0.005) {
+      const scx = sc.x + sc.w / 2;
+      const scy = sc.y + sc.h / 2;
+
+      // 用一对切线做锥形光束
+      const dx = scx - light.x;
+      const dy = scy - light.y;
+      const dist = Math.hypot(dx, dy);
+      const perpX = -dy / dist;
+      const perpY = dx / dist;
+      const beamW = sc.w * 0.42;
+
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+
+      const beamGrad = ctx.createLinearGradient(light.x, light.y, scx, scy);
+      beamGrad.addColorStop(0, 'rgba(' + cr + ',' + cg + ',' + cb + ',' + (intensity * 0.18) + ')');
+      beamGrad.addColorStop(0.5, 'rgba(' + cr + ',' + cg + ',' + cb + ',' + (intensity * 0.10) + ')');
+      beamGrad.addColorStop(1, 'rgba(' + cr + ',' + cg + ',' + cb + ',0)');
+
+      ctx.beginPath();
+      ctx.moveTo(light.x + perpX * 8 * S, light.y + perpY * 8 * S);
+      ctx.lineTo(light.x - perpX * 8 * S, light.y - perpY * 8 * S);
+      ctx.lineTo(scx - perpX * beamW, scy - perpY * beamW);
+      ctx.lineTo(scx + perpX * beamW, scy + perpY * beamW);
+      ctx.closePath();
+      ctx.fillStyle = beamGrad;
+      ctx.fill();
+
+      ctx.restore();
+    }
+
+    // ---- 灯光晕 ----
+    if (intensity > 0.02) {
+      const glowR = (60 + intensity * 60) * S;
+      const gg = ctx.createRadialGradient(light.x, light.y, 0, light.x, light.y, glowR);
+      gg.addColorStop(0, 'rgba(' + cr + ',' + cg + ',' + cb + ',' + (intensity * 0.55) + ')');
+      gg.addColorStop(0.5, 'rgba(' + cr + ',' + cg + ',' + cb + ',' + (intensity * 0.2) + ')');
+      gg.addColorStop(1, 'rgba(' + cr + ',' + cg + ',' + cb + ',0)');
+
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.fillStyle = gg;
+      ctx.beginPath();
+      ctx.arc(light.x, light.y, glowR, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // ---- 灯泡本体 ----
+    const bulbR = 18 * S;
+
+    // 灯泡阴影
+    ctx.beginPath();
+    ctx.arc(light.x, light.y + 3 * S, bulbR, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+    ctx.fill();
+
+    // 灯泡（有强度才亮）
+    const bulbGrad = ctx.createRadialGradient(
+      light.x - bulbR * 0.3, light.y - bulbR * 0.3, bulbR * 0.1,
+      light.x, light.y, bulbR
+    );
+    if (intensity > 0.05) {
+      bulbGrad.addColorStop(0, 'rgba(255, 255, 255, ' + (0.5 + intensity * 0.5) + ')');
+      bulbGrad.addColorStop(0.5, 'rgba(' + cr + ',' + cg + ',' + cb + ',' + (0.7 + intensity * 0.3) + ')');
+      bulbGrad.addColorStop(1, 'rgba(' + Math.round(cr * 0.5) + ',' + Math.round(cg * 0.5) + ',' + Math.round(cb * 0.5) + ',0.9)');
+    } else {
+      bulbGrad.addColorStop(0, 'rgba(120, 130, 150, 0.6)');
+      bulbGrad.addColorStop(1, 'rgba(50, 60, 80, 0.8)');
+    }
+    ctx.beginPath();
+    ctx.arc(light.x, light.y, bulbR, 0, Math.PI * 2);
+    ctx.fillStyle = bulbGrad;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+    ctx.lineWidth = 1.8 * S;
+    ctx.stroke();
+
+    // 灯泡高光
+    if (intensity > 0.05) {
+      ctx.beginPath();
+      ctx.arc(light.x - bulbR * 0.3, light.y - bulbR * 0.3, bulbR * 0.28, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255, 255, 255, ' + (0.5 + intensity * 0.5) + ')';
+      ctx.fill();
+    }
+
+    // 灯座（小圆点）
+    ctx.beginPath();
+    ctx.arc(light.x, light.y + bulbR * 1.3, 3 * S, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(80, 90, 110, 0.8)';
+    ctx.fill();
+
+    // 灯标签
+    const label = light.id === 'r' ? '红' : (light.id === 'g' ? '绿' : '蓝');
+    ctx.font = 'bold ' + Math.round(12 * S) + 'px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const labelY = light.id === 'b' ? light.y + bulbR + 22 * S : light.y - bulbR - 22 * S;
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+    roundRect(light.x - 18 * S, labelY - 10 * S, 36 * S, 20 * S, 10 * S);
+    ctx.fill();
+    ctx.fillStyle = 'rgb(' + cr + ',' + cg + ',' + cb + ')';
+    ctx.fillText(label, light.x, labelY + 1);
+  }
+}
+
+/* ============================================================
+   绘制：小彩虹装饰（左下角）
+============================================================ */
+function drawMiniRainbow() {
+  const cx = 90 * S;
+  const cy = H - 90 * S;
+  const r = 60 * S;
+
+  // 云朵
+  ctx.save();
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
+  ctx.beginPath();
+  ctx.arc(cx - 40 * S, cy, 18 * S, 0, Math.PI * 2);
+  ctx.arc(cx - 20 * S, cy - 8 * S, 24 * S, 0, Math.PI * 2);
+  ctx.arc(cx + 5 * S, cy - 4 * S, 22 * S, 0, Math.PI * 2);
+  ctx.arc(cx + 28 * S, cy + 2 * S, 18 * S, 0, Math.PI * 2);
+  ctx.arc(cx + 45 * S, cy + 4 * S, 14 * S, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  // 彩虹（用三原色混出的七色）
+  const colors = ['#ff3b3b', '#ff8a3b', '#ffe03b', '#5bff3b', '#3bffd0', '#3b8aff', '#c03bff'];
+  ctx.save();
+  ctx.globalAlpha = 0.9;
+  for (let i = 0; i < colors.length; i++) {
+    const rr = r - i * 6 * S;
+    ctx.beginPath();
+    ctx.arc(cx, cy + 4 * S, rr, Math.PI, Math.PI * 2);
+    ctx.strokeStyle = colors[i];
+    ctx.lineWidth = 6 * S;
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // 小标签
+  ctx.font = 'bold ' + Math.round(10 * S) + 'px system-ui, sans-serif';
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillText('白光里有七种颜色', 20 * S, H - 40 * S);
+}
+
+/* ============================================================
+   绘制：光的三原色说明（屏幕上方）
+============================================================ */
+function drawTrichromaticHint() {
+  const sc = scene.screen;
+  const cx = sc.x + sc.w / 2;
+  const cy = sc.y - 40 * S;
+
+  ctx.font = 'bold ' + Math.round(13 * S) + 'px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = 'rgba(255, 213, 79, 0.85)';
+  ctx.fillText('光的三原色：红 · 绿 · 蓝', cx, cy);
+}
+
+/* ============================================================
+   工具
+============================================================ */
+function roundRect(x, y, w, h, r) {
+  const rr = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.lineTo(x + w - rr, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+  ctx.lineTo(x + w, y + h - rr);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+  ctx.lineTo(x + rr, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+  ctx.lineTo(x, y + rr);
+  ctx.quadraticCurveTo(x, y, x + rr, y);
+  ctx.closePath();
+}
+
+/* ============================================================
+   渲染
+============================================================ */
+function render() {
+  ctx.clearRect(0, 0, W, H);
+
+  drawBackground();
+  drawTrichromaticHint();
+  drawScreen();
+  drawLights();
+  drawMiniRainbow();
+}
+
+/* ============================================================
+   交互
+============================================================ */
+function setColor(r, g, b) {
+  state.r = r;
+  state.g = g;
+  state.b = b;
+  rSlider.value = Math.round(r * 100);
+  gSlider.value = Math.round(g * 100);
+  bSlider.value = Math.round(b * 100);
+  rSliderVal.textContent = Math.round(r * 100);
+  gSliderVal.textContent = Math.round(g * 100);
+  bSliderVal.textContent = Math.round(b * 100);
+}
+
+rSlider.addEventListener('input', function (e) {
+  initAudio();
+  state.r = +e.target.value / 100;
+  rSliderVal.textContent = e.target.value;
+});
+
+gSlider.addEventListener('input', function (e) {
+  initAudio();
+  state.g = +e.target.value / 100;
+  gSliderVal.textContent = e.target.value;
+});
+
+bSlider.addEventListener('input', function (e) {
+  initAudio();
+  state.b = +e.target.value / 100;
+  bSliderVal.textContent = e.target.value;
+});
+
+presetBtns.forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    initAudio();
+    sfxClick();
+    const r = +btn.dataset.r / 100;
+    const g = +btn.dataset.g / 100;
+    const b = +btn.dataset.b / 100;
+    setColor(r, g, b);
+  });
+});
+
+canvas.addEventListener('dblclick', function (e) { e.preventDefault(); });
+
+/* ============================================================
+   启动
+============================================================ */
+resize();
+updateUI();
+
+window.addEventListener('resize', function () {
+  resize();
+  render();
+});
+
+if (window.ResizeObserver) {
+  new ResizeObserver(function () {
+    const cw = canvas.clientWidth, ch = canvas.clientHeight;
+    if (cw > 0 && ch > 0 && (Math.abs(cw - W) > 1 || Math.abs(ch - H) > 1)) {
+      resize();
+      render();
+    }
+  }).observe(canvas);
+}
+
+render();
+requestAnimationFrame(function () {
+  resize();
+  updateUI();
+  render();
+});
+
+gsap.ticker.add(function (t, dt) {
+  const d = Math.min(dt || 16, 50) / 1000;
+  update(d);
+  render();
+});
+</script>
+</body>
+</html>

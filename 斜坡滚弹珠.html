@@ -1,0 +1,1190 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>斜坡滚弹珠 —— 怎样滚得远</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    height: 100%; width: 100%; overflow: hidden; background: #0a1018;
+    touch-action: none;
+    font-family: system-ui, -apple-system, sans-serif;
+    color: #fff;
+  }
+  canvas {
+    display: block;
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+  }
+
+  .status {
+    position: fixed;
+    top: 20px; left: 50%;
+    transform: translateX(-50%);
+    padding: 12px 26px;
+    background: rgba(16, 22, 38, 0.88);
+    border-radius: 30px;
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    font-size: 15px;
+    font-weight: 700;
+    z-index: 10;
+    white-space: nowrap;
+    max-width: 92vw;
+    text-align: center;
+    transition: all 0.3s;
+  }
+
+  .readout {
+    position: fixed;
+    top: 20px; right: 20px;
+    padding: 14px 18px;
+    background: rgba(16, 22, 38, 0.8);
+    border-radius: 16px;
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    font-size: 13px;
+    z-index: 10;
+    line-height: 1.9;
+  }
+  .readout .row {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+  }
+  .readout .lbl { color: #8898b0; }
+  .readout .num {
+    color: #ffd54f;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+  }
+  .readout .num.best { color: #7fdd6e; }
+
+  .panel {
+    position: fixed;
+    bottom: 18px; left: 50%;
+    transform: translateX(-50%);
+    width: min(560px, 94vw);
+    background: rgba(16, 22, 38, 0.9);
+    padding: 16px 22px;
+    border-radius: 20px;
+    backdrop-filter: blur(14px);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  }
+  .panel .row {
+    display: grid;
+    grid-template-columns: 90px 1fr 64px;
+    align-items: center;
+    gap: 12px;
+    font-size: 13px;
+  }
+  .panel .lbl { font-weight: 700; font-size: 14px; white-space: nowrap; }
+  .panel input[type="range"] {
+    width: 100%;
+    height: 6px;
+    accent-color: #5eb3ff;
+    cursor: pointer;
+  }
+  .panel .val {
+    text-align: right;
+    color: #ffd54f;
+    font-weight: 800;
+    font-size: 13px;
+  }
+  .panel .btns {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr;
+    gap: 10px;
+    margin-top: 4px;
+  }
+  .panel button {
+    padding: 12px 18px;
+    border: none;
+    border-radius: 14px;
+    font-weight: 800;
+    font-size: 15px;
+    cursor: pointer;
+    letter-spacing: 0.5px;
+    transition: transform 0.12s, box-shadow 0.2s;
+  }
+  .panel button:active { transform: translateY(1px); }
+  .panel button:disabled {
+    background: rgba(120, 130, 150, 0.3);
+    color: rgba(255, 255, 255, 0.35);
+    cursor: not-allowed;
+    box-shadow: none;
+  }
+  .panel .btn-go {
+    background: linear-gradient(135deg, #5eb3ff, #7fdd6e);
+    color: #061020;
+    box-shadow: 0 4px 14px rgba(94, 179, 255, 0.35);
+  }
+  .panel .btn-go:hover:not(:disabled) {
+    box-shadow: 0 6px 20px rgba(94, 179, 255, 0.5);
+  }
+  .panel .btn-reset {
+    background: rgba(255, 255, 255, 0.12);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+  }
+  .panel .btn-reset:hover {
+    background: rgba(255, 255, 255, 0.22);
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div class="status" id="status">🎯 调好坡度，按下释放按钮</div>
+
+<div class="readout">
+  <div class="row"><span class="lbl">本次</span><span class="num" id="lastVal">--</span></div>
+  <div class="row"><span class="lbl">最好</span><span class="num best" id="bestVal">--</span></div>
+</div>
+
+<div class="panel">
+  <div class="row">
+    <span class="lbl">📐 坡度</span>
+    <input type="range" id="height" min="30" max="100" value="70">
+    <span class="val" id="heightv">中</span>
+  </div>
+  <div class="row">
+    <span class="lbl">🪵 摩擦力</span>
+    <input type="range" id="friction" min="0" max="100" value="30">
+    <span class="val" id="frictionv">偏滑</span>
+  </div>
+  <div class="btns">
+    <button class="btn-go" id="btnGo">🎯 释放弹珠</button>
+    <button class="btn-reset" id="btnReset">🔄 重置</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+<script>
+/* ============================================================
+   斜坡滚弹珠 —— 怎样滚得远
+   ------------------------------------------------------------
+   教材依据：
+   第五章第三节「简易机械」—— 斜面
+   第六章「转啊转！」—— 斜坡实验，探究滚动距离
+   第七章 STEM —— 设计、制作、测试、精进
+   第一章「迷思概念」—— 幼儿以为"重的球滚得远"
+
+   核心概念：
+   ① 坡越高，弹珠滚到底时越快，滚得越远
+   ② 摩擦力越大（表面越粗糙），弹珠滚得越近
+   ③ 摩擦力越小（表面越光滑），弹珠滚得越远
+   ④ 同一个坡、同一种表面，滚的距离总是一样
+   ⑤ 通过反复实验，找出"怎样让弹珠滚得最远"
+   ============================================================ */
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+const statusEl = document.getElementById('status');
+const lastValEl = document.getElementById('lastVal');
+const bestValEl = document.getElementById('bestVal');
+const heightSlider = document.getElementById('height');
+const frictionSlider = document.getElementById('friction');
+const heightVal = document.getElementById('heightv');
+const frictionVal = document.getElementById('frictionv');
+const btnGo = document.getElementById('btnGo');
+const btnReset = document.getElementById('btnReset');
+
+let W = 800, H = 600, DPR = 1, S = 1;
+let time = 0;
+
+/* ---------- 参数 ---------- */
+const params = {
+  heightPct: 0.70,      // 0.30 ~ 1.00
+  frictionPct: 0.30     // 0.00 ~ 1.00 → 摩擦系数 0.45 ~ 0.90
+};
+
+/* ---------- 场景 ---------- */
+const scene = {
+  groundY: 0,
+  rampLeftX: 0,
+  rampRightX: 0,
+  rampTopX: 0,
+  rampTopY: 0,
+  rampBottomX: 0,
+  rampBottomY: 0,
+  rampHeight: 0,
+  rampWidth: 0,
+  rampLength: 0,
+  rampAngle: 0,
+  ballR: 0
+};
+
+/* ---------- 弹珠状态 ---------- */
+const ball = {
+  x: 0, y: 0,
+  s: 0,                // 沿斜坡走过的距离
+  v: 0,                // 当前速度（标量）
+  phase: 'idle',       // idle | onRamp | onGround | stopped
+  rotation: 0,
+  trail: []            // 位置历史
+};
+
+/* ---------- 结果记录 ---------- */
+const results = {
+  last: null,
+  best: null
+};
+
+/* ---------- 视觉 ---------- */
+let sparks = [];
+let dust = [];
+let finishMarker = null;   // 上一次停下的位置标记
+let confetti = [];
+
+/* ---------- 物理常量 ---------- */
+const G = 800;               // 重力加速度（像素/秒²）
+const RAMP_EFFICIENCY = 0.90; // 斜坡效率（考虑滚动损失）
+const MIN_FRICTION = 0.45;
+const MAX_FRICTION = 0.90;
+
+/* ============================================================
+   尺寸与布局
+============================================================ */
+function resize() {
+  let w = window.innerWidth || document.documentElement.clientWidth || 800;
+  let h = window.innerHeight || document.documentElement.clientHeight || 600;
+  if (w < 200) w = 800;
+  if (h < 200) h = 600;
+
+  W = w;
+  H = h;
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+
+  canvas.width = Math.floor(W * DPR);
+  canvas.height = Math.floor(H * DPR);
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+  S = Math.max(0.55, Math.min(1.15, H / 800));
+
+  layoutScene();
+}
+
+function layoutScene() {
+  scene.groundY = H * 0.62;
+  scene.rampLeftX = W * 0.08;
+  scene.rampRightX = W * 0.38;
+  scene.rampWidth = scene.rampRightX - scene.rampLeftX;
+
+  scene.ballR = 18 * S;
+
+  // 根据滑块更新斜坡高度
+  updateRampShape();
+
+  // 重置球到起始位置
+  if (ball.phase === 'idle' || ball.phase === 'stopped') {
+    resetBallToStart();
+  }
+}
+
+function updateRampShape() {
+  const maxHeight = H * 0.28;
+  scene.rampHeight = maxHeight * params.heightPct;
+
+  scene.rampTopX = scene.rampLeftX;
+  scene.rampTopY = scene.groundY - scene.rampHeight;
+  scene.rampBottomX = scene.rampRightX;
+  scene.rampBottomY = scene.groundY;
+
+  scene.rampLength = Math.hypot(scene.rampWidth, scene.rampHeight);
+  scene.rampAngle = Math.atan2(scene.rampHeight, scene.rampWidth);
+}
+
+function resetBallToStart() {
+  ball.s = 0;
+  ball.v = 0;
+  ball.phase = 'idle';
+  ball.rotation = 0;
+  ball.trail = [];
+
+  // 球心在斜坡顶部 + 法线方向偏移
+  const dirX = scene.rampWidth / scene.rampLength;
+  const dirY = scene.rampHeight / scene.rampLength;
+  // 法线：指向屏幕上方（y 分量负）
+  const nx = scene.rampHeight / scene.rampLength;   // 正
+  const ny = -scene.rampWidth / scene.rampLength;   // 负
+
+  ball.x = scene.rampTopX + nx * scene.ballR;
+  ball.y = scene.rampTopY + ny * scene.ballR;
+}
+
+/* ============================================================
+   音效
+============================================================ */
+let audioCtx = null;
+function initAudio() {
+  if (!audioCtx) {
+    try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
+  }
+}
+function beep(freq, dur, vol, type, delay) {
+  vol = vol || 0.07;
+  type = type || 'sine';
+  delay = delay || 0;
+  if (!audioCtx) return;
+  const t0 = audioCtx.currentTime + delay;
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(freq, t0);
+  o.connect(g);
+  g.connect(audioCtx.destination);
+  g.gain.setValueAtTime(vol, t0);
+  g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+  o.start(t0);
+  o.stop(t0 + dur);
+}
+function sfxRelease() {
+  beep(720, 0.08, 0.07, 'sine');
+  beep(880, 0.10, 0.06, 'sine', 0.06);
+}
+function sfxRoll() {
+  beep(420, 0.06, 0.03, 'triangle');
+}
+function sfxStop() {
+  beep(520, 0.10, 0.07, 'triangle');
+  beep(680, 0.14, 0.06, 'triangle', 0.10);
+}
+function sfxNewBest() {
+  beep(523, 0.12, 0.09);
+  beep(659, 0.12, 0.09, 'sine', 0.10);
+  beep(784, 0.14, 0.09, 'sine', 0.20);
+  beep(1046, 0.26, 0.09, 'sine', 0.34);
+}
+
+/* ============================================================
+   释放弹珠
+============================================================ */
+function releaseBall() {
+  if (ball.phase === 'onRamp' || ball.phase === 'onGround') return;
+
+  initAudio();
+  sfxRelease();
+
+  resetBallToStart();
+  ball.phase = 'onRamp';
+  ball.v = 0;
+  finishMarker = null;
+
+  // 清掉上一次的拖尾
+  ball.trail = [];
+}
+
+/* ============================================================
+   物理更新
+============================================================ */
+function update(dt) {
+  time += dt;
+
+  // 弹珠的物理
+  if (ball.phase === 'onRamp') {
+    const a = G * Math.sin(scene.rampAngle) * RAMP_EFFICIENCY;
+    ball.v += a * dt;
+    ball.s += ball.v * dt;
+
+    if (ball.s >= scene.rampLength) {
+      // 离开斜坡，进入水平面
+      ball.s = scene.rampLength;
+      ball.phase = 'onGround';
+    }
+
+    // 更新位置
+    const t = ball.s / scene.rampLength;
+    const dirX = scene.rampWidth / scene.rampLength;
+    const dirY = scene.rampHeight / scene.rampLength;
+    const nx = scene.rampHeight / scene.rampLength;
+    const ny = -scene.rampWidth / scene.rampLength;
+
+    ball.x = scene.rampTopX + dirX * ball.s + nx * scene.ballR;
+    ball.y = scene.rampTopY + dirY * ball.s + ny * scene.ballR;
+
+    // 旋转
+    ball.rotation += ball.v * dt / scene.ballR;
+
+    // 斜坡上留下尘土
+    if (Math.random() < 0.4) {
+      spawnDust(ball.x, ball.y + scene.ballR * 0.9);
+    }
+  }
+  else if (ball.phase === 'onGround') {
+    const friction = MIN_FRICTION + (MAX_FRICTION - MIN_FRICTION) * params.frictionPct;
+    const a = -G * friction;
+    ball.v += a * dt;
+
+    if (ball.v <= 0) {
+      // 停下
+      ball.v = 0;
+      ball.phase = 'stopped';
+      onBallStopped();
+    } else {
+      ball.s += ball.v * dt;
+      ball.x += ball.v * dt;
+      ball.rotation += ball.v * dt / scene.ballR;
+
+      // 地面上留下尘迹
+      if (Math.random() < 0.3) {
+        spawnDust(ball.x, ball.y + scene.ballR * 0.9);
+      }
+
+      // 限制在屏幕内
+      if (ball.x > W - 30 * S) {
+        ball.x = W - 30 * S;
+        ball.phase = 'stopped';
+        ball.v = 0;
+        onBallStopped();
+      }
+    }
+  }
+
+  // 拖尾
+  if (ball.phase === 'onRamp' || ball.phase === 'onGround') {
+    ball.trail.push({ x: ball.x, y: ball.y });
+    if (ball.trail.length > 200) ball.trail.shift();
+  }
+
+  // 粒子
+  for (const s of sparks) {
+    s.x += s.vx * dt;
+    s.y += s.vy * dt;
+    s.vy += 220 * dt;
+    s.vx *= 0.96;
+    s.life -= dt * 1.3;
+  }
+  sparks = sparks.filter(s => s.life > 0);
+
+  for (const d of dust) {
+    d.x += d.vx * dt;
+    d.y += d.vy * dt;
+    d.vy -= 40 * dt;
+    d.life -= dt * 1.6;
+    d.size *= 0.99;
+  }
+  dust = dust.filter(d => d.life > 0);
+
+  for (const c of confetti) {
+    c.x += c.vx * dt;
+    c.y += c.vy * dt;
+    c.vy += 300 * dt;
+    c.rot += c.rotSpeed * dt;
+    c.life -= dt * 0.35;
+  }
+  confetti = confetti.filter(c => c.life > 0);
+}
+
+function onBallStopped() {
+  sfxStop();
+
+  // 记录结果：从斜坡底部的水平距离
+  const distance = Math.max(0, ball.x - scene.rampBottomX);
+  const cm = Math.round(distance / S / 3);  // 换算成"厘米"（视觉比例）
+
+  results.last = cm;
+  lastValEl.textContent = cm + ' cm';
+
+  let isNewBest = false;
+  if (results.best === null || cm > results.best) {
+    results.best = cm;
+    bestValEl.textContent = cm + ' cm';
+    isNewBest = true;
+  }
+
+  // 停下位置的标记
+  finishMarker = {
+    x: ball.x,
+    y: ball.y,
+    life: 1,
+    best: isNewBest
+  };
+
+  // 火花
+  spawnStopSparks(ball.x, ball.y);
+
+  // 结果提示
+  if (isNewBest && cm > 30) {
+    statusEl.textContent = '🎉 新纪录！滚了 ' + cm + ' 厘米';
+    statusEl.style.color = '#7fdd6e';
+    sfxNewBest();
+    spawnConfetti();
+  } else if (cm > 30) {
+    statusEl.textContent = '👍 滚了 ' + cm + ' 厘米';
+    statusEl.style.color = '#ffd54f';
+  } else {
+    statusEl.textContent = '😅 只滚了 ' + cm + ' 厘米，试试调高坡度或调滑一点';
+    statusEl.style.color = '#ffb055';
+  }
+}
+
+function spawnDust(x, y) {
+  dust.push({
+    x: x + (Math.random() - 0.5) * 6 * S,
+    y: y + (Math.random() - 0.5) * 4 * S,
+    vx: -10 - Math.random() * 30,
+    vy: -10 - Math.random() * 20,
+    size: (2 + Math.random() * 3) * S,
+    life: 1
+  });
+}
+
+function spawnStopSparks(x, y) {
+  for (let i = 0; i < 14; i++) {
+    const a = -Math.PI * 0.5 + (Math.random() - 0.5) * Math.PI;
+    const v = 80 + Math.random() * 140;
+    sparks.push({
+      x: x, y: y,
+      vx: Math.cos(a) * v,
+      vy: Math.sin(a) * v - 30,
+      life: 1,
+      size: 2.5 + Math.random() * 3
+    });
+  }
+}
+
+function spawnConfetti() {
+  const colors = ['#FF6B6B', '#FFD93D', '#6BCB77', '#4D96FF', '#FF6BD6'];
+  for (let i = 0; i < 40; i++) {
+    confetti.push({
+      x: ball.x + (Math.random() - 0.5) * 40 * S,
+      y: ball.y - 40 * S - Math.random() * 30 * S,
+      vx: (Math.random() - 0.5) * 220,
+      vy: -120 - Math.random() * 160,
+      rot: Math.random() * Math.PI * 2,
+      rotSpeed: (Math.random() - 0.5) * 12,
+      size: 4 + Math.random() * 5,
+      color: colors[i % colors.length],
+      life: 1
+    });
+  }
+}
+
+/* ============================================================
+   绘制：背景
+============================================================ */
+function drawBackground() {
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#1a2438');
+  g.addColorStop(0.55, '#0d1422');
+  g.addColorStop(1, '#050810');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+
+  // 舞台光晕
+  const stage = ctx.createRadialGradient(
+    W * 0.4, H * 0.4, 30,
+    W * 0.4, H * 0.4, Math.max(W, H) * 0.6
+  );
+  stage.addColorStop(0, 'rgba(120, 180, 255, 0.10)');
+  stage.addColorStop(1, 'rgba(120, 180, 255, 0)');
+  ctx.fillStyle = stage;
+  ctx.fillRect(0, 0, W, H);
+
+  // 地面
+  const groundGrad = ctx.createLinearGradient(0, scene.groundY, 0, H);
+  groundGrad.addColorStop(0, '#2a3a52');
+  groundGrad.addColorStop(0.5, '#1a2536');
+  groundGrad.addColorStop(1, '#0e1522');
+  ctx.fillStyle = groundGrad;
+  ctx.fillRect(0, scene.groundY, W, H - scene.groundY);
+
+  // 地面高光线
+  ctx.strokeStyle = 'rgba(140, 200, 255, 0.28)';
+  ctx.lineWidth = 2 * S;
+  ctx.beginPath();
+  ctx.moveTo(0, scene.groundY);
+  ctx.lineTo(W, scene.groundY);
+  ctx.stroke();
+
+  // 地面纹理（取决于摩擦力）
+  drawGroundTexture();
+}
+
+function drawGroundTexture() {
+  // 粗糙时画更多小点/线条
+  const rough = params.frictionPct;
+  const count = 60 + Math.floor(rough * 120);
+
+  ctx.save();
+  ctx.globalAlpha = 0.15 + rough * 0.3;
+
+  for (let i = 0; i < count; i++) {
+    const x = (i * 137.5) % W;
+    const y = scene.groundY + 8 * S + ((i * 73) % (H - scene.groundY - 16 * S));
+    const r = 1 + ((i * 31) % 3) * 0.6;
+
+    ctx.beginPath();
+    ctx.arc(x, y, r * S, 0, Math.PI * 2);
+    ctx.fillStyle = rough > 0.5 ? '#5a6580' : '#4a7faa';
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+/* ============================================================
+   绘制：斜坡
+============================================================ */
+function drawRamp() {
+  const { rampTopX, rampTopY, rampBottomX, rampBottomY, rampWidth, rampHeight } = scene;
+
+  // 斜坡下方的阴影三角形（表示斜坡的厚度）
+  const thickness = 14 * S;
+
+  ctx.save();
+
+  // 斜坡阴影
+  ctx.beginPath();
+  ctx.moveTo(rampTopX, rampTopY);
+  ctx.lineTo(rampBottomX, rampBottomY);
+  ctx.lineTo(rampBottomX, rampBottomY + thickness);
+  ctx.lineTo(rampTopX, rampTopY + thickness);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+  ctx.fill();
+
+  // 斜坡主体（倾斜的矩形）
+  const dirX = rampWidth / scene.rampLength;
+  const dirY = rampHeight / scene.rampLength;
+  const nx = rampHeight / scene.rampLength;
+  const ny = -rampWidth / scene.rampLength;
+
+  const p1x = rampTopX + nx * thickness * 0.5;
+  const p1y = rampTopY + ny * thickness * 0.5;
+  const p2x = rampBottomX + nx * thickness * 0.5;
+  const p2y = rampBottomY + ny * thickness * 0.5;
+  const p3x = rampBottomX - nx * thickness * 0.5;
+  const p3y = rampBottomY - ny * thickness * 0.5;
+  const p4x = rampTopX - nx * thickness * 0.5;
+  const p4y = rampTopY - ny * thickness * 0.5;
+
+  ctx.beginPath();
+  ctx.moveTo(p1x, p1y);
+  ctx.lineTo(p2x, p2y);
+  ctx.lineTo(p3x, p3y);
+  ctx.lineTo(p4x, p4y);
+  ctx.closePath();
+
+  const woodGrad = ctx.createLinearGradient(p4x, p4y, p1x, p1y);
+  woodGrad.addColorStop(0, '#7a5230');
+  woodGrad.addColorStop(0.5, '#b07a48');
+  woodGrad.addColorStop(1, '#5a3a20');
+  ctx.fillStyle = woodGrad;
+  ctx.fill();
+
+  ctx.strokeStyle = '#3a2410';
+  ctx.lineWidth = 2 * S;
+  ctx.stroke();
+
+  // 表面高光
+  ctx.beginPath();
+  ctx.moveTo(p1x, p1y);
+  ctx.lineTo(p2x, p2y);
+  ctx.strokeStyle = 'rgba(255, 220, 160, 0.5)';
+  ctx.lineWidth = 2.5 * S;
+  ctx.stroke();
+
+  // 木纹
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(p1x, p1y);
+  ctx.lineTo(p2x, p2y);
+  ctx.lineTo(p3x, p3y);
+  ctx.lineTo(p4x, p4y);
+  ctx.closePath();
+  ctx.clip();
+
+  ctx.strokeStyle = 'rgba(60, 35, 15, 0.4)';
+  ctx.lineWidth = 1.2 * S;
+  const lineCount = 5;
+  for (let i = 1; i < lineCount; i++) {
+    const t = i / lineCount;
+    const ax = p4x + (p1x - p4x) * t;
+    const ay = p4y + (p1y - p4y) * t;
+    const bx = p3x + (p2x - p3x) * t;
+    const by = p3y + (p2y - p3y) * t;
+    ctx.beginPath();
+    ctx.moveTo(ax, ay);
+    ctx.lineTo(bx, by);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // 斜坡底部的地脚线
+  ctx.beginPath();
+  ctx.moveTo(rampBottomX + nx * thickness, rampBottomY + ny * thickness);
+  ctx.lineTo(rampBottomX - nx * thickness, rampBottomY - ny * thickness);
+  ctx.strokeStyle = '#3a2410';
+  ctx.lineWidth = 3 * S;
+  ctx.stroke();
+
+  // 斜坡高度标注
+  drawHeightIndicator();
+
+  // 角度标注
+  drawAngleIndicator();
+
+  ctx.restore();
+}
+
+function drawHeightIndicator() {
+  const { rampTopX, rampTopY, rampBottomX, rampBottomY } = scene;
+  const x = rampTopX - 24 * S;
+
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255, 213, 79, 0.55)';
+  ctx.lineWidth = 1.4 * S;
+  ctx.setLineDash([5 * S, 5 * S]);
+
+  // 高度线
+  ctx.beginPath();
+  ctx.moveTo(x, rampTopY);
+  ctx.lineTo(x, rampBottomY);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // 上下两个短横
+  ctx.beginPath();
+  ctx.moveTo(x - 6 * S, rampTopY);
+  ctx.lineTo(x + 6 * S, rampTopY);
+  ctx.moveTo(x - 6 * S, rampBottomY);
+  ctx.lineTo(x + 6 * S, rampBottomY);
+  ctx.stroke();
+
+  // 高度百分比标签
+  ctx.font = 'bold ' + Math.round(11 * S) + 'px system-ui, sans-serif';
+  ctx.fillStyle = '#ffd54f';
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(Math.round(params.heightPct * 100) + '%',
+    x - 8 * S, (rampTopY + rampBottomY) / 2);
+
+  ctx.restore();
+}
+
+function drawAngleIndicator() {
+  const { rampBottomX, rampBottomY, rampAngle } = scene;
+  const r = 40 * S;
+
+  ctx.save();
+  ctx.strokeStyle = 'rgba(120, 200, 255, 0.5)';
+  ctx.lineWidth = 1.8 * S;
+  ctx.beginPath();
+  ctx.arc(rampBottomX, rampBottomY, r, Math.PI - rampAngle, Math.PI);
+  ctx.stroke();
+
+  // 水平参考线
+  ctx.beginPath();
+  ctx.moveTo(rampBottomX - r - 4 * S, rampBottomY);
+  ctx.lineTo(rampBottomX, rampBottomY);
+  ctx.strokeStyle = 'rgba(120, 200, 255, 0.3)';
+  ctx.setLineDash([4 * S, 4 * S]);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.restore();
+}
+
+/* ============================================================
+   绘制：弹珠
+============================================================ */
+function drawBall() {
+  const x = ball.x;
+  const y = ball.y;
+  const r = scene.ballR;
+
+  // 阴影
+  ctx.save();
+  ctx.globalAlpha = 0.4;
+  ctx.beginPath();
+  const shadowOffset = ball.phase === 'onGround' || ball.phase === 'stopped' ? 0 : 4 * S;
+  ctx.ellipse(x + shadowOffset, scene.groundY + 2 * S, r * 0.9, r * 0.28, 0, 0, Math.PI * 2);
+  ctx.fillStyle = '#000';
+  ctx.fill();
+  ctx.restore();
+
+  // 拖尾
+  if (ball.trail.length > 1) {
+    ctx.save();
+    for (let i = 0; i < ball.trail.length; i++) {
+      const t = i / ball.trail.length;
+      const pt = ball.trail[i];
+      ctx.beginPath();
+      ctx.arc(pt.x, pt.y, r * 0.5 * t, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(120, 200, 255, ' + (t * 0.35) + ')';
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // 弹珠主体
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(ball.rotation);
+
+  const grad = ctx.createRadialGradient(-r * 0.35, -r * 0.4, r * 0.1, 0, 0, r);
+  grad.addColorStop(0, '#fff5e0');
+  grad.addColorStop(0.4, '#a8dcff');
+  grad.addColorStop(0.85, '#4a9fe8');
+  grad.addColorStop(1, '#1e5490');
+
+  ctx.beginPath();
+  ctx.arc(0, 0, r, 0, Math.PI * 2);
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // 弹珠内部的彩色条纹（便于看到旋转）
+  ctx.strokeStyle = 'rgba(255, 180, 220, 0.6)';
+  ctx.lineWidth = r * 0.22;
+  ctx.beginPath();
+  ctx.arc(0, 0, r * 0.55, -Math.PI * 0.2, Math.PI * 0.7);
+  ctx.stroke();
+
+  ctx.strokeStyle = 'rgba(140, 240, 200, 0.55)';
+  ctx.beginPath();
+  ctx.arc(0, 0, r * 0.55, Math.PI * 0.8, Math.PI * 1.7);
+  ctx.stroke();
+
+  // 中心亮斑
+  ctx.beginPath();
+  ctx.arc(0, 0, r * 0.2, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
+  ctx.fill();
+
+  // 高光
+  ctx.beginPath();
+  ctx.arc(-r * 0.35, -r * 0.4, r * 0.25, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+  ctx.fill();
+
+  ctx.restore();
+
+  // 弹珠边缘描边
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+  ctx.lineWidth = 1.6 * S;
+  ctx.stroke();
+}
+
+/* ============================================================
+   绘制：停止位置标记
+============================================================ */
+function drawFinishMarker() {
+  if (!finishMarker) return;
+
+  const x = finishMarker.x;
+  const groundY = scene.groundY;
+
+  ctx.save();
+
+  // 垂直线
+  ctx.setLineDash([6 * S, 5 * S]);
+  ctx.strokeStyle = finishMarker.best
+    ? 'rgba(127, 221, 110, 0.8)'
+    : 'rgba(255, 213, 79, 0.7)';
+  ctx.lineWidth = 2 * S;
+  ctx.beginPath();
+  ctx.moveTo(x, groundY);
+  ctx.lineTo(x, groundY - 90 * S);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // 旗帜
+  const flagX = x;
+  const flagY = groundY - 90 * S;
+  ctx.fillStyle = finishMarker.best ? '#7fdd6e' : '#ffd54f';
+  ctx.beginPath();
+  ctx.moveTo(flagX, flagY);
+  ctx.lineTo(flagX + 30 * S, flagY + 10 * S);
+  ctx.lineTo(flagX, flagY + 20 * S);
+  ctx.closePath();
+  ctx.fill();
+
+  // 旗杆小圆点
+  ctx.beginPath();
+  ctx.arc(flagX, flagY, 4 * S, 0, Math.PI * 2);
+  ctx.fillStyle = '#fff';
+  ctx.fill();
+
+  ctx.restore();
+}
+
+/* ============================================================
+   绘制：距离测量
+============================================================ */
+function drawDistanceMeasurement() {
+  if (ball.phase !== 'stopped') return;
+  if (!finishMarker) return;
+
+  const startX = scene.rampBottomX;
+  const endX = finishMarker.x;
+  const y = scene.groundY + 42 * S;
+
+  // 水平测量线
+  ctx.save();
+
+  // 底背景
+  const bgX = Math.min(startX, endX);
+  const bgW = Math.abs(endX - startX);
+  ctx.fillStyle = 'rgba(255, 213, 79, 0.12)';
+  ctx.fillRect(bgX, y - 16 * S, bgW, 32 * S);
+
+  // 测量线
+  ctx.strokeStyle = '#ffd54f';
+  ctx.lineWidth = 2.4 * S;
+  ctx.beginPath();
+  ctx.moveTo(startX, y);
+  ctx.lineTo(endX, y);
+  ctx.stroke();
+
+  // 两端小箭头
+  for (const [xx, dir] of [[startX, 1], [endX, -1]]) {
+    ctx.beginPath();
+    ctx.moveTo(xx, y);
+    ctx.lineTo(xx + dir * 10 * S, y - 5 * S);
+    ctx.lineTo(xx + dir * 10 * S, y + 5 * S);
+    ctx.closePath();
+    ctx.fillStyle = '#ffd54f';
+    ctx.fill();
+  }
+
+  // 两端短竖线
+  ctx.beginPath();
+  ctx.moveTo(startX, y - 12 * S);
+  ctx.lineTo(startX, y + 12 * S);
+  ctx.moveTo(endX, y - 12 * S);
+  ctx.lineTo(endX, y + 12 * S);
+  ctx.stroke();
+
+  // 距离数字
+  const cm = Math.round(Math.abs(endX - startX) / S / 3);
+  const midX = (startX + endX) / 2;
+  ctx.font = 'bold ' + Math.round(16 * S) + 'px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const text = cm + ' 厘米';
+  const tw = ctx.measureText(text).width;
+  const padX = 12 * S;
+
+  ctx.fillStyle = 'rgba(16, 22, 38, 0.9)';
+  roundRect(midX - tw / 2 - padX, y - 14 * S, tw + padX * 2, 28 * S, 14 * S);
+  ctx.fill();
+
+  ctx.fillStyle = '#ffd54f';
+  ctx.fillText(text, midX, y + 1);
+
+  ctx.restore();
+}
+
+/* ============================================================
+   绘制：粒子
+============================================================ */
+function drawParticles() {
+  for (const d of dust) {
+    ctx.save();
+    ctx.globalAlpha = d.life * 0.5;
+    ctx.beginPath();
+    ctx.arc(d.x, d.y, d.size, 0, Math.PI * 2);
+    ctx.fillStyle = '#9aa5b8';
+    ctx.fill();
+    ctx.restore();
+  }
+
+  for (const s of sparks) {
+    ctx.save();
+    ctx.globalAlpha = s.life;
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, s.size * s.life, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffe066';
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+function drawConfetti() {
+  for (const c of confetti) {
+    ctx.save();
+    ctx.translate(c.x, c.y);
+    ctx.rotate(c.rot);
+    ctx.globalAlpha = Math.min(1, c.life * 1.5);
+    ctx.fillStyle = c.color;
+    ctx.fillRect(-c.size / 2, -c.size * 0.7, c.size, c.size * 1.4);
+    ctx.restore();
+  }
+}
+
+/* ============================================================
+   绘制：拖动起点提示
+============================================================ */
+function drawStartHint() {
+  if (ball.phase !== 'idle') return;
+
+  const x = ball.x;
+  const y = ball.y - scene.ballR - 30 * S;
+  const pulse = Math.sin(time * 3) * 4 * S;
+
+  ctx.save();
+  ctx.font = 'bold ' + Math.round(13 * S) + 'px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'bottom';
+
+  ctx.fillStyle = 'rgba(94, 179, 255, ' + (0.6 + Math.sin(time * 3) * 0.3) + ')';
+  ctx.fillText('从这儿开始', x, y - pulse);
+
+  // 向下的小箭头
+  ctx.beginPath();
+  ctx.moveTo(x, y + 4 * S - pulse);
+  ctx.lineTo(x - 6 * S, y - 6 * S - pulse);
+  ctx.lineTo(x + 6 * S, y - 6 * S - pulse);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.restore();
+}
+
+/* ============================================================
+   工具
+============================================================ */
+function roundRect(x, y, w, h, r) {
+  const rr = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.lineTo(x + w - rr, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+  ctx.lineTo(x + w, y + h - rr);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+  ctx.lineTo(x + rr, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+  ctx.lineTo(x, y + rr);
+  ctx.quadraticCurveTo(x, y, x + rr, y);
+  ctx.closePath();
+}
+
+/* ============================================================
+   渲染
+============================================================ */
+function render() {
+  ctx.clearRect(0, 0, W, H);
+
+  drawBackground();
+  drawRamp();
+  drawFinishMarker();
+  drawDistanceMeasurement();
+  drawParticles();
+  drawBall();
+  drawStartHint();
+  drawConfetti();
+}
+
+/* ============================================================
+   UI 更新
+============================================================ */
+function updateUI() {
+  const running = ball.phase === 'onRamp' || ball.phase === 'onGround';
+  btnGo.disabled = running;
+  heightSlider.disabled = running;
+  frictionSlider.disabled = running;
+
+  btnGo.textContent = running ? '🌀 滚动中…' : '🎯 释放弹珠';
+
+  // 高度标签
+  const h = params.heightPct;
+  if (h < 0.45) heightVal.textContent = '很低';
+  else if (h < 0.6) heightVal.textContent = '偏低';
+  else if (h < 0.75) heightVal.textContent = '中';
+  else if (h < 0.9) heightVal.textContent = '偏高';
+  else heightVal.textContent = '很高';
+
+  // 摩擦力标签
+  const f = params.frictionPct;
+  if (f < 0.2) frictionVal.textContent = '很滑';
+  else if (f < 0.4) frictionVal.textContent = '偏滑';
+  else if (f < 0.6) frictionVal.textContent = '中等';
+  else if (f < 0.8) frictionVal.textContent = '偏粗';
+  else frictionVal.textContent = '很粗';
+}
+
+/* ============================================================
+   事件绑定
+============================================================ */
+heightSlider.addEventListener('input', function (e) {
+  initAudio();
+  params.heightPct = +e.target.value / 100;
+  updateRampShape();
+  resetBallToStart();
+  finishMarker = null;
+  results.last = null;
+  lastValEl.textContent = '--';
+  statusEl.textContent = '🎯 调好坡度，按下释放按钮';
+  statusEl.style.color = '#ffffff';
+  updateUI();
+});
+
+frictionSlider.addEventListener('input', function (e) {
+  initAudio();
+  params.frictionPct = +e.target.value / 100;
+  updateUI();
+});
+
+btnGo.addEventListener('click', function () {
+  initAudio();
+  releaseBall();
+  updateUI();
+});
+
+btnReset.addEventListener('click', function () {
+  initAudio();
+  resetBallToStart();
+  finishMarker = null;
+  ball.trail = [];
+  sparks = [];
+  dust = [];
+  confetti = [];
+  statusEl.textContent = '🎯 调好坡度，按下释放按钮';
+  statusEl.style.color = '#ffffff';
+  updateUI();
+});
+
+canvas.addEventListener('dblclick', function (e) {
+  e.preventDefault();
+});
+
+/* ============================================================
+   启动
+============================================================ */
+resize();
+window.addEventListener('resize', function () {
+  resize();
+  updateUI();
+  render();
+});
+
+// 首帧稳定后再渲染一次
+render();
+requestAnimationFrame(function () {
+  resize();
+  updateUI();
+  render();
+});
+
+gsap.ticker.add(function (t, deltaTime) {
+  const dt = Math.min(deltaTime || 16, 50) / 1000;
+  update(dt);
+  render();
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,1012 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>静电实验室 —— 摩擦能让气球吸起纸片吗</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    height: 100%; width: 100%; overflow: hidden; background: #0a1018;
+    touch-action: none;
+    font-family: system-ui, -apple-system, sans-serif;
+    color: #fff;
+  }
+  canvas { display: block; position: absolute; inset: 0; }
+
+  .status {
+    position: fixed;
+    top: 18px; left: 50%;
+    transform: translateX(-50%);
+    padding: 12px 26px;
+    background: rgba(16, 22, 38, 0.88);
+    border-radius: 30px;
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    font-size: 15px; font-weight: 700;
+    z-index: 10; white-space: nowrap; max-width: 92vw;
+    text-align: center; transition: all 0.3s;
+  }
+  .status.flash {
+    background: rgba(60, 130, 60, 0.9);
+    border-color: rgba(127, 221, 110, 0.5);
+  }
+
+  .readout {
+    position: fixed;
+    top: 18px; right: 18px;
+    padding: 14px 18px;
+    background: rgba(16, 22, 38, 0.88);
+    border-radius: 16px;
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    font-size: 13px; z-index: 10;
+    line-height: 1.8; min-width: 175px;
+  }
+  .readout .lbl {
+    color: #a8c0e0; font-size: 12px; margin-bottom: 6px;
+  }
+  .charge-bar {
+    width: 100%; height: 12px;
+    background: rgba(0, 0, 0, 0.5);
+    border-radius: 6px;
+    overflow: hidden;
+    margin-bottom: 6px;
+    position: relative;
+  }
+  .charge-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #5eb3ff, #a8e6ff, #ffe066);
+    border-radius: 6px;
+    transition: width 0.15s linear;
+  }
+  .charge-pct {
+    text-align: right;
+    color: #5eb3ff;
+    font-weight: 800; font-size: 15px;
+    font-variant-numeric: tabular-nums;
+  }
+  .readout .divider {
+    margin: 8px 0; border-top: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  .readout .row {
+    display: flex; justify-content: space-between; gap: 12px;
+  }
+  .readout .num {
+    color: #7fdd6e; font-weight: 800; font-variant-numeric: tabular-nums;
+  }
+
+  .panel {
+    position: fixed;
+    bottom: 16px; left: 50%;
+    transform: translateX(-50%);
+    width: min(600px, 94vw);
+    background: rgba(16, 22, 38, 0.92);
+    padding: 14px 20px;
+    border-radius: 18px;
+    backdrop-filter: blur(14px);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    z-index: 10;
+    display: flex; flex-direction: column; gap: 10px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  }
+  .panel .tip {
+    font-size: 13px; color: #a8c0e0;
+    text-align: center; line-height: 1.5;
+  }
+  .panel .btns {
+    display: grid;
+    grid-template-columns: 1.2fr 1fr;
+    gap: 8px;
+  }
+  .panel button {
+    padding: 12px 12px;
+    border-radius: 12px;
+    border: none;
+    font-weight: 800; font-size: 14px;
+    cursor: pointer; transition: transform 0.12s, box-shadow 0.2s;
+    white-space: nowrap;
+  }
+  .panel button:active { transform: translateY(1px); }
+  .panel .btn-discharge {
+    background: linear-gradient(135deg, #ffe066, #ff9eb5);
+    color: #1a0a00;
+    box-shadow: 0 4px 14px rgba(255, 200, 80, 0.35);
+  }
+  .panel .btn-discharge:disabled {
+    background: rgba(120, 130, 150, 0.3);
+    color: rgba(255, 255, 255, 0.35);
+    cursor: not-allowed; box-shadow: none;
+  }
+  .panel .btn-reset {
+    background: rgba(255, 255, 255, 0.12);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+  }
+  .panel .btn-reset:hover { background: rgba(255, 255, 255, 0.22); }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div class="status" id="status">⚡ 把气球拖到毛皮上来回摩擦试试</div>
+
+<div class="readout">
+  <div class="lbl">⚡ 静电强度</div>
+  <div class="charge-bar"><div class="charge-fill" id="chargeFill"></div></div>
+  <div class="charge-pct" id="chargePct">0%</div>
+  <div class="divider"></div>
+  <div class="row">
+    <span>吸住的纸片</span>
+    <span class="num" id="paperCount">0</span>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="tip" id="tip">💡 拖住气球，在毛皮上来回蹭几下</div>
+  <div class="btns">
+    <button class="btn-discharge" id="btnDischarge" disabled>⚡ 放电</button>
+    <button class="btn-reset" id="btnReset">🔄 重新开始</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+<script>
+/* ============================================================
+   静电实验室 —— 摩擦能让气球吸起纸片吗
+   ------------------------------------------------------------
+   教材依据：
+   第五章第三节「电」—— 静电；电的功用与安全
+   第一章「迷思概念」—— 幼儿以为"电"只能从插座出来
+   英国《发展至关重要》—— 探索事物如何运作
+
+   核心概念：
+   ① 用毛皮摩擦气球，气球会带上静电
+   ② 带静电的气球能吸起很轻的东西（纸片、头发、碎屑）
+   ③ 静电很短暂，过一会儿会自己跑掉（放电）
+   ④ 冬天脱毛衣、梳头发时的"啪啦"声就是静电
+   ⑤ 静电不是从插座里出来的电，而是"摩擦"产生的
+   ============================================================ */
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+const statusEl = document.getElementById('status');
+const chargeFillEl = document.getElementById('chargeFill');
+const chargePctEl = document.getElementById('chargePct');
+const paperCountEl = document.getElementById('paperCount');
+const tipEl = document.getElementById('tip');
+const btnDischarge = document.getElementById('btnDischarge');
+const btnReset = document.getElementById('btnReset');
+
+let W = 800, H = 600, DPR = 1, S = 1;
+let time = 0;
+
+/* ---------- 状态 ---------- */
+const state = {
+  charge: 0,          // 静电强度 0~1
+  papers: [],
+  sparks: [],
+  flashAlpha: 0,
+  rubIntensity: 0     // 摩擦的视觉强度
+};
+
+/* ---------- 毛皮 ---------- */
+const fur = {
+  x: 0, y: 0, w: 0, h: 0,
+  furSeed: []
+};
+
+/* ---------- 气球 ---------- */
+const balloon = {
+  x: 0, y: 0,
+  homeX: 0, homeY: 0,
+  w: 0, h: 0,
+  dragging: false,
+  dragOffX: 0, dragOffY: 0,
+  dragDistance: 0,
+  rot: 0
+};
+
+/* ---------- 交互 ---------- */
+let activePointer = null;
+
+/* ============================================================
+   尺寸
+============================================================ */
+function resize() {
+  let w = window.innerWidth || document.documentElement.clientWidth || 800;
+  let h = window.innerHeight || document.documentElement.clientHeight || 600;
+  if (w < 200) w = 800;
+  if (h < 200) h = 600;
+
+  W = w; H = h;
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width = Math.floor(W * DPR);
+  canvas.height = Math.floor(H * DPR);
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+  S = Math.max(0.55, Math.min(1.15, H / 800));
+
+  layoutScene();
+  buildFurSeed();
+  buildPapers();
+}
+
+function layoutScene() {
+  // 毛皮（左侧）
+  fur.x = W * 0.20;
+  fur.y = H * 0.38;
+  fur.w = 140 * S;
+  fur.h = 180 * S;
+
+  // 气球
+  balloon.w = 100 * S;
+  balloon.h = 130 * S;
+  balloon.homeX = W * 0.52;
+  balloon.homeY = H * 0.38;
+  if (!balloon.dragging && !balloon.moved) {
+    balloon.x = balloon.homeX;
+    balloon.y = balloon.homeY;
+  }
+}
+
+function buildFurSeed() {
+  // 为毛皮边缘生成毛茸茸的随机种子
+  fur.furSeed = [];
+  for (let i = 0; i < 36; i++) {
+    const a = (i / 36) * Math.PI * 2;
+    fur.furSeed.push({
+      a: a,
+      offset: 0.85 + Math.random() * 0.25,
+      r: (6 + Math.random() * 6) * S,
+      phase: Math.random() * Math.PI * 2
+    });
+  }
+}
+
+function buildPapers() {
+  state.papers = [];
+  const count = 14;
+  for (let i = 0; i < count; i++) {
+    state.papers.push({
+      x: W * 0.52 + Math.random() * W * 0.38,
+      y: H * 0.70 + Math.random() * H * 0.14,
+      w: (7 + Math.random() * 6) * S,
+      h: (8 + Math.random() * 6) * S,
+      rot: Math.random() * Math.PI * 2,
+      rotSpeed: (Math.random() - 0.5) * 3,
+      vx: 0, vy: 0,
+      attached: false,
+      relX: 0, relY: 0,
+      relRot: 0,
+      color: ['#ffffff', '#fff5c0', '#ffd0e0', '#d0f0ff', '#fff0b0'][i % 5]
+    });
+  }
+}
+
+/* ============================================================
+   音效
+============================================================ */
+let audioCtx = null;
+function initAudio() {
+  if (!audioCtx) {
+    try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
+  }
+}
+function beep(freq, dur, vol, type, delay) {
+  vol = vol == null ? 0.05 : vol;
+  type = type || 'sine';
+  delay = delay || 0;
+  if (!audioCtx) return;
+  const t0 = audioCtx.currentTime + delay;
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(freq, t0);
+  o.connect(g);
+  g.connect(audioCtx.destination);
+  g.gain.setValueAtTime(vol, t0);
+  g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+  o.start(t0);
+  o.stop(t0 + dur);
+}
+function sfxGrab() { beep(620, 0.05, 0.05, 'triangle'); }
+function sfxDrop() { beep(400, 0.08, 0.05, 'triangle'); }
+function sfxRub() {
+  beep(180 + Math.random() * 100, 0.03, 0.02, 'sawtooth');
+}
+function sfxCharged() {
+  beep(660, 0.08, 0.06, 'sine');
+  beep(880, 0.10, 0.05, 'sine', 0.06);
+}
+function sfxDischarge() {
+  beep(880, 0.05, 0.08, 'sawtooth');
+  beep(400, 0.10, 0.06, 'sawtooth', 0.04);
+  beep(200, 0.14, 0.05, 'sawtooth', 0.10);
+}
+
+/* ============================================================
+   更新
+   ============================================================ */
+function update(dt) {
+  time += dt;
+
+  // 判断气球是否在毛皮范围内
+  const nearFur = isNearFur();
+
+  // 摩擦增电：只在拖动且靠近毛皮时发生
+  if (balloon.dragging && nearFur) {
+    if (balloon.dragDistance > 0.5 * S) {
+      state.charge = Math.min(1, state.charge + balloon.dragDistance * 0.0018);
+      state.rubIntensity = 1;
+
+      // 产生火花
+      if (Math.random() < 0.6) {
+        spawnSpark(
+          balloon.x + (Math.random() - 0.5) * balloon.w * 0.6,
+          balloon.y + (Math.random() - 0.5) * balloon.h * 0.6
+        );
+      }
+
+      // 摩擦声
+      if (Math.random() < 0.3) sfxRub();
+    }
+    balloon.dragDistance = 0;
+  } else {
+    // 不摩擦时，静电缓慢衰减（跑掉了）
+    state.charge = Math.max(0, state.charge - dt * 0.08);
+    state.rubIntensity = Math.max(0, state.rubIntensity - dt * 2);
+  }
+
+  // 更新纸片
+  const attractRadius = state.charge * 280 * S;
+  let attachedCount = 0;
+
+  for (const p of state.papers) {
+    if (p.attached) {
+      // 跟随气球
+      p.x = balloon.x + p.relX;
+      p.y = balloon.y + p.relY;
+      p.rot = p.relRot;
+      attachedCount++;
+      continue;
+    }
+
+    // 判断是否被吸引
+    const dx = balloon.x - p.x;
+    const dy = balloon.y - p.y;
+    const dist = Math.hypot(dx, dy);
+
+    if (state.charge > 0.25 && dist < attractRadius && dist > 1) {
+      const speed = 350 * S * state.charge;
+      p.vx += (dx / dist) * speed * dt * 5;
+      p.vy += (dy / dist) * speed * dt * 5;
+      p.rotSpeed += 2 * dt * state.charge;
+
+      // 靠近到一定程度就"粘住"
+      if (dist < 62 * S) {
+        p.attached = true;
+        const angle = Math.atan2(p.y - balloon.y, p.x - balloon.x);
+        const r = balloon.w * 0.48;
+        p.relX = Math.cos(angle) * r;
+        p.relY = Math.sin(angle) * r * 1.25;
+        p.relRot = angle;
+        sfxCharged();
+      }
+    } else {
+      // 没有静电：重力 + 摩擦
+      p.vx *= 0.92;
+      p.vy *= 0.92;
+      p.vy += 500 * dt;
+      p.rotSpeed *= 0.95;
+
+      const floorY = H * 0.82;
+      if (p.y > floorY) {
+        p.y = floorY;
+        p.vy = 0;
+        p.vx *= 0.7;
+        p.rotSpeed *= 0.5;
+      }
+    }
+
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.rot += p.rotSpeed * dt;
+
+    // 边界
+    if (p.x < 12 * S) { p.x = 12 * S; p.vx = Math.abs(p.vx) * 0.5; }
+    if (p.x > W - 12 * S) { p.x = W - 12 * S; p.vx = -Math.abs(p.vx) * 0.5; }
+    if (p.y < 12 * S) { p.y = 12 * S; p.vy = Math.abs(p.vy) * 0.5; }
+  }
+
+  // 火花更新
+  for (const s of state.sparks) {
+    s.x += s.vx * dt;
+    s.y += s.vy * dt;
+    s.vx *= 0.96;
+    s.vy *= 0.96;
+    s.life -= dt * 2.2;
+  }
+  state.sparks = state.sparks.filter(function (s) { return s.life > 0; });
+
+  // 闪光衰减
+  state.flashAlpha = Math.max(0, state.flashAlpha - dt * 4);
+
+  updateUI(attachedCount);
+}
+
+function isNearFur() {
+  const dx = (balloon.x - fur.x) / (fur.w * 0.55 + balloon.w * 0.4);
+  const dy = (balloon.y - fur.y) / (fur.h * 0.55 + balloon.h * 0.4);
+  return dx * dx + dy * dy < 1.2;
+}
+
+function spawnSpark(x, y) {
+  state.sparks.push({
+    x: x, y: y,
+    vx: (Math.random() - 0.5) * 200,
+    vy: (Math.random() - 0.5) * 200,
+    life: 1,
+    color: ['#ffe066', '#ffffff', '#a8e6ff'][Math.floor(Math.random() * 3)]
+  });
+}
+
+/* ============================================================
+   UI
+============================================================ */
+function updateUI(attachedCount) {
+  const pct = Math.round(state.charge * 100);
+  chargeFillEl.style.width = pct + '%';
+  chargePctEl.textContent = pct + '%';
+  paperCountEl.textContent = attachedCount;
+
+  // 状态提示
+  if (state.charge < 0.05) {
+    if (!balloon.dragging) {
+      statusEl.textContent = '⚡ 把气球拖到毛皮上来回摩擦试试';
+      statusEl.className = 'status';
+    } else {
+      statusEl.textContent = '⚡ 继续摩擦，让气球带上静电';
+      statusEl.className = 'status';
+    }
+    tipEl.textContent = '💡 拖住气球，在毛皮上来回蹭几下';
+  } else if (state.charge < 0.3) {
+    statusEl.textContent = '⚡ 气球开始带静电了，再多摩擦几下';
+    statusEl.className = 'status';
+    tipEl.textContent = '💡 蹭得越久，静电越强';
+  } else if (state.charge < 0.7) {
+    statusEl.textContent = '⚡ 静电变强了！把气球靠近纸片看看';
+    statusEl.className = 'status';
+    tipEl.textContent = '💡 慢慢靠近纸片，别碰到它们';
+  } else {
+    if (attachedCount > 0) {
+      statusEl.textContent = '⚡ 纸片被吸过来了！静电真厉害';
+      statusEl.className = 'status flash';
+    } else {
+      statusEl.textContent = '⚡ 静电很强！把气球靠近纸片试试';
+      statusEl.className = 'status';
+    }
+    tipEl.textContent = '💡 点"放电"可以让纸片掉下来';
+  }
+
+  btnDischarge.disabled = state.charge < 0.05;
+}
+
+/* ============================================================
+   绘制：背景
+============================================================ */
+function drawBackground() {
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#1a2438');
+  g.addColorStop(0.55, '#0d1422');
+  g.addColorStop(1, '#050810');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+
+  // 舞台光晕（静电时微微变蓝）
+  const glow = ctx.createRadialGradient(
+    W * 0.5, H * 0.38, 30,
+    W * 0.5, H * 0.38, Math.max(W, H) * 0.65
+  );
+  glow.addColorStop(0, 'rgba(120, 180, 255, ' + (0.08 + state.charge * 0.10) + ')');
+  glow.addColorStop(1, 'rgba(120, 180, 255, 0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+
+  // 放电闪光
+  if (state.flashAlpha > 0.01) {
+    ctx.fillStyle = 'rgba(200, 230, 255, ' + state.flashAlpha * 0.4 + ')';
+    ctx.fillRect(0, 0, W, H);
+  }
+}
+
+/* ============================================================
+   绘制：桌面
+============================================================ */
+function drawTable() {
+  const ty = H * 0.82;
+
+  const g = ctx.createLinearGradient(0, ty, 0, H);
+  g.addColorStop(0, '#4a3020');
+  g.addColorStop(0.3, '#2a1a10');
+  g.addColorStop(1, '#150c05');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, ty, W, H - ty);
+
+  ctx.strokeStyle = 'rgba(180, 140, 90, 0.35)';
+  ctx.lineWidth = 2.5 * S;
+  ctx.beginPath();
+  ctx.moveTo(0, ty);
+  ctx.lineTo(W, ty);
+  ctx.stroke();
+}
+
+/* ============================================================
+   绘制：毛皮
+============================================================ */
+function drawFur() {
+  const cx = fur.x, cy = fur.y;
+  const w = fur.w, h = fur.h;
+
+  ctx.save();
+
+  // 阴影
+  ctx.beginPath();
+  ctx.ellipse(cx + 4 * S, cy + h * 0.5, w * 0.55, 12 * S, 0, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+  ctx.fill();
+
+  // 毛皮主体（多个重叠圆）
+  const bodyColor = '#6a4a30';
+  const highlight = '#a07850';
+
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, w * 0.45, h * 0.42, 0, 0, Math.PI * 2);
+  const bodyGrad = ctx.createRadialGradient(
+    cx - w * 0.15, cy - h * 0.15, w * 0.05,
+    cx, cy, w * 0.55
+  );
+  bodyGrad.addColorStop(0, highlight);
+  bodyGrad.addColorStop(0.6, bodyColor);
+  bodyGrad.addColorStop(1, '#3a2415');
+  ctx.fillStyle = bodyGrad;
+  ctx.fill();
+
+  // 边缘的毛茸茸
+  for (const f of fur.furSeed) {
+    const wobble = Math.sin(time * 2 + f.phase) * 2 * S;
+    const rx = cx + Math.cos(f.a) * (w * 0.45 + wobble);
+    const ry = cy + Math.sin(f.a) * (h * 0.42 + wobble);
+    ctx.beginPath();
+    ctx.arc(rx, ry, f.r * f.offset, 0, Math.PI * 2);
+    ctx.fillStyle = bodyColor;
+    ctx.fill();
+  }
+
+  // 内部的毛发纹理
+  ctx.strokeStyle = 'rgba(40, 25, 15, 0.35)';
+  ctx.lineWidth = 1.2 * S;
+  ctx.lineCap = 'round';
+  for (let i = 0; i < 20; i++) {
+    const a = (i / 20) * Math.PI * 2;
+    const r1 = w * 0.1;
+    const r2 = w * 0.3 + (i % 3) * 6 * S;
+    ctx.beginPath();
+    ctx.moveTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1 * 0.9);
+    ctx.lineTo(cx + Math.cos(a) * r2, cy + Math.sin(a) * r2 * 0.9);
+    ctx.stroke();
+  }
+
+  // 高光
+  ctx.beginPath();
+  ctx.ellipse(cx - w * 0.15, cy - h * 0.15, w * 0.16, h * 0.14, -0.4, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255, 240, 200, 0.22)';
+  ctx.fill();
+
+  ctx.restore();
+
+  // 标签
+  ctx.font = 'bold ' + Math.round(12 * S) + 'px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillStyle = 'rgba(200, 170, 130, 0.75)';
+  ctx.fillText('毛皮', cx, cy + h * 0.55);
+}
+
+/* ============================================================
+   绘制：气球
+============================================================ */
+function drawBalloon() {
+  const cx = balloon.x, cy = balloon.y;
+  const w = balloon.w, h = balloon.h;
+
+  // 地面阴影
+  ctx.save();
+  ctx.globalAlpha = 0.25;
+  ctx.beginPath();
+  const floorY = H * 0.82;
+  const d = (floorY - (cy + h * 0.5)) / 400;
+  const shadowW = w * 0.5 * (1 - Math.min(0.5, d * 0.3));
+  ctx.ellipse(cx, floorY, shadowW, 6 * S, 0, 0, Math.PI * 2);
+  ctx.fillStyle = '#000';
+  ctx.fill();
+  ctx.restore();
+
+  // 气球结（在下方）
+  ctx.beginPath();
+  ctx.moveTo(cx - 7 * S, cy + h * 0.5);
+  ctx.lineTo(cx + 7 * S, cy + h * 0.5);
+  ctx.lineTo(cx, cy + h * 0.5 + 11 * S);
+  ctx.closePath();
+  ctx.fillStyle = '#8a1818';
+  ctx.fill();
+
+  // 气球主体
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, w * 0.5, h * 0.5, 0, 0, Math.PI * 2);
+
+  const grad = ctx.createRadialGradient(
+    cx - w * 0.18, cy - h * 0.20, w * 0.05,
+    cx, cy, w * 0.65
+  );
+  grad.addColorStop(0, '#ff9090');
+  grad.addColorStop(0.5, '#e84040');
+  grad.addColorStop(1, '#8a1a1a');
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  ctx.strokeStyle = 'rgba(120, 20, 20, 0.75)';
+  ctx.lineWidth = 2.5 * S;
+  ctx.stroke();
+
+  // 高光（左上）
+  ctx.beginPath();
+  ctx.ellipse(cx - w * 0.20, cy - h * 0.20, w * 0.14, h * 0.20, -0.35, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
+  ctx.fill();
+
+  // 高光（右上小）
+  ctx.beginPath();
+  ctx.ellipse(cx + w * 0.15, cy - h * 0.05, w * 0.06, h * 0.12, 0.3, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
+  ctx.fill();
+
+  // 气球表情
+  drawBalloonFace(cx, cy, w, h);
+
+  // 电荷光晕
+  if (state.charge > 0.05) {
+    const glowR = w * 0.5 + state.charge * 40 * S;
+    const glowGrad = ctx.createRadialGradient(cx, cy, w * 0.45, cx, cy, glowR + 50 * S);
+    glowGrad.addColorStop(0, 'rgba(140, 200, 255, ' + (state.charge * 0.5) + ')');
+    glowGrad.addColorStop(1, 'rgba(140, 200, 255, 0)');
+    ctx.fillStyle = glowGrad;
+    ctx.beginPath();
+    ctx.arc(cx, cy, glowR + 50 * S, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 围绕气球的电荷粒子（小蓝点）
+    const particleCount = Math.floor(state.charge * 12);
+    for (let i = 0; i < particleCount; i++) {
+      const a = time * 1.5 + (i / particleCount) * Math.PI * 2;
+      const px = cx + Math.cos(a) * (w * 0.6 + 6 * S);
+      const py = cy + Math.sin(a) * (h * 0.58 + 6 * S);
+      const pulse = 0.6 + Math.sin(time * 4 + i) * 0.4;
+      ctx.beginPath();
+      ctx.arc(px, py, 2.8 * S, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(180, 230, 255, ' + (state.charge * pulse * 0.9) + ')';
+      ctx.fill();
+    }
+
+    // 电量很足时，有隐约的"闪电"
+    if (state.charge > 0.7 && Math.random() < 0.15) {
+      drawMiniLightning(cx, cy, w, h);
+    }
+  }
+}
+
+function drawBalloonFace(cx, cy, w, h) {
+  // 眼睛
+  const eyeOff = w * 0.14;
+  const eyeY = cy - h * 0.05;
+  const eyeR = w * 0.07;
+
+  // 眨眼
+  const blink = (Math.sin(time * 1.5) > 0.97) ? 0.1 : 1;
+
+  for (const sign of [-1, 1]) {
+    ctx.beginPath();
+    ctx.ellipse(cx + sign * eyeOff, eyeY, eyeR, eyeR * blink, 0, 0, Math.PI * 2);
+    ctx.fillStyle = '#1a1018';
+    ctx.fill();
+    if (blink > 0.5) {
+      ctx.beginPath();
+      ctx.arc(cx + sign * eyeOff + eyeR * 0.35, eyeY - eyeR * 0.35, eyeR * 0.4, 0, Math.PI * 2);
+      ctx.fillStyle = '#ffffff';
+      ctx.fill();
+    }
+  }
+
+  // 嘴巴：静电越强笑得越开
+  const smileOpen = 0.15 + state.charge * 0.5;
+  ctx.beginPath();
+  ctx.arc(cx, cy + h * 0.10, w * 0.18, 0.2, Math.PI - 0.2);
+  ctx.strokeStyle = '#3a1018';
+  ctx.lineWidth = 2.2 * S;
+  ctx.lineCap = 'round';
+  ctx.stroke();
+
+  // 腮红（静电强时出现）
+  if (state.charge > 0.4) {
+    ctx.globalAlpha = (state.charge - 0.4) * 1.2;
+    for (const sign of [-1, 1]) {
+      ctx.beginPath();
+      ctx.arc(cx + sign * w * 0.28, cy + h * 0.06, w * 0.09, 0, Math.PI * 2);
+      ctx.fillStyle = '#ff8fa3';
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+}
+
+function drawMiniLightning(cx, cy, w, h) {
+  // 在气球边缘画一条小闪电
+  const a = Math.random() * Math.PI * 2;
+  const r = w * 0.55;
+  const startX = cx + Math.cos(a) * r;
+  const startY = cy + Math.sin(a) * r;
+  const endX = cx + Math.cos(a) * (r + 20 * S);
+  const endY = cy + Math.sin(a) * (r + 20 * S);
+
+  ctx.beginPath();
+  ctx.moveTo(startX, startY);
+  const midX = (startX + endX) / 2 + (Math.random() - 0.5) * 12 * S;
+  const midY = (startY + endY) / 2 + (Math.random() - 0.5) * 12 * S;
+  ctx.lineTo(midX, midY);
+  ctx.lineTo(endX, endY);
+  ctx.strokeStyle = 'rgba(200, 235, 255, 0.85)';
+  ctx.lineWidth = 1.8 * S;
+  ctx.lineCap = 'round';
+  ctx.stroke();
+}
+
+/* ============================================================
+   绘制：纸片
+============================================================ */
+function drawPapers() {
+  for (const p of state.papers) {
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.rotate(p.rot);
+
+    // 阴影（未吸附时）
+    if (!p.attached) {
+      ctx.globalAlpha = 0.2;
+      ctx.beginPath();
+      ctx.ellipse(2 * S, 4 * S, p.w * 0.7, p.h * 0.3, 0, 0, Math.PI * 2);
+      ctx.fillStyle = '#000';
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+
+    // 纸片主体
+    ctx.beginPath();
+    ctx.rect(-p.w / 2, -p.h / 2, p.w, p.h);
+    const grad = ctx.createLinearGradient(-p.w / 2, -p.h / 2, p.w / 2, p.h / 2);
+    grad.addColorStop(0, p.color);
+    grad.addColorStop(1, 'rgba(210, 210, 210, 0.85)');
+    ctx.fillStyle = grad;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.28)';
+    ctx.lineWidth = 0.9 * S;
+    ctx.stroke();
+
+    // 被吸附时微微发光
+    if (p.attached && state.charge > 0.5) {
+      ctx.globalAlpha = (state.charge - 0.5) * 0.8;
+      ctx.beginPath();
+      ctx.rect(-p.w / 2 - 1, -p.h / 2 - 1, p.w + 2, p.h + 2);
+      ctx.strokeStyle = 'rgba(180, 230, 255, 0.9)';
+      ctx.lineWidth = 1.5 * S;
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+}
+
+/* ============================================================
+   绘制：火花
+============================================================ */
+function drawSparks() {
+  for (const s of state.sparks) {
+    ctx.save();
+    ctx.globalAlpha = s.life;
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, 3 * s.life * S, 0, Math.PI * 2);
+    ctx.fillStyle = s.color;
+    ctx.fill();
+    // 光晕
+    ctx.globalAlpha = s.life * 0.5;
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, 6 * s.life * S, 0, Math.PI * 2);
+    ctx.fillStyle = s.color;
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+/* ============================================================
+   渲染
+============================================================ */
+function render() {
+  ctx.clearRect(0, 0, W, H);
+
+  drawBackground();
+  drawTable();
+  drawFur();
+  drawBalloon();
+  drawSparks();
+  drawPapers();
+}
+
+/* ============================================================
+   交互
+============================================================ */
+function getPos(e) {
+  const rect = canvas.getBoundingClientRect();
+  return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+}
+
+function onDown(e) {
+  initAudio();
+  if (activePointer !== null) return;
+  activePointer = e.pointerId;
+  const p = getPos(e);
+
+  // 命中气球
+  const dx = (p.x - balloon.x) / (balloon.w * 0.65);
+  const dy = (p.y - balloon.y) / (balloon.h * 0.65);
+  if (dx * dx + dy * dy < 1) {
+    balloon.dragging = true;
+    balloon.moved = true;
+    balloon.dragOffX = balloon.x - p.x;
+    balloon.dragOffY = balloon.y - p.y;
+    balloon.dragDistance = 0;
+    sfxGrab();
+  }
+}
+
+function onMove(e) {
+  if (activePointer !== e.pointerId) return;
+  if (!balloon.dragging) return;
+  const p = getPos(e);
+  const nx = p.x + balloon.dragOffX;
+  const ny = p.y + balloon.dragOffY;
+
+  // 累计移动距离（用于摩擦充电）
+  const dx = nx - balloon.x;
+  const dy = ny - balloon.y;
+  balloon.dragDistance += Math.hypot(dx, dy);
+
+  balloon.x = nx;
+  balloon.y = ny;
+
+  // 边界限制
+  balloon.x = Math.max(balloon.w * 0.5 + 10 * S, Math.min(W - balloon.w * 0.5 - 10 * S, balloon.x));
+  balloon.y = Math.max(balloon.h * 0.5 + 10 * S, Math.min(H - balloon.h * 0.5 - 10 * S, balloon.y));
+}
+
+function onUp(e) {
+  if (activePointer !== e.pointerId) return;
+  activePointer = null;
+  if (balloon.dragging) {
+    balloon.dragging = false;
+    sfxDrop();
+  }
+}
+
+canvas.addEventListener('pointerdown', onDown);
+canvas.addEventListener('pointermove', onMove);
+canvas.addEventListener('pointerup', onUp);
+canvas.addEventListener('pointercancel', onUp);
+canvas.addEventListener('dblclick', function (e) { e.preventDefault(); });
+
+/* ============================================================
+   按钮
+============================================================ */
+btnDischarge.addEventListener('click', function () {
+  initAudio();
+  sfxDischarge();
+  state.charge = 0;
+  state.flashAlpha = 1;
+
+  // 所有纸片掉下来
+  for (const p of state.papers) {
+    if (p.attached) {
+      p.attached = false;
+      p.vx = (Math.random() - 0.5) * 200;
+      p.vy = 50 + Math.random() * 100;
+      p.rotSpeed = (Math.random() - 0.5) * 8;
+    }
+  }
+
+  // 撒放电火花
+  for (let i = 0; i < 20; i++) {
+    spawnSpark(
+      balloon.x + (Math.random() - 0.5) * balloon.w * 1.2,
+      balloon.y + (Math.random() - 0.5) * balloon.h * 1.2
+    );
+  }
+
+  updateUI(0);
+});
+
+btnReset.addEventListener('click', function () {
+  initAudio();
+  sfxDrop();
+  state.charge = 0;
+  state.sparks = [];
+  state.flashAlpha = 0;
+  balloon.moved = false;
+  balloon.x = balloon.homeX;
+  balloon.y = balloon.homeY;
+  balloon.dragging = false;
+
+  // 重置纸片到初始位置
+  for (let i = 0; i < state.papers.length; i++) {
+    const p = state.papers[i];
+    p.x = W * 0.52 + Math.random() * W * 0.38;
+    p.y = H * 0.70 + Math.random() * H * 0.14;
+    p.vx = 0;
+    p.vy = 0;
+    p.rot = Math.random() * Math.PI * 2;
+    p.rotSpeed = 0;
+    p.attached = false;
+    p.relX = 0;
+    p.relY = 0;
+  }
+
+  updateUI(0);
+});
+
+/* ============================================================
+   启动
+============================================================ */
+resize();
+updateUI(0);
+
+window.addEventListener('resize', function () {
+  resize();
+  render();
+});
+
+if (window.ResizeObserver) {
+  new ResizeObserver(function () {
+    const cw = canvas.clientWidth, ch = canvas.clientHeight;
+    if (cw > 0 && ch > 0 && (Math.abs(cw - W) > 1 || Math.abs(ch - H) > 1)) {
+      resize();
+      render();
+    }
+  }).observe(canvas);
+}
+
+render();
+requestAnimationFrame(function () {
+  resize();
+  updateUI(0);
+  render();
+});
+
+gsap.ticker.add(function (t, dt) {
+  const d = Math.min(dt || 16, 50) / 1000;
+  update(d);
+  render();
+});
+</script>
+</body>
+</html>

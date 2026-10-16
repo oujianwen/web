@@ -1,0 +1,1240 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>气球火箭 —— 空气往后跑，气球往前飞</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    height: 100%; width: 100%; overflow: hidden; background: #0a1018;
+    touch-action: none;
+    font-family: system-ui, -apple-system, sans-serif;
+    color: #fff;
+  }
+  canvas { display: block; position: absolute; inset: 0; }
+
+  .status {
+    position: fixed;
+    top: 14px; left: 50%;
+    transform: translateX(-50%);
+    padding: 12px 26px;
+    background: rgba(16, 22, 38, 0.92);
+    border-radius: 30px;
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    font-size: 15px; font-weight: 700;
+    z-index: 10; white-space: nowrap; max-width: 94vw;
+    text-align: center; transition: all 0.3s;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+  }
+  .status.fly {
+    background: rgba(40, 100, 180, 0.95);
+    border-color: rgba(120, 180, 255, 0.7);
+  }
+  .status.slow {
+    background: rgba(180, 100, 40, 0.95);
+    border-color: rgba(255, 180, 100, 0.7);
+  }
+  .status.done {
+    background: rgba(40, 130, 60, 0.95);
+    border-color: rgba(127, 221, 110, 0.7);
+  }
+
+  .readout {
+    position: fixed;
+    top: 14px; right: 14px;
+    padding: 12px 16px;
+    background: rgba(16, 22, 38, 0.9);
+    border-radius: 14px;
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    font-size: 13px; z-index: 10;
+    line-height: 1.8; min-width: 200px;
+  }
+  .readout .row {
+    display: flex; justify-content: space-between; gap: 12px;
+  }
+  .readout .lbl { color: #8898b0; }
+  .readout .num {
+    color: #ffd54f; font-weight: 800; font-variant-numeric: tabular-nums;
+  }
+  .readout .num.hi { color: #7fdd6e; }
+  .readout .divider {
+    margin: 6px 0; border-top: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  .readout .phase {
+    font-size: 11px;
+    color: #5eb3ff;
+    font-weight: 700;
+    text-align: center;
+  }
+
+  .panel {
+    position: fixed;
+    bottom: 14px; left: 50%;
+    transform: translateX(-50%);
+    width: min(760px, 94vw);
+    background: rgba(16, 22, 38, 0.94);
+    padding: 14px 22px;
+    border-radius: 18px;
+    backdrop-filter: blur(14px);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    z-index: 10;
+    display: flex; flex-direction: column; gap: 10px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+  }
+  .panel .section-label {
+    font-size: 12px;
+    color: #a8c0e0;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+  }
+
+  .level-buttons {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+  }
+  .level-btn {
+    padding: 10px 6px;
+    border-radius: 12px;
+    border: 2px solid rgba(255, 255, 255, 0.18);
+    background: rgba(255, 255, 255, 0.06);
+    color: #fff;
+    font-weight: 800;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.15s;
+    text-align: center;
+    white-space: nowrap;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+  }
+  .level-btn .emo { font-size: 14px; letter-spacing: -2px; }
+  .level-btn .pct {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.5);
+    font-weight: 700;
+  }
+  .level-btn:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.14);
+    border-color: rgba(255, 213, 79, 0.5);
+  }
+  .level-btn.active {
+    background: linear-gradient(135deg, #ff6b8a, #ffd54f);
+    color: #1a0a00;
+    border-color: transparent;
+    box-shadow: 0 4px 14px rgba(255, 140, 100, 0.5);
+  }
+  .level-btn.active .pct { color: rgba(0, 0, 0, 0.6); }
+  .level-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+  .btns {
+    display: grid;
+    grid-template-columns: 1.6fr 1fr;
+    gap: 10px;
+    margin-top: 4px;
+  }
+  .panel button {
+    padding: 13px 14px;
+    border-radius: 13px;
+    border: none;
+    font-weight: 800; font-size: 15px;
+    cursor: pointer; transition: transform 0.12s, box-shadow 0.2s, opacity 0.2s;
+    white-space: nowrap;
+  }
+  .panel button:active:not(:disabled) { transform: translateY(1px); }
+  .panel button:disabled {
+    opacity: 0.35; cursor: not-allowed; box-shadow: none !important;
+  }
+  .panel .btn-launch {
+    background: linear-gradient(135deg, #ff6b8a, #ffd54f);
+    color: #1a0a00;
+    box-shadow: 0 4px 14px rgba(255, 100, 120, 0.5);
+  }
+  .panel .btn-launch.pulse {
+    animation: pulse 0.9s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 4px 14px rgba(255, 100, 120, 0.5); }
+    50% { box-shadow: 0 4px 24px rgba(255, 100, 120, 0.9), 0 0 0 4px rgba(255, 100, 120, 0.25); }
+  }
+  .panel .btn-reset {
+    background: rgba(255, 255, 255, 0.14);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.22);
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div class="status" id="status">🎈 选一个充气级别，然后点"松手"</div>
+
+<div class="readout">
+  <div class="row"><span class="lbl">🎈 剩余空气</span><span class="num" id="airVal">0%</span></div>
+  <div class="row"><span class="lbl">⚡ 当前速度</span><span class="num hi" id="speedVal">0.0 m/s</span></div>
+  <div class="row"><span class="lbl">📊 最高速度</span><span class="num" id="maxSpeedVal">0.0 m/s</span></div>
+  <div class="divider"></div>
+  <div class="row"><span class="lbl">已飞距离</span><span class="num" id="distVal">0.0 m</span></div>
+  <div class="phase" id="phaseVal">等待开始</div>
+</div>
+
+<div class="panel">
+  <div class="section-label">💨 选择充气级别</div>
+  <div class="level-buttons" id="levelButtons">
+    <button class="level-btn" data-level="1">
+      <span class="emo">💨</span>
+      <span>小气</span>
+      <span class="pct">25%</span>
+    </button>
+    <button class="level-btn" data-level="2">
+      <span class="emo">💨💨</span>
+      <span>中气</span>
+      <span class="pct">50%</span>
+    </button>
+    <button class="level-btn" data-level="3">
+      <span class="emo">💨💨💨</span>
+      <span>大气</span>
+      <span class="pct">75%</span>
+    </button>
+    <button class="level-btn" data-level="4">
+      <span class="emo">💨💨💨💨</span>
+      <span>满气</span>
+      <span class="pct">100%</span>
+    </button>
+  </div>
+
+  <div class="btns">
+    <button class="btn-launch" id="btnLaunch" disabled>🎈 松手</button>
+    <button class="btn-reset" id="btnReset">🔄 重置</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+<script>
+/* ============================================================
+   气球火箭 —— 空气往后跑，气球往前飞
+   ------------------------------------------------------------
+   物理：
+   ① 松手瞬间速度 = 0
+   ② 推力 = 剩余空气 × 推力系数（随着空气喷出而减小）
+   ③ 阻力 = 当前速度 × 阻力系数（随着速度增加而增大）
+   ④ 加速度 a = 推力 - 阻力
+        - a > 0 → 加速（前半段）
+        - a = 0 → 速度顶峰
+        - a < 0 → 减速（后半段）
+   ⑤ 空气耗尽 → 速度归零 → 气球完全瘪掉
+   ============================================================ */
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+const statusEl = document.getElementById('status');
+const airValEl = document.getElementById('airVal');
+const speedValEl = document.getElementById('speedVal');
+const maxSpeedValEl = document.getElementById('maxSpeedVal');
+const distValEl = document.getElementById('distVal');
+const phaseValEl = document.getElementById('phaseVal');
+const levelBtns = document.querySelectorAll('.level-btn');
+const btnLaunch = document.getElementById('btnLaunch');
+const btnReset = document.getElementById('btnReset');
+
+let W = 800, H = 600, DPR = 1, S = 1;
+let time = 0;
+
+/* ---------- 物理参数 ---------- */
+const PHYSICS = {
+  thrustK: 34,          // 推力系数：推力 = air × thrustK
+  dragK: 5.5,           // 阻力系数：阻力 = v × dragK
+  drainRate: 0.7,       // 空气排出速率（每秒）→ 约 1.43 秒放完
+  totalLengthM: 5.5     // 绳子总长（米）
+};
+
+/* ---------- 状态 ---------- */
+const state = {
+  level: 0,
+  airAmount: 0,          // 充气中显示
+  targetAir: 0,
+  inflating: false,
+  flying: false,
+  launchAir: 0,          // 飞行中剩余空气
+  balloonX: 0,           // 气球中心沿绳偏移（像素）
+  balloonV: 0,           // 速度（米/秒）
+  maxV: 0,               // 记录飞行的最高速度
+  distanceTraveled: 0,
+  airParticles: [],
+  sparks: [],
+  trail: [],
+  reachedEnd: false
+};
+
+const scene = {
+  rope: { x1: 0, y: 0, x2: 0, y: 0 },
+  PX_PER_M: 100
+};
+
+const LEVEL_AIR = { 1: 0.25, 2: 0.50, 3: 0.75, 4: 1.00 };
+
+/* ============================================================
+   气球尺寸（从饱满圆球 → 扁平橡皮皮）
+============================================================ */
+function getBalloonSize(airSize) {
+  const plump = Math.sqrt(Math.max(0, Math.min(1, airSize)));
+  return {
+    w: (60 + plump * 30) * S,   // 60 → 90
+    h: (14 + plump * 82) * S    // 14 → 96
+  };
+}
+
+/* ============================================================
+   尺寸
+============================================================ */
+function resize() {
+  let w = window.innerWidth || document.documentElement.clientWidth || 800;
+  let h = window.innerHeight || document.documentElement.clientHeight || 600;
+  if (w < 200) w = 800;
+  if (h < 200) h = 600;
+
+  W = w; H = h;
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width = Math.floor(W * DPR);
+  canvas.height = Math.floor(H * DPR);
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+  S = Math.max(0.55, Math.min(1.15, H / 800));
+
+  layoutScene();
+  resetBalloon();
+}
+
+function layoutScene() {
+  const margin = Math.min(W * 0.10, 90 * S);
+  scene.rope.x1 = margin;
+  scene.rope.x2 = W - margin;
+  scene.rope.y = H * 0.38;
+  scene.PX_PER_M = (scene.rope.x2 - scene.rope.x1) / PHYSICS.totalLengthM;
+}
+
+/* ============================================================
+   重置
+============================================================ */
+function resetBalloon() {
+  state.level = 0;
+  state.balloonX = 0;
+  state.balloonV = 0;
+  state.maxV = 0;
+  state.distanceTraveled = 0;
+  state.flying = false;
+  state.inflating = false;
+  state.airAmount = 0;
+  state.targetAir = 0;
+  state.launchAir = 0;
+  state.airParticles = [];
+  state.sparks = [];
+  state.trail = [];
+  state.reachedEnd = false;
+
+  airValEl.textContent = '0%';
+  speedValEl.textContent = '0.0 m/s';
+  maxSpeedValEl.textContent = '0.0 m/s';
+  distValEl.textContent = '0.0 m';
+  phaseValEl.textContent = '等待开始';
+
+  statusEl.textContent = '🎈 选一个充气级别，然后点"松手"';
+  statusEl.className = 'status';
+
+  levelBtns.forEach(function (b) {
+    b.disabled = false;
+    b.classList.remove('active');
+  });
+
+  btnLaunch.disabled = true;
+  btnLaunch.classList.remove('pulse');
+}
+
+/* ============================================================
+   音效
+============================================================ */
+let audioCtx = null;
+function initAudio() {
+  if (!audioCtx) {
+    try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
+  }
+}
+function beep(freq, dur, vol, type, delay) {
+  vol = vol == null ? 0.05 : vol;
+  type = type || 'sine';
+  delay = delay || 0;
+  if (!audioCtx) return;
+  const t0 = audioCtx.currentTime + delay;
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(freq, t0);
+  o.connect(g);
+  g.connect(audioCtx.destination);
+  g.gain.setValueAtTime(vol, t0);
+  g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+  o.start(t0);
+  o.stop(t0 + dur);
+}
+function sfxClick() { beep(520, 0.06, 0.05, 'triangle'); }
+function sfxInflate() {
+  for (let i = 0; i < 6; i++) beep(300 + i * 60, 0.15, 0.025, 'sawtooth', i * 0.08);
+}
+function sfxReady() {
+  beep(660, 0.08, 0.06, 'sine');
+  beep(880, 0.12, 0.06, 'sine', 0.08);
+}
+function sfxLaunch() {
+  beep(220, 0.10, 0.07, 'sawtooth');
+  beep(400, 0.12, 0.05, 'sawtooth', 0.08);
+  beep(600, 0.10, 0.04, 'sawtooth', 0.20);
+}
+function sfxWhoosh() {
+  for (let i = 0; i < 8; i++) beep(600 + Math.random() * 400, 0.05, 0.02, 'sawtooth', i * 0.05);
+}
+function sfxWin() {
+  beep(523, 0.10, 0.08);
+  beep(659, 0.10, 0.08, 'sine', 0.10);
+  beep(784, 0.14, 0.08, 'sine', 0.20);
+  beep(1046, 0.22, 0.09, 'sine', 0.34);
+}
+function sfxFlat() {
+  beep(200, 0.08, 0.05, 'triangle');
+  beep(150, 0.12, 0.04, 'triangle', 0.06);
+}
+
+/* ============================================================
+   更新（核心物理）
+============================================================ */
+function update(dt) {
+  time += dt;
+
+  // ---- 充气动画 ----
+  if (state.inflating) {
+    state.airAmount += (state.targetAir - state.airAmount) * Math.min(1, dt * 3.5);
+    if (Math.abs(state.airAmount - state.targetAir) < 0.005) {
+      state.airAmount = state.targetAir;
+      state.inflating = false;
+
+      btnLaunch.disabled = false;
+      btnLaunch.classList.add('pulse');
+
+      statusEl.textContent = '🎈 充好气了！按"松手"让气球飞出去';
+      statusEl.className = 'status';
+      sfxReady();
+    }
+    airValEl.textContent = Math.round(state.airAmount * 100) + '%';
+  }
+
+  // ---- 飞行（真实物理） ----
+  if (state.flying) {
+    // 空气持续排出
+    state.launchAir = Math.max(0, state.launchAir - PHYSICS.drainRate * dt);
+
+    if (!state.reachedEnd) {
+      // 1. 计算推力（跟剩余空气成正比）
+      const thrust = state.launchAir * PHYSICS.thrustK;
+
+      // 2. 计算阻力（跟当前速度成正比）
+      const drag = state.balloonV * PHYSICS.dragK;
+
+      // 3. 净加速度 = 推力 - 阻力
+      const accel = thrust - drag;
+
+      // 4. 更新速度（防止反向）
+      state.balloonV += accel * dt;
+      if (state.balloonV < 0) state.balloonV = 0;
+
+      // 记录最高速度
+      if (state.balloonV > state.maxV) state.maxV = state.balloonV;
+
+      // 5. 更新位置
+      state.distanceTraveled += state.balloonV * dt;
+
+      // 6. 到达终点 → 停住（但空气继续喷完）
+      if (state.distanceTraveled >= PHYSICS.totalLengthM) {
+        state.distanceTraveled = PHYSICS.totalLengthM;
+        state.balloonV = 0;
+        state.reachedEnd = true;
+      }
+    } else {
+      // 已经在终点 → 不再前进，只等空气排完
+      state.balloonV = 0;
+    }
+
+    // 生成喷气粒子
+    if (state.launchAir > 0.02 && Math.random() < state.launchAir * 1.8) {
+      spawnAirParticle();
+    }
+
+    // 记录轨迹
+    if (state.trail.length === 0 ||
+        Math.abs(state.trail[state.trail.length - 1].x - state.balloonX) > 3) {
+      state.trail.push({ x: state.balloonX, y: scene.rope.y, alpha: 1 });
+      if (state.trail.length > 100) state.trail.shift();
+    }
+
+    // 屏幕位置
+    state.balloonX = state.distanceTraveled * scene.PX_PER_M;
+
+    // 显示
+    speedValEl.textContent = state.balloonV.toFixed(1) + ' m/s';
+    maxSpeedValEl.textContent = state.maxV.toFixed(1) + ' m/s';
+    distValEl.textContent = state.distanceTraveled.toFixed(1) + ' m';
+    airValEl.textContent = Math.round(state.launchAir * 100) + '%';
+
+    // 状态栏分阶段提示
+    if (state.reachedEnd && state.launchAir > 0.01) {
+      statusEl.textContent = '🎈 到了终点，但气球还有气，继续瘪下去……';
+      statusEl.className = 'status slow';
+      phaseValEl.textContent = '终点放气中';
+    } else {
+      // 判断当前阶段
+      const thrust = state.launchAir * PHYSICS.thrustK;
+      const drag = state.balloonV * PHYSICS.dragK;
+      const accel = thrust - drag;
+
+      if (state.balloonV < 0.3) {
+        phaseValEl.textContent = '刚松开';
+      } else if (accel > 0.5) {
+        phaseValEl.textContent = '↑ 加速中';
+        statusEl.textContent = '🎈 气球正在加速！';
+        statusEl.className = 'status fly';
+      } else if (accel > -0.5) {
+        phaseValEl.textContent = '⛰ 速度顶峰';
+        statusEl.textContent = '⛰ 气球速度达到最高！接下来会慢下来';
+        statusEl.className = 'status fly';
+      } else {
+        phaseValEl.textContent = '↓ 减速中';
+        statusEl.textContent = '🎈 气球开始减速，空气快喷完了……';
+        statusEl.className = 'status slow';
+      }
+    }
+
+    // ---- 空气耗尽 → 结束 ----
+    if (state.launchAir <= 0.001) {
+      state.launchAir = 0;
+      state.balloonV = 0;
+      state.flying = false;
+      sfxFlat();
+      onFinish(state.reachedEnd);
+    }
+  }
+
+  // 空气粒子
+  for (const p of state.airParticles) {
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.vy += 30 * dt;
+    p.life -= dt * 1.2;
+    p.r += dt * 4 * S;
+  }
+  state.airParticles = state.airParticles.filter(function (p) { return p.life > 0; });
+
+  // 庆祝星星
+  for (const s of state.sparks) {
+    s.x += s.vx * dt;
+    s.y += s.vy * dt;
+    s.vy += 200 * dt;
+    s.life -= dt * 1.2;
+    s.rot += s.rotSpeed * dt;
+  }
+  state.sparks = state.sparks.filter(function (s) { return s.life > 0; });
+
+  // 轨迹淡出
+  for (const t of state.trail) {
+    t.alpha -= dt * 0.15;
+  }
+  state.trail = state.trail.filter(function (t) { return t.alpha > 0; });
+}
+
+function spawnAirParticle() {
+  const airSize = state.launchAir;
+  const size = getBalloonSize(airSize);
+  const balloonW = size.w;
+  const mouthX = scene.rope.x1 + state.balloonX - balloonW * 0.75 - 5 * S;
+  const mouthY = scene.rope.y;
+
+  for (let i = 0; i < 2; i++) {
+    const a = Math.PI + (Math.random() - 0.5) * 0.6;
+    const v = 60 + Math.random() * 100;
+    state.airParticles.push({
+      x: mouthX,
+      y: mouthY + (Math.random() - 0.5) * 12 * S,
+      vx: Math.cos(a) * v,
+      vy: Math.sin(a) * v + (Math.random() - 0.5) * 30,
+      r: (3 + Math.random() * 4) * S,
+      life: 1
+    });
+  }
+}
+
+function onFinish(reachedEnd) {
+  btnLaunch.disabled = true;
+  btnLaunch.classList.remove('pulse');
+  levelBtns.forEach(function (b) { b.disabled = false; });
+
+  if (reachedEnd) {
+    statusEl.textContent = '🎉 飞到终点！空气全部喷完，气球完全瘪了';
+    statusEl.className = 'status done';
+    phaseValEl.textContent = '完成';
+    sfxWin();
+    spawnSparks();
+  } else {
+    statusEl.textContent = '🎈 空气耗尽，气球瘪成一片橡皮皮，停在 ' +
+      state.distanceTraveled.toFixed(1) + ' 米处';
+    statusEl.className = 'status';
+    phaseValEl.textContent = '空气耗尽';
+  }
+}
+
+function spawnSparks() {
+  for (let i = 0; i < 30; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const v = 80 + Math.random() * 200;
+    state.sparks.push({
+      x: scene.rope.x1 + state.balloonX,
+      y: scene.rope.y,
+      vx: Math.cos(a) * v,
+      vy: Math.sin(a) * v - 100,
+      life: 1,
+      size: 3 + Math.random() * 4,
+      rot: Math.random() * Math.PI * 2,
+      rotSpeed: (Math.random() - 0.5) * 8,
+      color: ['#ffd54f', '#ff6b8a', '#5eb3ff', '#7fdd6e'][i % 4]
+    });
+  }
+}
+
+/* ============================================================
+   绘制：背景
+============================================================ */
+function drawBackground() {
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#1a2438');
+  g.addColorStop(0.55, '#0d1422');
+  g.addColorStop(1, '#050810');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+
+  const glow = ctx.createRadialGradient(W * 0.5, H * 0.38, 30, W * 0.5, H * 0.38, Math.max(W, H) * 0.7);
+  glow.addColorStop(0, 'rgba(255, 150, 200, 0.08)');
+  glow.addColorStop(1, 'rgba(255, 150, 200, 0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+}
+
+/* ============================================================
+   绘制：绳子
+============================================================ */
+function drawRope() {
+  const r = scene.rope;
+
+  ctx.beginPath();
+  ctx.moveTo(r.x1, r.y + 2 * S);
+  ctx.lineTo(r.x2, r.y + 2 * S);
+  ctx.strokeStyle = 'rgba(0, 0, 0, 0.4)';
+  ctx.lineWidth = 4 * S;
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(r.x1, r.y);
+  ctx.lineTo(r.x2, r.y);
+  ctx.strokeStyle = '#a89060';
+  ctx.lineWidth = 3 * S;
+  ctx.lineCap = 'round';
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(r.x1, r.y - 1 * S);
+  ctx.lineTo(r.x2, r.y - 1 * S);
+  ctx.strokeStyle = 'rgba(255, 240, 200, 0.4)';
+  ctx.lineWidth = 1.2 * S;
+  ctx.stroke();
+
+  for (const x of [r.x1, r.x2]) {
+    ctx.beginPath();
+    ctx.arc(x, r.y, 6 * S, 0, Math.PI * 2);
+    ctx.fillStyle = '#8a7040';
+    ctx.fill();
+    ctx.strokeStyle = '#5a4020';
+    ctx.lineWidth = 1.5 * S;
+    ctx.stroke();
+  }
+
+  ctx.font = 'bold ' + Math.round(11 * S) + 'px system-ui, sans-serif';
+  ctx.fillStyle = 'rgba(168, 200, 232, 0.7)';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillText('起点', r.x1, r.y + 14 * S);
+  ctx.fillText('终点 ' + PHYSICS.totalLengthM + 'm', r.x2, r.y + 14 * S);
+
+  // 刻度
+  ctx.font = Math.round(9 * S) + 'px system-ui, sans-serif';
+  ctx.fillStyle = 'rgba(168, 200, 232, 0.5)';
+  ctx.textBaseline = 'bottom';
+  for (let m = 1; m <= Math.floor(PHYSICS.totalLengthM); m++) {
+    const x = r.x1 + m * scene.PX_PER_M;
+    ctx.beginPath();
+    ctx.moveTo(x, r.y - 6 * S);
+    ctx.lineTo(x, r.y - 12 * S);
+    ctx.strokeStyle = 'rgba(168, 200, 232, 0.3)';
+    ctx.lineWidth = 1.2 * S;
+    ctx.stroke();
+    ctx.fillText(m + 'm', x, r.y - 14 * S);
+  }
+}
+
+/* ============================================================
+   绘制：气球（形状由空气量决定）
+============================================================ */
+function drawBalloon() {
+  const bx = scene.rope.x1 + state.balloonX;
+  const by = scene.rope.y;
+
+  const airSize = state.flying ? state.launchAir : state.airAmount;
+  const size = getBalloonSize(airSize);
+  const balloonW = size.w;
+  const balloonH = size.h;
+
+  const mouthX = -balloonW * 0.75;
+  const mouthHalfH = Math.max(3 * S, balloonH * 0.10);
+
+  const bodyRx = balloonW * 0.48;
+  const bodyRy = balloonH * 0.5;
+  const bodyCx = mouthX + bodyRx * 0.9;
+
+  // 轨迹拖尾
+  ctx.save();
+  for (const t of state.trail) {
+    if (t.alpha <= 0) continue;
+    ctx.globalAlpha = t.alpha * 0.4;
+    ctx.beginPath();
+    ctx.arc(scene.rope.x1 + t.x, t.y + (Math.random() - 0.5) * 4, 4 * S, 0, Math.PI * 2);
+    ctx.fillStyle = '#ff8fa3';
+    ctx.fill();
+  }
+  ctx.restore();
+
+  ctx.save();
+  ctx.translate(bx, by);
+
+  // 阴影
+  ctx.beginPath();
+  ctx.ellipse(bodyCx, balloonH * 0.8 + 5 * S, balloonW * 0.45, 5 * S, 0, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+  ctx.fill();
+
+  // 主体椭圆
+  ctx.beginPath();
+  ctx.ellipse(bodyCx, 0, bodyRx, bodyRy, 0, 0, Math.PI * 2);
+
+  const grad = ctx.createRadialGradient(
+    bodyCx - bodyRx * 0.3, -bodyRy * 0.3, Math.max(2, bodyRx * 0.15),
+    bodyCx, 0, Math.max(bodyRx, bodyRy)
+  );
+  grad.addColorStop(0, '#ffb8c8');
+  grad.addColorStop(0.4, '#ff6b8a');
+  grad.addColorStop(1, '#a83050');
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  ctx.strokeStyle = 'rgba(120, 20, 50, 0.75)';
+  ctx.lineWidth = Math.max(1, 2 * S);
+  ctx.stroke();
+
+  // 高光（有气时）
+  if (airSize > 0.15) {
+    const hlAlpha = 0.15 + airSize * 0.4;
+    ctx.beginPath();
+    ctx.ellipse(bodyCx - bodyRx * 0.3, -bodyRy * 0.35, bodyRx * 0.2, bodyRy * 0.3, -0.3, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255, 255, 255, ' + hlAlpha + ')';
+    ctx.fill();
+  }
+
+  // 中等程度褶皱（空气 < 35%）
+  if (airSize < 0.35 && airSize > 0.02) {
+    const wrinkleA = (0.35 - airSize) / 0.35 * 0.55;
+    ctx.strokeStyle = 'rgba(120, 20, 50, ' + wrinkleA + ')';
+    ctx.lineWidth = 1 * S;
+    for (let i = 0; i < 3; i++) {
+      const t = (i + 1) / 4;
+      const yy = (t - 0.5) * balloonH * 0.6;
+      ctx.beginPath();
+      ctx.moveTo(bodyCx - bodyRx * 0.7, yy);
+      ctx.quadraticCurveTo(bodyCx, yy + 3 * S, bodyCx + bodyRx * 0.7, yy);
+      ctx.stroke();
+    }
+  }
+
+  // 完全放气（空气 ≤ 2%）→ 橡皮皮
+  if (airSize <= 0.02) {
+    // 外圈松散轮廓
+    ctx.beginPath();
+    ctx.ellipse(bodyCx, 0, bodyRx * 1.05, bodyRy * 1.2, 0, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(120, 20, 50, 0.35)';
+    ctx.lineWidth = 1 * S;
+    ctx.setLineDash([3 * S, 3 * S]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // 竖直褶皱
+    ctx.strokeStyle = 'rgba(120, 20, 50, 0.55)';
+    ctx.lineWidth = 1.2 * S;
+    for (let i = 0; i < 5; i++) {
+      const t = (i + 1) / 6;
+      const xx = bodyCx - bodyRx + t * bodyRx * 2;
+      ctx.beginPath();
+      ctx.moveTo(xx, -bodyRy * 0.75);
+      ctx.quadraticCurveTo(xx + 2 * S, 0, xx, bodyRy * 0.75);
+      ctx.stroke();
+    }
+
+    // 顶部/底部波纹
+    ctx.strokeStyle = 'rgba(120, 20, 50, 0.45)';
+    ctx.lineWidth = 1 * S;
+    for (let i = 0; i < 3; i++) {
+      const t = (i + 1) / 4;
+      const xx = bodyCx - bodyRx + t * bodyRx * 2;
+      ctx.beginPath();
+      ctx.moveTo(xx - 6 * S, -bodyRy * 0.7);
+      ctx.quadraticCurveTo(xx, -bodyRy * 0.4, xx + 6 * S, -bodyRy * 0.7);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(xx - 6 * S, bodyRy * 0.7);
+      ctx.quadraticCurveTo(xx, bodyRy * 0.4, xx + 6 * S, bodyRy * 0.7);
+      ctx.stroke();
+    }
+  }
+
+  // 气球嘴
+  ctx.beginPath();
+  ctx.ellipse(mouthX, 0, 6 * S, mouthHalfH, 0, 0, Math.PI * 2);
+  const mouthGrad = ctx.createRadialGradient(mouthX - 2 * S, -mouthHalfH * 0.3, 1, mouthX, 0, Math.max(6 * S, mouthHalfH));
+  mouthGrad.addColorStop(0, '#8a2038');
+  mouthGrad.addColorStop(1, '#3a0818');
+  ctx.fillStyle = mouthGrad;
+  ctx.fill();
+  ctx.strokeStyle = '#2a0610';
+  ctx.lineWidth = 1.2 * S;
+  ctx.stroke();
+
+  // 吸管
+  const strawW = 4 * S;
+  const strawH = 14 * S;
+  ctx.beginPath();
+  ctx.rect(-strawW / 2, -strawH, strawW, strawH * 2);
+  ctx.fillStyle = 'rgba(180, 200, 220, 0.9)';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(80, 100, 130, 0.9)';
+  ctx.lineWidth = 1.2 * S;
+  ctx.stroke();
+
+  ctx.restore();
+
+  // 空气量数字
+  if (airSize > 0.1) {
+    ctx.font = 'bold ' + Math.round(10 * S) + 'px system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(Math.round(airSize * 100) + '%', bx + bodyCx, by);
+  } else if (airSize <= 0.02 && (state.level > 0)) {
+    ctx.font = 'bold ' + Math.round(10 * S) + 'px system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(255, 200, 210, 0.85)';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText('没气了', bx + bodyCx, by + balloonH * 0.5 + 12 * S);
+  }
+
+  // 飞行箭头
+  if (state.flying && state.launchAir > 0.05 && !state.reachedEnd) {
+    const mouthScreenX = bx + mouthX - 5 * S;
+    const tailScreenX = bx + bodyCx + bodyRx + 5 * S;
+    drawForceArrows(mouthScreenX, tailScreenX, by);
+  }
+}
+
+/* ============================================================
+   绘制：反作用力箭头
+============================================================ */
+function drawForceArrows(mouthX, tailX, y) {
+  const strength = Math.min(1, state.launchAir);
+  const alpha = 0.4 + strength * 0.6;
+  const arrowLen = 30 + strength * 55 * S;
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+
+  // 向后（左侧）
+  ctx.beginPath();
+  ctx.moveTo(mouthX, y);
+  ctx.lineTo(mouthX - arrowLen, y);
+  ctx.strokeStyle = '#5eb3ff';
+  ctx.lineWidth = 4 * S;
+  ctx.lineCap = 'round';
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(mouthX - arrowLen, y);
+  ctx.lineTo(mouthX - arrowLen + 12 * S, y - 6 * S);
+  ctx.lineTo(mouthX - arrowLen + 12 * S, y + 6 * S);
+  ctx.closePath();
+  ctx.fillStyle = '#5eb3ff';
+  ctx.fill();
+
+  ctx.font = 'bold ' + Math.round(11 * S) + 'px system-ui, sans-serif';
+  ctx.fillStyle = '#a8e6ff';
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('空气往后喷', mouthX - arrowLen - 8 * S, y - 12 * S);
+
+  // 向前（右侧）
+  const forwardLen = 30 + strength * 65 * S;
+  ctx.beginPath();
+  ctx.moveTo(tailX, y);
+  ctx.lineTo(tailX + forwardLen, y);
+  ctx.strokeStyle = '#7fdd6e';
+  ctx.lineWidth = 4 * S;
+  ctx.lineCap = 'round';
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(tailX + forwardLen, y);
+  ctx.lineTo(tailX + forwardLen - 12 * S, y - 6 * S);
+  ctx.lineTo(tailX + forwardLen - 12 * S, y + 6 * S);
+  ctx.closePath();
+  ctx.fillStyle = '#7fdd6e';
+  ctx.fill();
+
+  ctx.font = 'bold ' + Math.round(11 * S) + 'px system-ui, sans-serif';
+  ctx.fillStyle = '#c8ffb8';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('气球往前飞', tailX + forwardLen + 8 * S, y - 12 * S);
+
+  ctx.restore();
+}
+
+/* ============================================================
+   绘制：空气粒子
+============================================================ */
+function drawAirParticles() {
+  for (const p of state.airParticles) {
+    ctx.save();
+    ctx.globalAlpha = p.life * 0.7;
+    const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r);
+    g.addColorStop(0, 'rgba(200, 235, 255, 0.9)');
+    g.addColorStop(0.5, 'rgba(140, 200, 255, 0.4)');
+    g.addColorStop(1, 'rgba(140, 200, 255, 0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+/* ============================================================
+   绘制：庆祝星星
+============================================================ */
+function drawSparks() {
+  for (const s of state.sparks) {
+    ctx.save();
+    ctx.translate(s.x, s.y);
+    ctx.rotate(s.rot);
+    ctx.globalAlpha = s.life;
+    ctx.beginPath();
+    for (let i = 0; i < 10; i++) {
+      const r = i % 2 === 0 ? s.size : s.size * 0.42;
+      const a = (Math.PI / 5) * i - Math.PI / 2;
+      const x = Math.cos(a) * r;
+      const y = Math.sin(a) * r;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.fillStyle = s.color;
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+/* ============================================================
+   绘制：速度曲线图（左下角）
+   ------------------------------------------------------------
+   实时绘制本次飞行的速度-时间曲线，
+   让孩子看到"先加速 → 顶峰 → 减速 → 停"的完整过程
+   ============================================================ */
+let speedHistory = [];
+
+function drawSpeedChart() {
+  const pw = Math.min(W * 0.28, 220 * S);
+  const ph = Math.min(H * 0.20, 130 * S);
+  const px = 20 * S;
+  const py = H - ph - 130 * S;
+
+  // 面板
+  ctx.fillStyle = 'rgba(16, 22, 38, 0.85)';
+  roundRect(px, py, pw, ph, 10 * S);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+  ctx.lineWidth = 1.2 * S;
+  roundRect(px, py, pw, ph, 10 * S);
+  ctx.stroke();
+
+  ctx.font = 'bold ' + Math.round(10 * S) + 'px system-ui, sans-serif';
+  ctx.fillStyle = 'rgba(168, 200, 232, 0.9)';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillText('📈 速度-时间曲线', px + pw / 2, py + 6 * S);
+
+  // 图表区
+  const padL = 24 * S;
+  const padR = 8 * S;
+  const padT = 22 * S;
+  const padB = 16 * S;
+  const chartX = px + padL;
+  const chartY = py + padT;
+  const chartW = pw - padL - padR;
+  const chartH = ph - padT - padB;
+
+  // 时间轴和速度轴
+  const tMax = 2.0;               // 最长 2 秒
+  const vMax = Math.max(3, state.maxV * 1.15);   // 速度轴
+
+  // 网格
+  ctx.strokeStyle = 'rgba(94, 179, 255, 0.08)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const x = chartX + chartW * i / 4;
+    ctx.beginPath();
+    ctx.moveTo(x, chartY);
+    ctx.lineTo(x, chartY + chartH);
+    ctx.stroke();
+  }
+  for (let i = 0; i <= 3; i++) {
+    const y = chartY + chartH * i / 3;
+    ctx.beginPath();
+    ctx.moveTo(chartX, y);
+    ctx.lineTo(chartX + chartW, y);
+    ctx.stroke();
+  }
+
+  // 坐标轴
+  ctx.strokeStyle = 'rgba(94, 179, 255, 0.4)';
+  ctx.lineWidth = 1.2 * S;
+  ctx.beginPath();
+  ctx.moveTo(chartX, chartY);
+  ctx.lineTo(chartX, chartY + chartH);
+  ctx.lineTo(chartX + chartW, chartY + chartH);
+  ctx.stroke();
+
+  // 轴标签
+  ctx.font = Math.round(8 * S) + 'px system-ui, sans-serif';
+  ctx.fillStyle = 'rgba(168, 200, 232, 0.6)';
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(vMax.toFixed(1), chartX - 3 * S, chartY);
+  ctx.fillText('0', chartX - 3 * S, chartY + chartH);
+
+  // 速度曲线
+  if (speedHistory.length > 1) {
+    ctx.beginPath();
+    let first = true;
+    for (const pt of speedHistory) {
+      const x = chartX + (pt.t / tMax) * chartW;
+      const y = chartY + chartH - (pt.v / vMax) * chartH;
+      if (x > chartX + chartW) break;
+      if (first) { ctx.moveTo(x, y); first = false; }
+      else ctx.lineTo(x, y);
+    }
+    ctx.strokeStyle = '#ff6b8a';
+    ctx.lineWidth = 2.5 * S;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.shadowBlur = 6 * S;
+    ctx.shadowColor = 'rgba(255, 100, 120, 0.7)';
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // 顶峰标记
+    if (state.maxV > 0.5 && state.flying) {
+      // 找到达到顶峰的时间点
+      for (let i = 1; i < speedHistory.length; i++) {
+        if (speedHistory[i].v >= state.maxV - 0.05) {
+          const px2 = chartX + (speedHistory[i].t / tMax) * chartW;
+          const py2 = chartY + chartH - (state.maxV / vMax) * chartH;
+          if (px2 <= chartX + chartW) {
+            ctx.beginPath();
+            ctx.arc(px2, py2, 3.5 * S, 0, Math.PI * 2);
+            ctx.fillStyle = '#ffd54f';
+            ctx.fill();
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 1 * S;
+            ctx.stroke();
+          }
+          break;
+        }
+      }
+    }
+  }
+
+  // 阶段说明
+  ctx.font = Math.round(8 * S) + 'px system-ui, sans-serif';
+  ctx.fillStyle = 'rgba(255, 158, 181, 0.8)';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'bottom';
+  ctx.fillText('先加速 → 顶峰 → 减速 → 停', chartX, py + ph - 4 * S);
+}
+
+/* ============================================================
+   工具
+============================================================ */
+function roundRect(x, y, w, h, r) {
+  const rr = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.lineTo(x + w - rr, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+  ctx.lineTo(x + w, y + h - rr);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+  ctx.lineTo(x + rr, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+  ctx.lineTo(x, y + rr);
+  ctx.quadraticCurveTo(x, y, x + rr, y);
+  ctx.closePath();
+}
+
+/* ============================================================
+   渲染
+============================================================ */
+function render() {
+  ctx.clearRect(0, 0, W, H);
+
+  drawBackground();
+  drawRope();
+  drawBalloon();
+  drawAirParticles();
+  drawSparks();
+  drawSpeedChart();
+}
+
+/* ============================================================
+   交互
+============================================================ */
+levelBtns.forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    initAudio();
+    if (state.flying || state.inflating) return;
+
+    sfxClick();
+    const level = +btn.dataset.level;
+    state.level = level;
+    state.targetAir = LEVEL_AIR[level];
+    state.airAmount = 0;
+    state.inflating = true;
+
+    levelBtns.forEach(function (b) {
+      b.classList.toggle('active', b === btn);
+      b.disabled = true;
+    });
+
+    btnLaunch.disabled = true;
+    btnLaunch.classList.remove('pulse');
+
+    statusEl.textContent = '💨 正在给气球充气……';
+    statusEl.className = 'status';
+    sfxInflate();
+  });
+});
+
+btnLaunch.addEventListener('click', function () {
+  initAudio();
+  if (state.flying || state.inflating || state.airAmount < 0.05) return;
+
+  state.flying = true;
+  state.launchAir = state.airAmount;
+  state.balloonV = 0;             // ★ 初速度 = 0（重要）
+  state.maxV = 0;
+  state.distanceTraveled = 0;
+  state.trail = [];
+  state.reachedEnd = false;
+  speedHistory = [{ t: 0, v: 0 }];
+
+  btnLaunch.disabled = true;
+  btnLaunch.classList.remove('pulse');
+
+  statusEl.textContent = '🎈 松手了！气球开始飞出去';
+  statusEl.className = 'status fly';
+  phaseValEl.textContent = '刚松开';
+  sfxLaunch();
+  sfxWhoosh();
+});
+
+btnReset.addEventListener('click', function () {
+  initAudio();
+  sfxClick();
+  resetBalloon();
+  speedHistory = [];
+});
+
+canvas.addEventListener('dblclick', function (e) { e.preventDefault(); });
+
+/* 每 50ms 记录一次速度（用于曲线图） */
+let lastSampleTime = 0;
+gsap.ticker.add(function (t, dt) {
+  const d = Math.min(dt || 16, 50) / 1000;
+  update(d);
+  render();
+
+  // 采样速度历史
+  if (state.flying) {
+    lastSampleTime += d;
+    if (lastSampleTime > 0.04) {
+      speedHistory.push({
+        t: time - (state.flying ? 0 : 0),
+        v: state.balloonV
+      });
+      lastSampleTime = 0;
+      if (speedHistory.length > 100) speedHistory.shift();
+    }
+  }
+});
+
+/* ============================================================
+   启动
+============================================================ */
+resize();
+
+window.addEventListener('resize', function () {
+  resize();
+  render();
+});
+
+if (window.ResizeObserver) {
+  new ResizeObserver(function () {
+    const cw = canvas.clientWidth, ch = canvas.clientHeight;
+    if (cw > 0 && ch > 0 && (Math.abs(cw - W) > 1 || Math.abs(ch - H) > 1)) {
+      resize();
+      render();
+    }
+  }).observe(canvas);
+}
+
+render();
+requestAnimationFrame(function () {
+  resize();
+  render();
+});
+</script>
+</body>
+</html>

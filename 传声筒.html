@@ -1,0 +1,908 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>传声筒 —— 绳子绷紧了才听得见</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    height: 100%; overflow: hidden; background: #0a0f1c;
+    touch-action: none;
+    font-family: system-ui, -apple-system, sans-serif;
+    color: #fff;
+  }
+  canvas { display: block; }
+
+  .panel {
+    position: fixed;
+    bottom: 20px; left: 50%;
+    transform: translateX(-50%);
+    width: min(500px, 94vw);
+    background: rgba(16, 22, 38, 0.85);
+    padding: 18px 24px;
+    border-radius: 20px;
+    backdrop-filter: blur(14px);
+    border: 1px solid rgba(255, 255, 255, 0.13);
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  }
+  .panel .row {
+    display: grid;
+    grid-template-columns: 90px 1fr 60px;
+    align-items: center;
+    gap: 12px;
+    font-size: 13px;
+  }
+  .panel .row .lbl {
+    font-weight: 600;
+    font-size: 14px;
+    white-space: nowrap;
+  }
+  .panel input[type="range"] {
+    width: 100%;
+    height: 6px;
+    accent-color: #5eb3ff;
+    cursor: pointer;
+  }
+  .panel .val {
+    text-align: right;
+    color: #ffd54f;
+    font-weight: bold;
+    font-size: 13px;
+  }
+  .panel .btns {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-top: 4px;
+  }
+  .panel button {
+    padding: 12px 16px;
+    border: none;
+    border-radius: 14px;
+    font-weight: 800;
+    font-size: 14px;
+    cursor: pointer;
+    letter-spacing: 0.5px;
+    transition: transform 0.12s, box-shadow 0.2s;
+  }
+  .panel button:active {
+    transform: translateY(1px);
+  }
+  .panel .btn-soft {
+    background: linear-gradient(135deg, #a8c8ff, #5eb3ff);
+    color: #0a1a2f;
+    box-shadow: 0 4px 14px rgba(94, 179, 255, 0.3);
+  }
+  .panel .btn-loud {
+    background: linear-gradient(135deg, #ffb055, #ff6b6b);
+    color: #1a0a00;
+    box-shadow: 0 4px 14px rgba(255, 140, 60, 0.35);
+  }
+
+  .status {
+    position: fixed;
+    top: 22px; left: 50%;
+    transform: translateX(-50%);
+    padding: 12px 28px;
+    background: rgba(16, 22, 38, 0.82);
+    border-radius: 30px;
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.13);
+    font-size: 15px;
+    font-weight: 700;
+    z-index: 10;
+    white-space: nowrap;
+    transition: all 0.3s;
+  }
+
+  .dist-tip {
+    position: fixed;
+    top: 22px; right: 22px;
+    padding: 10px 18px;
+    background: rgba(16, 22, 38, 0.72);
+    border-radius: 14px;
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    font-size: 13px;
+    font-weight: 600;
+    color: #a8c0e0;
+    z-index: 10;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div class="status" id="status">🎈 把绳子拉紧，声音才传得过去</div>
+<div class="dist-tip">距离：<span id="dist">--</span></div>
+
+<div class="panel">
+  <div class="row">
+    <span class="lbl">🧵 绳子松紧</span>
+    <input type="range" id="tight" min="0" max="100" value="60">
+    <span class="val" id="tightv">60</span>
+  </div>
+  <div class="btns">
+    <button class="btn-soft" id="btnSoft">🤫 小声说</button>
+    <button class="btn-loud" id="btnLoud">📣 大声喊</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+<script>
+/* ============================================================
+   传声筒 —— 绳子绷紧了才听得见
+   ------------------------------------------------------------
+   教材依据：
+   第五章第三节「声音」—— 声音的形成、声音的传送
+   第六章「玩声音」—— 传声筒游戏、绳子松紧对比
+   第七章 STEM —— 设计、制作、测试、精进
+
+   核心概念：
+   ① 声音由振动产生
+   ② 声音需要介质才能传播
+   ③ 绳子绷紧时，振动传得远；绳子松了，振动传不过去
+   ④ 说话声音越大（振幅越大），传得越远
+   ⑤ 距离越远，声音越弱（衰减）
+   ============================================================ */
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+const statusEl = document.getElementById('status');
+const distEl = document.getElementById('dist');
+const tightSlider = document.getElementById('tight');
+const tightVal = document.getElementById('tightv');
+const btnSoft = document.getElementById('btnSoft');
+const btnLoud = document.getElementById('btnLoud');
+
+let W, H, DPR, S = 1;
+let time = 0;
+
+/* ---------- 状态 ---------- */
+const state = {
+  tightness: 0.6,
+  pulses: [],
+  ripples: [],
+  sparks: [],
+  lastResult: '',
+  lastResultTime: 0
+};
+
+/* ---------- 两侧杯子 ---------- */
+const leftCup = {
+  x: 0, y: 0, w: 0, h: 0,
+  mouthOpen: 0,
+  bob: 0
+};
+const rightCup = {
+  x: 0, y: 0, w: 0, h: 0,
+  shake: 0,
+  glow: 0,
+  bob: 0,
+  listen: 0
+};
+
+/* ---------- 交互 ---------- */
+let dragging = null;
+let dragOffset = { x: 0, y: 0 };
+let activePointer = null;
+let downPos = null;
+
+/* ============================================================
+   尺寸
+============================================================ */
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width = W * DPR;
+  canvas.height = H * DPR;
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+  S = Math.max(0.6, Math.min(1.15, H / 800));
+
+  leftCup.x = Math.max(W * 0.14, 80 * S);
+  leftCup.y = H * 0.48;
+  leftCup.w = 92 * S;
+  leftCup.h = 72 * S;
+
+  if (rightCup.x === 0) {
+    rightCup.x = W * 0.86;
+    rightCup.y = H * 0.48;
+  } else {
+    rightCup.x = Math.min(rightCup.x, W - 80 * S);
+    rightCup.y = Math.min(Math.max(rightCup.y, 100 * S), H - 140 * S);
+  }
+  rightCup.w = 92 * S;
+  rightCup.h = 72 * S;
+
+  updateDistance();
+}
+
+function updateDistance() {
+  const d = getDistance();
+  const cm = Math.round(d / S / 2);
+  distEl.textContent = cm + ' 厘米';
+}
+
+/* ============================================================
+   几何
+============================================================ */
+function getRopeEnds() {
+  return {
+    A: { x: leftCup.x + leftCup.w * 0.35, y: leftCup.y },
+    B: { x: rightCup.x - rightCup.w * 0.35, y: rightCup.y }
+  };
+}
+
+function getDistance() {
+  const { A, B } = getRopeEnds();
+  return Math.hypot(B.x - A.x, B.y - A.y);
+}
+
+function ropePoint(t) {
+  const { A, B } = getRopeEnds();
+  const x = A.x + (B.x - A.x) * t;
+  const y = A.y + (B.y - A.y) * t;
+
+  const sag = (1 - state.tightness) * 90 * S;
+  const sagY = Math.sin(Math.PI * t) * sag;
+  const wob = Math.sin(time * 1.5 + t * 5) * 1.5 * S * (1 - state.tightness);
+
+  return { x, y: y + sagY + wob };
+}
+
+/* ============================================================
+   音效
+============================================================ */
+let audioCtx = null;
+function initAudio() {
+  if (!audioCtx) {
+    try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
+  }
+}
+function beep(freq, dur, vol = 0.07, type = 'sine', delay = 0) {
+  if (!audioCtx) return;
+  const t0 = audioCtx.currentTime + delay;
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(freq, t0);
+  o.connect(g);
+  g.connect(audioCtx.destination);
+  g.gain.setValueAtTime(vol, t0);
+  g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+  o.start(t0);
+  o.stop(t0 + dur);
+}
+function sfxSpeak(loud) {
+  const base = loud ? 420 : 340;
+  beep(base, 0.12, 0.08, 'triangle');
+  beep(base * 1.25, 0.14, 0.07, 'triangle', 0.09);
+  beep(base * 1.5, 0.16, 0.06, 'triangle', 0.18);
+}
+function sfxHeard() {
+  beep(660, 0.12, 0.10, 'sine');
+  beep(880, 0.14, 0.09, 'sine', 0.10);
+  beep(1100, 0.20, 0.08, 'sine', 0.22);
+}
+function sfxMiss() {
+  beep(220, 0.16, 0.06, 'triangle');
+  beep(160, 0.22, 0.05, 'triangle', 0.12);
+}
+
+/* ============================================================
+   说话
+============================================================ */
+function speak(loud) {
+  initAudio();
+
+  leftCup.mouthOpen = 1;
+  gsap.to(leftCup, {
+    mouthOpen: 0,
+    duration: 0.4,
+    ease: 'power2.out'
+  });
+
+  const left = getRopeEnds().A;
+  state.ripples.push({
+    x: left.x, y: left.y,
+    r: 5 * S,
+    maxR: 34 * S,
+    life: 1,
+    color: loud ? '#ffb055' : '#a8c8ff'
+  });
+
+  const initialStrength = loud ? 1.0 : 0.7;
+
+  state.pulses.push({
+    t: 0,
+    strength: initialStrength,
+    speed: 1.8,
+    loud: loud
+  });
+
+  sfxSpeak(loud);
+}
+
+/* ============================================================
+   更新
+============================================================ */
+function update(dt) {
+  time += dt;
+
+  leftCup.bob = Math.sin(time * 1.6) * 1.5 * S;
+  rightCup.bob = Math.sin(time * 1.4 + 1) * 1.5 * S;
+
+  rightCup.shake *= Math.exp(-dt * 4);
+  rightCup.glow *= Math.exp(-dt * 2.5);
+  rightCup.listen *= Math.exp(-dt * 1.6);
+
+  for (const p of state.pulses) {
+    p.t += p.speed * dt * (0.6 + state.tightness * 1.6);
+
+    const decay = 0.15 + (1 - state.tightness) * 3.2;
+    p.strength *= Math.exp(-decay * dt);
+
+    if (p.t >= 1) {
+      p.dead = true;
+      arriveAtRight(p);
+    }
+  }
+  state.pulses = state.pulses.filter(p => !p.dead);
+
+  for (const r of state.ripples) {
+    r.r += (r.maxR - r.r) * Math.min(1, dt * 5);
+    r.life -= dt * 1.6;
+  }
+  state.ripples = state.ripples.filter(r => r.life > 0);
+
+  for (const s of state.sparks) {
+    s.x += s.vx * dt;
+    s.y += s.vy * dt;
+    s.vy += 200 * dt;
+    s.vx *= 0.97;
+    s.life -= dt * 1.2;
+    s.rot += s.rotSpeed * dt;
+  }
+  state.sparks = state.sparks.filter(s => s.life > 0);
+
+  if (state.lastResultTime > 0) {
+    state.lastResultTime -= dt;
+    if (state.lastResultTime <= 0) {
+      statusEl.textContent = '🎈 把绳子拉紧，声音才传得过去';
+      statusEl.style.color = '#ffffff';
+    }
+  }
+}
+
+function arriveAtRight(p) {
+  const right = getRopeEnds().B;
+
+  if (p.strength > 0.35) {
+    rightCup.shake = 1;
+    rightCup.glow = 1;
+    rightCup.listen = 1;
+    sfxHeard();
+
+    for (let i = 0; i < 12; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const v = 70 + Math.random() * 130;
+      state.sparks.push({
+        x: right.x, y: right.y,
+        vx: Math.cos(a) * v,
+        vy: Math.sin(a) * v - 40,
+        life: 1,
+        size: 2.5 + Math.random() * 3.5,
+        rot: Math.random() * Math.PI * 2,
+        rotSpeed: (Math.random() - 0.5) * 10,
+        color: ['#fff7c4', '#a8c8ff', '#ffd54f'][Math.floor(Math.random() * 3)]
+      });
+    }
+
+    state.ripples.push({
+      x: right.x, y: right.y,
+      r: 5 * S,
+      maxR: 44 * S,
+      life: 1,
+      color: '#7fdd6e'
+    });
+
+    statusEl.textContent = '👂 听到啦！';
+    statusEl.style.color = '#7fdd6e';
+    state.lastResultTime = 2.4;
+  } else {
+    sfxMiss();
+    statusEl.textContent = '😕 声音没传过来……';
+    statusEl.style.color = '#ff9eb5';
+    state.lastResultTime = 2.4;
+
+    for (let i = 0; i < 4; i++) {
+      state.sparks.push({
+        x: right.x - 30 * S,
+        y: right.y + (Math.random() - 0.5) * 20 * S,
+        vx: -30 - Math.random() * 40,
+        vy: (Math.random() - 0.5) * 30,
+        life: 1,
+        size: 2 + Math.random() * 2,
+        rot: 0,
+        rotSpeed: 0,
+        color: '#8898b0'
+      });
+    }
+  }
+}
+
+/* ============================================================
+   绘制：背景
+============================================================ */
+function drawBackground() {
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#141b2e');
+  g.addColorStop(0.6, '#0d1322');
+  g.addColorStop(1, '#070a14');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+
+  const stage = ctx.createRadialGradient(
+    W / 2, H * 0.5, 20,
+    W / 2, H * 0.5, Math.max(W, H) * 0.6
+  );
+  stage.addColorStop(0, 'rgba(120, 180, 255, 0.10)');
+  stage.addColorStop(1, 'rgba(120, 180, 255, 0)');
+  ctx.fillStyle = stage;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.strokeStyle = 'rgba(120, 160, 220, 0.04)';
+  ctx.lineWidth = 1;
+  const step = 64 * S;
+  for (let x = 0; x < W; x += step) {
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, H);
+    ctx.stroke();
+  }
+  for (let y = 0; y < H; y += step) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(W, y);
+    ctx.stroke();
+  }
+}
+
+/* ============================================================
+   绘制：绳子
+============================================================ */
+function drawRope() {
+  const SAMPLES = 100;
+  const tight = state.tightness;
+
+  ctx.save();
+  ctx.beginPath();
+  for (let i = 0; i <= SAMPLES; i++) {
+    const p = ropePoint(i / SAMPLES);
+    if (i === 0) ctx.moveTo(p.x, p.y);
+    else ctx.lineTo(p.x, p.y);
+  }
+  ctx.strokeStyle = `rgba(140, 200, 255, ${0.08 + tight * 0.22})`;
+  ctx.lineWidth = 8 * S;
+  ctx.lineCap = 'round';
+  ctx.stroke();
+  ctx.restore();
+
+  ctx.save();
+  ctx.beginPath();
+  for (let i = 0; i <= SAMPLES; i++) {
+    const p = ropePoint(i / SAMPLES);
+    if (i === 0) ctx.moveTo(p.x, p.y);
+    else ctx.lineTo(p.x, p.y);
+  }
+  const r = Math.round(140 + tight * 115);
+  const g = Math.round(120 + tight * 135);
+  const b = Math.round(110 + tight * 145);
+  ctx.strokeStyle = `rgb(${r}, ${g}, ${b})`;
+  ctx.lineWidth = 2.6 * S;
+  ctx.lineCap = 'round';
+  ctx.stroke();
+  ctx.restore();
+
+  if (tight > 0.4) {
+    ctx.save();
+    ctx.globalAlpha = 0.25 + tight * 0.4;
+    for (let i = 0; i <= SAMPLES; i += 5) {
+      const p = ropePoint(i / SAMPLES);
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 1.6 * S, 0, Math.PI * 2);
+      ctx.fillStyle = '#ffffff';
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+}
+
+/* ============================================================
+   绘制：声音脉冲
+============================================================ */
+function drawPulses() {
+  for (const p of state.pulses) {
+    const t = Math.min(1, p.t);
+    const pos = ropePoint(t);
+
+    const rad = (12 + p.strength * 14) * S;
+    const g = ctx.createRadialGradient(pos.x, pos.y, 0, pos.x, pos.y, rad);
+    const c1 = p.loud ? '255, 200, 120' : '168, 200, 255';
+    g.addColorStop(0, `rgba(${c1}, ${Math.min(1, p.strength * 1.4)})`);
+    g.addColorStop(0.5, `rgba(${c1}, ${p.strength * 0.5})`);
+    g.addColorStop(1, `rgba(${c1}, 0)`);
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(pos.x, pos.y, rad, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(pos.x, pos.y, (4 + p.strength * 5) * S, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(255, 255, 240, ${Math.min(1, p.strength * 1.2)})`;
+    ctx.fill();
+  }
+}
+
+/* ============================================================
+   绘制：涟漪
+============================================================ */
+function drawRipples() {
+  for (const r of state.ripples) {
+    ctx.save();
+    ctx.globalAlpha = r.life * 0.85;
+    ctx.beginPath();
+    ctx.arc(r.x, r.y, r.r, 0, Math.PI * 2);
+    ctx.strokeStyle = r.color;
+    ctx.lineWidth = 2.6 * S;
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+/* ============================================================
+   绘制：火花
+============================================================ */
+function drawSparks() {
+  for (const s of state.sparks) {
+    ctx.save();
+    ctx.translate(s.x, s.y);
+    ctx.rotate(s.rot);
+    ctx.globalAlpha = s.life;
+    drawStar(0, 0, s.size, s.size * 0.42, 5);
+    ctx.fillStyle = s.color;
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+function drawStar(cx, cy, outer, inner, points) {
+  ctx.beginPath();
+  for (let i = 0; i < points * 2; i++) {
+    const r = i % 2 === 0 ? outer : inner;
+    const a = (Math.PI / points) * i - Math.PI / 2;
+    const x = cx + Math.cos(a) * r;
+    const y = cy + Math.sin(a) * r;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+}
+
+/* ============================================================
+   绘制：杯子（修复版：渐变只设一次）
+============================================================ */
+function drawCup(cup, facing, opts) {
+  const { x, y, w, h } = cup;
+  const bob = opts.bob || 0;
+  const shake = opts.shake || 0;
+  const glow = opts.glow || 0;
+
+  ctx.save();
+  ctx.translate(x + (shake ? Math.sin(time * 40) * 4 * S * shake : 0), y + bob);
+
+  if (glow > 0.05) {
+    const gg = ctx.createRadialGradient(0, 0, 5, 0, 0, w * 1.6);
+    gg.addColorStop(0, `rgba(160, 255, 180, ${glow * 0.55})`);
+    gg.addColorStop(1, 'rgba(160, 255, 180, 0)');
+    ctx.fillStyle = gg;
+    ctx.beginPath();
+    ctx.arc(0, 0, w * 1.6, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  const wideX = facing === 'left' ? -w / 2 : w / 2;
+  const narrowX = facing === 'left' ? w / 2 : -w / 2;
+
+  // 杯体路径
+  ctx.beginPath();
+  ctx.moveTo(wideX, -h / 2);
+  ctx.lineTo(narrowX, -h * 0.30);
+  ctx.lineTo(narrowX, h * 0.30);
+  ctx.lineTo(wideX, h / 2);
+  ctx.closePath();
+
+  // 渐变：根据 facing 选色（左蓝右红），只设置一次
+  const grad = ctx.createLinearGradient(wideX, 0, narrowX, 0);
+  if (facing === 'left') {
+    grad.addColorStop(0, '#8fc8ff');
+    grad.addColorStop(0.55, '#5eb3ff');
+    grad.addColorStop(1, '#2a6ba8');
+  } else {
+    grad.addColorStop(0, '#ffc8c8');
+    grad.addColorStop(0.55, '#e88585');
+    grad.addColorStop(1, '#a85050');
+  }
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // 杯口高光
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.75)';
+  ctx.lineWidth = 2.4 * S;
+  ctx.beginPath();
+  ctx.moveTo(wideX, -h / 2);
+  ctx.lineTo(wideX, h / 2);
+  ctx.stroke();
+
+  // 杯身描边
+  ctx.strokeStyle = facing === 'left'
+    ? 'rgba(40, 100, 160, 0.85)'
+    : 'rgba(140, 50, 50, 0.85)';
+  ctx.lineWidth = 2 * S;
+  ctx.beginPath();
+  ctx.moveTo(wideX, -h / 2);
+  ctx.lineTo(narrowX, -h * 0.30);
+  ctx.lineTo(narrowX, h * 0.30);
+  ctx.lineTo(wideX, h / 2);
+  ctx.closePath();
+  ctx.stroke();
+
+  // 杯底绳结
+  ctx.beginPath();
+  ctx.arc(narrowX, 0, 4 * S, 0, Math.PI * 2);
+  ctx.fillStyle = '#3a4258';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+  ctx.lineWidth = 1.4 * S;
+  ctx.stroke();
+
+  // 表情
+  drawCupFace(cup, facing, opts);
+
+  ctx.restore();
+}
+
+function drawCupFace(cup, facing, opts) {
+  const { w, h } = cup;
+  const cx = facing === 'left' ? -w * 0.15 : w * 0.15;
+  const cy = -h * 0.08;
+  const eyeR = 5.5 * S;
+  const eyeOff = w * 0.14;
+
+  const blink = (Math.sin(time * 1.2 + (facing === 'left' ? 0 : 1)) > 0.96) ? 0.15 : 1;
+
+  if (opts.isRight && opts.listen > 0.15) {
+    ctx.strokeStyle = '#1a2030';
+    ctx.lineWidth = 2.6 * S;
+    ctx.lineCap = 'round';
+    for (const sign of [-1, 1]) {
+      ctx.beginPath();
+      ctx.arc(cx + sign * eyeOff, cy, eyeR * 0.9, Math.PI + 0.4, -0.4);
+      ctx.stroke();
+    }
+  } else {
+    for (const sign of [-1, 1]) {
+      ctx.beginPath();
+      ctx.ellipse(cx + sign * eyeOff, cy, eyeR, eyeR * blink, 0, 0, Math.PI * 2);
+      ctx.fillStyle = '#1a2030';
+      ctx.fill();
+      if (blink > 0.5) {
+        ctx.beginPath();
+        ctx.arc(cx + sign * eyeOff + eyeR * 0.35, cy - eyeR * 0.35, eyeR * 0.35, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffffff';
+        ctx.fill();
+      }
+    }
+  }
+
+  if (opts.isRight && opts.listen > 0.2) {
+    ctx.globalAlpha = opts.listen * 0.7;
+    for (const sign of [-1, 1]) {
+      ctx.beginPath();
+      ctx.arc(cx + sign * eyeOff * 1.7, cy + 8 * S, 4.5 * S, 0, Math.PI * 2);
+      ctx.fillStyle = '#ff8fa3';
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  const mouthY = cy + 14 * S;
+  if (opts.mouthOpen > 0.05) {
+    const openR = 6 * S * opts.mouthOpen;
+    ctx.beginPath();
+    ctx.ellipse(cx, mouthY + 2 * S, openR * 0.8, openR * 1.1, 0, 0, Math.PI * 2);
+    ctx.fillStyle = '#3a1a2a';
+    ctx.fill();
+  } else if (opts.isRight && opts.listen > 0.3) {
+    ctx.beginPath();
+    ctx.arc(cx, mouthY, 6 * S, 0.15, Math.PI - 0.15);
+    ctx.strokeStyle = '#1a2030';
+    ctx.lineWidth = 2.4 * S;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+  } else {
+    ctx.beginPath();
+    ctx.arc(cx, mouthY, 5 * S, 0.3, Math.PI - 0.3);
+    ctx.strokeStyle = '#1a2030';
+    ctx.lineWidth = 2 * S;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+  }
+}
+
+/* ============================================================
+   绘制：距离标注线
+============================================================ */
+function drawDistanceLine() {
+  const { A, B } = getRopeEnds();
+  const baseY = Math.max(leftCup.y, rightCup.y) + 70 * S;
+
+  ctx.save();
+  ctx.globalAlpha = 0.35;
+  ctx.strokeStyle = '#8898b0';
+  ctx.lineWidth = 1.4 * S;
+  ctx.setLineDash([6 * S, 6 * S]);
+  ctx.beginPath();
+  ctx.moveTo(A.x, A.y + 50 * S);
+  ctx.lineTo(A.x, baseY);
+  ctx.moveTo(B.x, B.y + 50 * S);
+  ctx.lineTo(B.x, baseY);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.beginPath();
+  ctx.moveTo(A.x, baseY);
+  ctx.lineTo(B.x, baseY);
+  ctx.stroke();
+
+  const midX = (A.x + B.x) / 2;
+  ctx.fillStyle = '#8898b0';
+  ctx.font = `bold ${12 * S}px system-ui, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'bottom';
+  const cm = Math.round(getDistance() / S / 2);
+  ctx.fillText(`${cm} 厘米`, midX, baseY - 6 * S);
+  ctx.restore();
+}
+
+/* ============================================================
+   渲染
+============================================================ */
+function render() {
+  ctx.clearRect(0, 0, W, H);
+
+  drawBackground();
+  drawRope();
+  drawPulses();
+
+  drawCup(leftCup, 'left', {
+    bob: leftCup.bob,
+    mouthOpen: leftCup.mouthOpen,
+    isRight: false
+  });
+  drawCup(rightCup, 'right', {
+    bob: rightCup.bob,
+    shake: rightCup.shake,
+    glow: rightCup.glow,
+    listen: rightCup.listen,
+    isRight: true
+  });
+
+  drawRipples();
+  drawSparks();
+  drawDistanceLine();
+}
+
+/* ============================================================
+   交互
+============================================================ */
+function getPos(e) {
+  const rect = canvas.getBoundingClientRect();
+  return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+}
+
+function onDown(e) {
+  initAudio();
+  if (activePointer !== null) return;
+  activePointer = e.pointerId;
+  const p = getPos(e);
+  downPos = p;
+
+  const dr = Math.hypot(p.x - rightCup.x, p.y - rightCup.y);
+  if (dr < Math.max(rightCup.w, rightCup.h) * 0.8) {
+    dragging = 'rightCup';
+    dragOffset.x = rightCup.x - p.x;
+    dragOffset.y = rightCup.y - p.y;
+    return;
+  }
+
+  const dl = Math.hypot(p.x - leftCup.x, p.y - leftCup.y);
+  if (dl < Math.max(leftCup.w, leftCup.h) * 0.8) {
+    speak(false);
+    return;
+  }
+}
+
+function onMove(e) {
+  if (activePointer !== e.pointerId) return;
+  if (dragging !== 'rightCup') return;
+  const p = getPos(e);
+  let nx = p.x + dragOffset.x;
+  let ny = p.y + dragOffset.y;
+
+  const minDist = leftCup.w + rightCup.w + 40 * S;
+  const dx = nx - leftCup.x;
+  if (Math.abs(dx) < minDist) {
+    nx = leftCup.x + (dx >= 0 ? minDist : -minDist);
+  }
+
+  rightCup.x = Math.max(80 * S, Math.min(W - 80 * S, nx));
+  rightCup.y = Math.max(80 * S, Math.min(H - 160 * S, ny));
+  updateDistance();
+}
+
+function onUp(e) {
+  if (activePointer !== e.pointerId) return;
+  dragging = null;
+  activePointer = null;
+  downPos = null;
+}
+
+/* ============================================================
+   事件绑定
+============================================================ */
+tightSlider.addEventListener('input', e => {
+  const v = +e.target.value;
+  state.tightness = v / 100;
+  tightVal.textContent = v;
+
+  if (v >= 70) tightVal.style.color = '#7fdd6e';
+  else if (v >= 35) tightVal.style.color = '#ffd54f';
+  else tightVal.style.color = '#ff9eb5';
+});
+tightVal.style.color = '#ffd54f';
+
+btnSoft.addEventListener('click', () => speak(false));
+btnLoud.addEventListener('click', () => speak(true));
+
+canvas.addEventListener('pointerdown', onDown);
+canvas.addEventListener('pointermove', onMove);
+canvas.addEventListener('pointerup', onUp);
+canvas.addEventListener('pointercancel', onUp);
+canvas.addEventListener('dblclick', e => e.preventDefault());
+
+/* ============================================================
+   启动
+============================================================ */
+resize();
+window.addEventListener('resize', resize);
+
+render();
+
+gsap.ticker.add((t, deltaTime) => {
+  const dt = Math.min(deltaTime, 50) / 1000;
+  update(dt);
+  render();
+});
+</script>
+</body>
+</html>

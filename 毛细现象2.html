@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>毛细自动浇水装置 · Canvas + GSAP</title>
+<style>
+  *{box-sizing:border-box;}
+  body{
+    margin:0;min-height:100vh;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:16px;padding:26px 16px;
+    background:radial-gradient(circle at 50% -10%,#22415f 0%,#0b1725 70%);
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
+    color:#dbeaf8;
+  }
+  h1{font-size:21px;margin:0;font-weight:700;letter-spacing:1px;}
+  .sub{font-size:13.5px;color:#8fb3d4;margin:0;text-align:center;max-width:620px;line-height:1.7;}
+  .card{
+    background:#fff;border-radius:20px;overflow:hidden;line-height:0;
+    box-shadow:0 24px 60px rgba(0,0,0,.55);max-width:100%;
+  }
+  canvas{display:block;width:900px;max-width:100%;height:auto;}
+  .controls{display:flex;gap:14px;}
+  button{
+    font-family:inherit;font-size:15.5px;font-weight:600;
+    padding:12px 30px;border-radius:999px;border:none;cursor:pointer;
+    transition:transform .15s ease,box-shadow .15s ease,opacity .15s ease;
+  }
+  #btnPlay{background:linear-gradient(135deg,#4facfe,#0093e9);color:#fff;
+           box-shadow:0 10px 24px rgba(79,172,254,.45);}
+  #btnReset{background:rgba(255,255,255,.10);color:#bfd8ef;
+            border:1px solid rgba(255,255,255,.22);}
+  button:hover{transform:translateY(-2px);}
+  button:active{transform:translateY(0);}
+  button:disabled{opacity:.4;cursor:not-allowed;transform:none;}
+</style>
+</head>
+<body>
+  <h1>毛细自动浇水装置</h1>
+  <p class="sub">水从储水器出发，沿棉绳的微小孔隙向上爬升，翻过盆沿进入土壤，再被根系吸收。管子越细，爬得越高。</p>
+
+  <div class="card"><canvas id="cv" width="900" height="700"></canvas></div>
+
+  <div class="controls">
+    <button id="btnPlay">▶ 开始演示</button>
+    <button id="btnReset">↺ 重置</button>
+  </div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<script>
+(function(){
+'use strict';
+
+/* =========================================================
+   0. 基础
+   ========================================================= */
+const cv  = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+const W = 900, H = 700;
+
+function roundRectPath(x, y, w, h, r){
+  r = Math.min(r, Math.abs(w)/2, Math.abs(h)/2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+/* =========================================================
+   1. 状态（全部由 GSAP 驱动）
+   ========================================================= */
+const state = {
+  waterLevel : 0,    // 储水器水量 0..1
+  wetFront   : 0,    // 水在棉绳上的推进 0..1
+  soilWet    : 0,    // 土壤湿润扩散 0..1
+  plantGrowth: 0     // 植物生长 0..1
+};
+
+/* =========================================================
+   2. 场景几何
+   ========================================================= */
+const RES = { x: 60, y: 390, w: 240, h: 230 };
+const RES_BOTTOM     = RES.y + RES.h;      // 620
+const RES_WATER_FULL = 445;                // 满水位线
+
+const POT = { topY: 400, botY: 620, topL: 570, topR: 820, botL: 595, botR: 795 };
+const SOIL_TOP = 430;
+
+const PLANT_BASE = { x: 750, y: 430 };
+
+/* ---------- 棉绳路径 ---------- */
+const ROPE_RAW = [
+  { x: 180, y: 565 },   // 浸在水中
+  { x: 180, y: 400 },   // 向上伸出储水器
+  { x: 330, y: 310 },   // 空中弧线
+  { x: 540, y: 310 },
+  { x: 625, y: 370 },   // 越过盆沿
+  { x: 630, y: 470 }    // 埋入土壤
+];
+
+/* Catmull-Rom 平滑 */
+function catmullRom(pts, seg){
+  const out = [];
+  const p = [pts[0], ...pts, pts[pts.length - 1]];
+  for (let i = 0; i < p.length - 3; i++){
+    const p0 = p[i], p1 = p[i+1], p2 = p[i+2], p3 = p[i+3];
+    for (let j = 0; j < seg; j++){
+      const t = j / seg, t2 = t*t, t3 = t2*t;
+      out.push({
+        x: 0.5*((2*p1.x) + (-p0.x + p2.x)*t + (2*p0.x - 5*p1.x + 4*p2.x - p3.x)*t2 + (-p0.x + 3*p1.x - 3*p2.x + p3.x)*t3),
+        y: 0.5*((2*p1.y) + (-p0.y + p2.y)*t + (2*p0.y - 5*p1.y + 4*p2.y - p3.y)*t2 + (-p0.y + 3*p1.y - 3*p2.y + p3.y)*t3)
+      });
+    }
+  }
+  out.push(pts[pts.length - 1]);
+  return out;
+}
+
+const ROPE_PTS = catmullRom(ROPE_RAW, 14);
+const ROPE_CUM = (function(){
+  const cum = [0];
+  for (let i = 1; i < ROPE_PTS.length; i++){
+    const dx = ROPE_PTS[i].x - ROPE_PTS[i-1].x;
+    const dy = ROPE_PTS[i].y - ROPE_PTS[i-1].y;
+    cum.push(cum[i-1] + Math.hypot(dx, dy));
+  }
+  return cum;
+})();
+const ROPE_TOTAL = ROPE_CUM[ROPE_CUM.length - 1];
+
+/* 按累计长度取点 */
+function pointAtLength(len){
+  len = Math.max(0, Math.min(ROPE_TOTAL, len));
+  for (let i = 1; i < ROPE_PTS.length; i++){
+    if (ROPE_CUM[i] >= len){
+      const segLen = ROPE_CUM[i] - ROPE_CUM[i-1];
+      const t = segLen > 0 ? (len - ROPE_CUM[i-1]) / segLen : 0;
+      return {
+        x: ROPE_PTS[i-1].x + (ROPE_PTS[i].x - ROPE_PTS[i-1].x) * t,
+        y: ROPE_PTS[i-1].y + (ROPE_PTS[i].y - ROPE_PTS[i-1].y) * t
+      };
+    }
+  }
+  return ROPE_PTS[ROPE_PTS.length - 1];
+}
+
+/* 画到指定长度为止的折线 */
+function strokePartial(upTo, color, width, cap){
+  if (upTo <= 0) return;
+  const limit = Math.min(upTo, ROPE_TOTAL);
+  ctx.beginPath();
+  ctx.moveTo(ROPE_PTS[0].x, ROPE_PTS[0].y);
+  for (let i = 1; i < ROPE_PTS.length; i++){
+    if (ROPE_CUM[i] <= limit){
+      ctx.lineTo(ROPE_PTS[i].x, ROPE_PTS[i].y);
+    } else {
+      const segLen = ROPE_CUM[i] - ROPE_CUM[i-1];
+      const t = segLen > 0 ? (limit - ROPE_CUM[i-1]) / segLen : 0;
+      ctx.lineTo(
+        ROPE_PTS[i-1].x + (ROPE_PTS[i].x - ROPE_PTS[i-1].x) * t,
+        ROPE_PTS[i-1].y + (ROPE_PTS[i].y - ROPE_PTS[i-1].y) * t
+      );
+      break;
+    }
+  }
+  ctx.strokeStyle = color;
+  ctx.lineWidth   = width;
+  ctx.lineCap     = cap || 'round';
+  ctx.lineJoin    = 'round';
+  ctx.stroke();
+}
+
+/* =========================================================
+   3. 水分子粒子
+   ========================================================= */
+const particles = [];
+for (let i = 0; i < 16; i++){
+  particles.push({
+    s    : Math.random() * ROPE_TOTAL,
+    speed: 38 + Math.random() * 55,
+    size : 1.4 + Math.random() * 2.0,
+    seed : Math.random() * 100
+  });
+}
+
+function updateParticles(dt){
+  const limit = ROPE_TOTAL * state.wetFront;
+  for (const p of particles){
+    p.s += p.speed * dt;
+    if (p.s > limit || p.s > ROPE_TOTAL){
+      p.s = Math.random() * Math.max(1, limit * 0.35);
+    }
+  }
+}
+
+/* =========================================================
+   4. 各部件绘制
+   ========================================================= */
+function drawBackground(){
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0,   '#fbfdff');
+  bg.addColorStop(0.6, '#eef6fd');
+  bg.addColorStop(1,   '#dfeaf6');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // 桌面
+  const tg = ctx.createLinearGradient(0, 618, 0, H);
+  tg.addColorStop(0,   '#d8c3a5');
+  tg.addColorStop(0.25,'#c9b192');
+  tg.addColorStop(1,   '#a98f6e');
+  ctx.fillStyle = tg;
+  ctx.fillRect(0, 620, W, H - 620);
+
+  ctx.beginPath();
+  ctx.moveTo(0, 620);
+  ctx.lineTo(W, 620);
+  ctx.strokeStyle = 'rgba(120,95,65,.45)';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+}
+
+/* ---------- 储水器 ---------- */
+function drawReservoir(){
+  const { x, y, w, h } = RES;
+
+  // 水（先画，让玻璃盖在上面）
+  if (state.waterLevel > 0.005){
+    const waterTop = RES_BOTTOM - (RES_BOTTOM - RES_WATER_FULL) * state.waterLevel;
+    ctx.save();
+    roundRectPath(x, y, w, h, 16);
+    ctx.clip();
+
+    const wg = ctx.createLinearGradient(0, waterTop, 0, RES_BOTTOM);
+    wg.addColorStop(0,   'rgba(140,212,250,.92)');
+    wg.addColorStop(0.5, 'rgba(72,165,232,.94)');
+    wg.addColorStop(1,   'rgba(28,108,188,.96)');
+    ctx.fillStyle = wg;
+    ctx.fillRect(x, waterTop, w, RES_BOTTOM - waterTop);
+
+    // 水面高光
+    ctx.beginPath();
+    ctx.moveTo(x, waterTop);
+    ctx.lineTo(x + w, waterTop);
+    ctx.strokeStyle = 'rgba(215,245,255,.95)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // 玻璃壳体
+  ctx.save();
+  roundRectPath(x, y, w, h, 16);
+  const gg = ctx.createLinearGradient(x, 0, x + w, 0);
+  gg.addColorStop(0,    'rgba(205,228,246,.55)');
+  gg.addColorStop(0.14, 'rgba(255,255,255,.10)');
+  gg.addColorStop(0.86, 'rgba(255,255,255,.10)');
+  gg.addColorStop(1,    'rgba(205,228,246,.55)');
+  ctx.fillStyle = gg;
+  ctx.fill();
+
+  ctx.strokeStyle = 'rgba(135,178,216,.95)';
+  ctx.lineWidth = 2.5;
+  ctx.stroke();
+  ctx.restore();
+
+  // 刻度
+  ctx.save();
+  ctx.strokeStyle = 'rgba(120,165,205,.5)';
+  ctx.lineWidth = 1.4;
+  for (let i = 1; i <= 4; i++){
+    const yy = RES_BOTTOM - (RES_BOTTOM - RES_WATER_FULL) * (i / 4);
+    ctx.beginPath();
+    ctx.moveTo(x + 10, yy);
+    ctx.lineTo(x + 26, yy);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+/* ---------- 花盆 ---------- */
+function potPath(){
+  ctx.beginPath();
+  ctx.moveTo(POT.topL, POT.topY);
+  ctx.lineTo(POT.topR, POT.topY);
+  ctx.lineTo(POT.botR, POT.botY);
+  ctx.lineTo(POT.botL, POT.botY);
+  ctx.closePath();
+}
+
+function drawPot(){
+  potPath();
+  const pg = ctx.createLinearGradient(POT.topL, 0, POT.topR, 0);
+  pg.addColorStop(0,    '#b25f3c');
+  pg.addColorStop(0.30, '#dd8659');
+  pg.addColorStop(0.65, '#d57a4e');
+  pg.addColorStop(1,    '#9c4f30');
+  ctx.fillStyle = pg;
+  ctx.fill();
+  ctx.strokeStyle = '#8e4526';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // 盆沿
+  ctx.beginPath();
+  roundRectPath(POT.topL - 9, POT.topY - 15, (POT.topR - POT.topL) + 18, 23, 9);
+  const rg = ctx.createLinearGradient(POT.topL, 0, POT.topR, 0);
+  rg.addColorStop(0,    '#c96f4a');
+  rg.addColorStop(0.45, '#eda07a');
+  rg.addColorStop(1,    '#b25f3c');
+  ctx.fillStyle = rg;
+  ctx.fill();
+  ctx.strokeStyle = '#8e4526';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+}
+
+/* ---------- 土壤 ---------- */
+function drawSoil(){
+  ctx.save();
+  potPath();
+  ctx.clip();
+
+  const x0 = POT.topL - 20;
+  const x1 = POT.topR + 20;
+  const wAll = x1 - x0;
+
+  // 基础土壤
+  ctx.beginPath();
+  ctx.moveTo(x0, SOIL_TOP + 6);
+  for (let x = x0; x <= x1; x += 6){
+    const yy = SOIL_TOP + Math.sin(x * 0.045) * 3.5 + Math.sin(x * 0.13 + 1.2) * 2;
+    ctx.lineTo(x, yy);
+  }
+  ctx.lineTo(x1, POT.botY + 20);
+  ctx.lineTo(x0, POT.botY + 20);
+  ctx.closePath();
+
+  const sg = ctx.createLinearGradient(0, SOIL_TOP, 0, POT.botY);
+  sg.addColorStop(0,   '#8f6f4c');
+  sg.addColorStop(0.4, '#77593c');
+  sg.addColorStop(1,   '#4e3823');
+  ctx.fillStyle = sg;
+  ctx.fill();
+
+  // 土壤颗粒质感
+  ctx.save();
+  ctx.globalAlpha = 0.18;
+  ctx.fillStyle = '#3c2a18';
+  for (let i = 0; i < 160; i++){
+    const gx = x0 + ((i * 137.5) % wAll);
+    const gy = SOIL_TOP + 8 + ((i * 53.7) % (POT.botY - SOIL_TOP - 10));
+    ctx.beginPath();
+    ctx.arc(gx, gy, 1.2 + (i % 3) * 0.7, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+
+  // 湿润扩散
+  if (state.soilWet > 0.01){
+    const cx = 630, cy = 470;
+    const rad = 45 + 250 * state.soilWet;
+    const a = state.soilWet;
+
+    const wg = ctx.createRadialGradient(cx, cy, 6, cx, cy, rad);
+    wg.addColorStop(0,    'rgba(38,25,15,' + (0.88 * a) + ')');
+    wg.addColorStop(0.40, 'rgba(52,36,22,' + (0.62 * a) + ')');
+    wg.addColorStop(0.72, 'rgba(66,47,30,' + (0.32 * a) + ')');
+    wg.addColorStop(1,    'rgba(80,60,40,0)');
+    ctx.fillStyle = wg;
+    ctx.fillRect(x0, SOIL_TOP - 10, wAll, POT.botY - SOIL_TOP + 30);
+
+    // 湿润区高光（显湿）
+    const hg = ctx.createRadialGradient(cx, cy, 4, cx, cy, rad * 0.55);
+    hg.addColorStop(0, 'rgba(120,190,235,' + (0.16 * a) + ')');
+    hg.addColorStop(1, 'rgba(120,190,235,0)');
+    ctx.fillStyle = hg;
+    ctx.fillRect(x0, SOIL_TOP - 10, wAll, POT.botY - SOIL_TOP + 30);
+  }
+
+  ctx.restore();
+}
+
+/* ---------- 棉绳 ---------- */
+function drawRope(){
+  // 阴影
+  ctx.save();
+  ctx.globalAlpha = 0.13;
+  ctx.translate(3, 4);
+  strokePartial(ROPE_TOTAL, '#20344a', 9);
+  ctx.restore();
+
+  // 干绳
+  strokePartial(ROPE_TOTAL, '#e2d3b0', 8);
+  strokePartial(ROPE_TOTAL, '#cbb894', 3.5);
+
+  // 湿润段
+  if (state.wetFront > 0.001){
+    const upTo = ROPE_TOTAL * state.wetFront;
+    strokePartial(upTo, '#4f86c4', 8);
+    strokePartial(upTo, 'rgba(165,225,255,.55)', 3.5);
+
+    // 湿润前锋光晕
+    const p = pointAtLength(upTo);
+    const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, 20);
+    g.addColorStop(0, 'rgba(150,222,255,.85)');
+    g.addColorStop(0.5, 'rgba(120,200,255,.28)');
+    g.addColorStop(1, 'rgba(120,200,255,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 20, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+/* ---------- 水分子 ---------- */
+function drawParticles(){
+  if (state.wetFront < 0.02) return;
+  const limit = ROPE_TOTAL * state.wetFront;
+
+  for (const p of particles){
+    if (p.s < 0 || p.s > limit) continue;
+    const pt = pointAtLength(p.s);
+
+    const g = ctx.createRadialGradient(pt.x, pt.y, 0, pt.x, pt.y, p.size * 3.6);
+    g.addColorStop(0, 'rgba(190,240,255,.55)');
+    g.addColorStop(1, 'rgba(120,200,255,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, p.size * 3.6, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, p.size, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(225,250,255,.98)';
+    ctx.fill();
+  }
+}
+
+/* ---------- 植物 ---------- */
+function drawPlant(){
+  const g = state.plantGrowth;
+  if (g <= 0.01) return;
+
+  const bx = PLANT_BASE.x, by = PLANT_BASE.y;
+  const stemH = 205 * g;
+
+  const p0 = { x: bx,          y: by };
+  const p1 = { x: bx + 22 * g, y: by - stemH * 0.55 };
+  const p2 = { x: bx + 6 * g,  y: by - stemH };
+
+  function sp(t){
+    const mt = 1 - t;
+    return {
+      x: mt*mt*p0.x + 2*mt*t*p1.x + t*t*p2.x,
+      y: mt*mt*p0.y + 2*mt*t*p1.y + t*t*p2.y
+    };
+  }
+
+  // 茎
+  ctx.beginPath();
+  ctx.moveTo(p0.x, p0.y);
+  ctx.quadraticCurveTo(p1.x, p1.y, p2.x, p2.y);
+  ctx.strokeStyle = '#3f7a31';
+  ctx.lineWidth = 7.5;
+  ctx.lineCap = 'round';
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(p0.x - 1.6, p0.y);
+  ctx.quadraticCurveTo(p1.x - 1.6, p1.y, p2.x - 1.6, p2.y);
+  ctx.strokeStyle = 'rgba(160,225,125,.55)';
+  ctx.lineWidth = 2.6;
+  ctx.stroke();
+
+  // 叶
+  const leaves = [
+    { t: 0.28, dir: -1, scale: 0.95, th: 0.13 },
+    { t: 0.46, dir:  1, scale: 1.05, th: 0.29 },
+    { t: 0.64, dir: -1, scale: 0.88, th: 0.46 },
+    { t: 0.82, dir:  1, scale: 0.78, th: 0.63 }
+  ];
+
+  for (const lf of leaves){
+    let lp = (g - lf.th) / 0.22;
+    lp = Math.max(0, Math.min(1, lp));
+    if (lp <= 0) continue;
+
+    const e = 1 - Math.pow(1 - lp, 3);
+    const pt = sp(lf.t);
+    const len = 58 * lf.scale * e;
+    const wid = 18 * lf.scale * e;
+    const ang = lf.dir > 0
+      ? (-0.30 - lf.t * 0.25)
+      : (Math.PI + 0.30 + lf.t * 0.25);
+
+    ctx.save();
+    ctx.translate(pt.x, pt.y);
+    ctx.rotate(ang);
+
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.quadraticCurveTo(len * 0.42, -wid, len, 0);
+    ctx.quadraticCurveTo(len * 0.42,  wid, 0, 0);
+
+    const lg = ctx.createLinearGradient(0, -wid, len, wid);
+    lg.addColorStop(0,   '#3f8a30');
+    lg.addColorStop(0.5, '#66b84a');
+    lg.addColorStop(1,   '#8ed46a');
+    ctx.fillStyle = lg;
+    ctx.fill();
+
+    ctx.strokeStyle = 'rgba(45,95,35,.55)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // 叶脉
+    ctx.beginPath();
+    ctx.moveTo(2, 0);
+    ctx.quadraticCurveTo(len * 0.5, 0, len * 0.92, 0);
+    ctx.strokeStyle = 'rgba(255,255,255,.45)';
+    ctx.lineWidth = 1.1;
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  // 顶端嫩芽
+  if (g > 0.85){
+    const pt = sp(1);
+    const e = (g - 0.85) / 0.15;
+    ctx.beginPath();
+    ctx.ellipse(pt.x, pt.y - 5 * e, 6 * e, 10 * e, -0.25, 0, Math.PI * 2);
+    ctx.fillStyle = '#8ed46a';
+    ctx.fill();
+  }
+}
+
+/* ---------- 标注 ---------- */
+function drawLabels(){
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  const items = [
+    { text: '储水器', x: 180, y: 655 },
+    { text: '棉绳',   x: 420, y: 272 },
+    { text: '花盆 · 土壤', x: 695, y: 655 }
+  ];
+
+  ctx.font = '600 14.5px -apple-system,"PingFang SC","Microsoft YaHei",sans-serif';
+  for (const it of items){
+    const w = ctx.measureText(it.text).width + 22;
+    ctx.beginPath();
+    roundRectPath(it.x - w/2, it.y - 14, w, 28, 14);
+    ctx.fillStyle = 'rgba(255,255,255,.82)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(150,185,220,.75)';
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+
+    ctx.fillStyle = '#2f5f8c';
+    ctx.fillText(it.text, it.x, it.y + 1);
+  }
+
+  // 状态提示
+  if (state.wetFront > 0.98 && state.plantGrowth > 0.98){
+    ctx.font = '700 15px -apple-system,"PingFang SC","Microsoft YaHei",sans-serif';
+    ctx.fillStyle = 'rgba(35,120,80,.92)';
+    ctx.fillText('✓ 毛细供水已稳定，土壤持续湿润', 450, 700 - 22);
+  } else if (state.waterLevel > 0.05 && state.wetFront < 0.05){
+    ctx.font = '600 14px -apple-system,"PingFang SC","Microsoft YaHei",sans-serif';
+    ctx.fillStyle = 'rgba(40,110,175,.85)';
+    ctx.fillText('水正在浸润棉绳纤维…', 450, 700 - 22);
+  }
+
+  ctx.restore();
+}
+
+/* =========================================================
+   5. 渲染总入口
+   ========================================================= */
+function render(){
+  ctx.clearRect(0, 0, W, H);
+  drawBackground();
+  drawReservoir();
+  drawPot();
+  drawSoil();
+  drawRope();
+  drawParticles();
+  drawPlant();
+  drawLabels();
+}
+
+/* =========================================================
+   6. GSAP 时间轴
+   ========================================================= */
+const tl = gsap.timeline({ paused: true });
+
+tl.to(state, { waterLevel: 1, duration: 1.5, ease: 'power2.inOut' })
+  .to(state, { wetFront: 1, duration: 2.4, ease: 'none' }, '+=0.35')
+  .to(state, { soilWet: 1, duration: 1.9, ease: 'power1.out' }, '-=1.9')
+  .to(state, { plantGrowth: 1, duration: 2.4, ease: 'power2.out' }, '-=1.1')
+  .to(state, { waterLevel: 0.42, duration: 3.6, ease: 'none' }, '-=2.6');
+
+/* =========================================================
+   7. 主循环
+   ========================================================= */
+let lastTime = null;
+
+function tick(time){
+  if (lastTime === null) lastTime = time;
+  const dt = Math.min(0.05, Math.max(0.001, time - lastTime));
+  lastTime = time;
+
+  updateParticles(dt);
+  render();
+}
+
+gsap.ticker.add(tick);
+
+/* =========================================================
+   8. 交互
+   ========================================================= */
+const btnPlay  = document.getElementById('btnPlay');
+const btnReset = document.getElementById('btnReset');
+
+function play(){
+  tl.restart();
+  btnPlay.disabled = true;
+  setTimeout(() => { btnPlay.disabled = false; }, 11000);
+}
+
+function reset(){
+  tl.pause(0);
+  gsap.to(state, {
+    waterLevel: 0, wetFront: 0, soilWet: 0, plantGrowth: 0,
+    duration: 0.55, ease: 'power2.inOut'
+  });
+  // 粒子复位
+  for (const p of particles) p.s = Math.random() * 100;
+  btnPlay.disabled = false;
+}
+
+btnPlay.addEventListener('click', play);
+btnReset.addEventListener('click', reset);
+
+/* 启动时先渲染一帧空场景 */
+render();
+
+})();
+</script>
+</body>
+</html>

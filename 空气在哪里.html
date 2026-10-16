@@ -1,0 +1,1092 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>空气在哪里？—— 杯子里的秘密</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    height: 100%; width: 100%; overflow: hidden; background: #0a1018;
+    touch-action: none;
+    font-family: system-ui, -apple-system, sans-serif;
+    color: #fff;
+  }
+  canvas { display: block; position: absolute; inset: 0; }
+
+  .status {
+    position: fixed;
+    top: 18px; left: 50%;
+    transform: translateX(-50%);
+    padding: 12px 26px;
+    background: rgba(16, 22, 38, 0.88);
+    border-radius: 30px;
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    font-size: 15px; font-weight: 700;
+    z-index: 10; white-space: nowrap; max-width: 92vw;
+    text-align: center; transition: all 0.3s;
+  }
+
+  .readout {
+    position: fixed;
+    top: 18px; right: 18px;
+    padding: 14px 18px;
+    background: rgba(16, 22, 38, 0.88);
+    border-radius: 16px;
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    font-size: 13px; z-index: 10;
+    line-height: 1.9; min-width: 175px;
+  }
+  .readout .row {
+    display: flex; justify-content: space-between; gap: 12px;
+  }
+  .readout .lbl { color: #8898b0; }
+  .readout .num {
+    color: #7fdd6e; font-weight: 800; font-variant-numeric: tabular-nums;
+  }
+  .readout .num.warn { color: #ff9eb5; }
+  .readout .divider {
+    margin: 6px 0; border-top: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .panel {
+    position: fixed;
+    bottom: 16px; left: 50%;
+    transform: translateX(-50%);
+    width: min(600px, 94vw);
+    background: rgba(16, 22, 38, 0.92);
+    padding: 14px 20px;
+    border-radius: 18px;
+    backdrop-filter: blur(14px);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    z-index: 10;
+    display: flex; flex-direction: column; gap: 10px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  }
+  .panel .tip {
+    font-size: 13px;
+    color: #a8c0e0;
+    text-align: center;
+    line-height: 1.5;
+  }
+  .panel .btns {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 8px;
+  }
+  .panel button {
+    padding: 13px 12px;
+    border-radius: 12px;
+    border: none;
+    font-weight: 800;
+    font-size: 14px;
+    cursor: pointer;
+    transition: transform 0.12s, box-shadow 0.2s;
+    white-space: nowrap;
+  }
+  .panel button:active { transform: translateY(1px); }
+  .panel .btn-tilt {
+    background: linear-gradient(135deg, #ffb055, #ff6b6b);
+    color: #1a0a00;
+    box-shadow: 0 4px 14px rgba(255, 140, 60, 0.35);
+  }
+  .panel .btn-tilt:disabled {
+    background: rgba(120, 130, 150, 0.3);
+    color: rgba(255, 255, 255, 0.35);
+    cursor: not-allowed;
+    box-shadow: none;
+  }
+  .panel .btn-second {
+    background: rgba(255, 255, 255, 0.12);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+  }
+  .panel .btn-second:hover { background: rgba(255, 255, 255, 0.22); }
+  .panel .btn-hint {
+    background: linear-gradient(135deg, #5eb3ff, #7fdd6e);
+    color: #061020;
+    box-shadow: 0 4px 14px rgba(94, 179, 255, 0.35);
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div class="status" id="status">🫙 把杯子按进水里，看看纸巾会不会湿</div>
+
+<div class="readout">
+  <div class="row"><span class="lbl">杯中空气</span><span class="num" id="airVal">100%</span></div>
+  <div class="row"><span class="lbl">杯子位置</span><span class="num" id="posVal">水面上</span></div>
+  <div class="divider"></div>
+  <div class="row"><span class="lbl">🧻 纸巾</span><span class="num" id="paperVal">干燥</span></div>
+</div>
+
+<div class="panel">
+  <div class="tip" id="tip">👆 上下拖动杯子，把它按进水里</div>
+  <div class="btns">
+    <button class="btn-tilt" id="btnTilt" disabled>🔄 倾斜杯子</button>
+    <button class="btn-hint" id="btnHint">💡 提示</button>
+    <button class="btn-second" id="btnReset">🔄 重新开始</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+<script>
+/* ============================================================
+   空气在哪里？—— 杯子里的秘密
+   ------------------------------------------------------------
+   教材依据：
+   第五章第二节「空气」—— 空气无处不在、占空间、有压力
+   第一章「迷思概念」—— 幼儿以为杯子里是"空的"
+   英国《发展至关重要》—— "探索事物如何运作"
+
+   核心概念：
+   ① 空气看不见、摸不着，但它占地方
+   ② 杯子里看似"空的"，其实装满了空气
+   ③ 杯子倒扣入水，空气挡住水，纸巾不会湿
+   ④ 一旦倾斜杯子，空气跑出去（冒泡泡），水就进得来
+   ⑤ 空气跑光了，纸巾就湿了
+   ============================================================ */
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+const statusEl = document.getElementById('status');
+const tipEl = document.getElementById('tip');
+const airValEl = document.getElementById('airVal');
+const posValEl = document.getElementById('posVal');
+const paperValEl = document.getElementById('paperVal');
+const btnTilt = document.getElementById('btnTilt');
+const btnHint = document.getElementById('btnHint');
+const btnReset = document.getElementById('btnReset');
+
+let W = 800, H = 600, DPR = 1, S = 1;
+let time = 0;
+
+/* ---------- 场景 ---------- */
+const scene = {
+  tank: { x: 0, y: 0, w: 0, h: 0, waterTop: 0, waterBottom: 0, waterLevel: 0.62 },
+  table: 0
+};
+
+/* ---------- 杯子 ---------- */
+const cup = {
+  // 杯子以杯底中心为基准点
+  x: 0, y: 0,
+  baseX: 0, baseY: 0,      // 初始位置
+  w: 0, h: 0,
+  airFraction: 1,          // 杯内空气比例 0~1
+  tilt: 0,                 // 0 竖直，1 完全倾斜
+  tiltTarget: 0,
+  inWater: false,
+  waterInside: 0,          // 进入杯子的水（占杯高比例）
+  dragging: false,
+  wobble: 0
+};
+
+/* ---------- 纸巾 ---------- */
+const paper = {
+  wet: 0                   // 0 ~ 1
+};
+
+/* ---------- 气泡 ---------- */
+let bubbles = [];
+
+/* ---------- 声波 ---------- */
+let ripples = [];
+
+/* ---------- 交互 ---------- */
+let activePointer = null;
+let dragOffset = { x: 0, y: 0 };
+
+/* ============================================================
+   尺寸
+============================================================ */
+function resize() {
+  let w = window.innerWidth || document.documentElement.clientWidth || 800;
+  let h = window.innerHeight || document.documentElement.clientHeight || 600;
+  if (w < 200) w = 800;
+  if (h < 200) h = 600;
+
+  W = w; H = h;
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width = Math.floor(W * DPR);
+  canvas.height = Math.floor(H * DPR);
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+  S = Math.max(0.55, Math.min(1.15, H / 800));
+
+  layoutScene();
+}
+
+function layoutScene() {
+  // 桌面
+  scene.table = H * 0.82;
+
+  // 鱼缸（居中偏下）
+  scene.tank.w = Math.min(W * 0.52, 420 * S);
+  scene.tank.h = Math.min(H * 0.42, 300 * S);
+  scene.tank.x = W * 0.5 - scene.tank.w / 2;
+  scene.tank.y = scene.table - scene.tank.h;
+  scene.tank.waterTop = scene.tank.y + scene.tank.h * (1 - scene.tank.waterLevel);
+  scene.tank.waterBottom = scene.tank.y + scene.tank.h;
+
+  // 杯子尺寸
+  cup.w = Math.min(scene.tank.w * 0.32, 100 * S);
+  cup.h = cup.w * 1.35;
+
+  // 杯子初始位置：在鱼缸左上方
+  cup.baseX = scene.tank.x + scene.tank.w * 0.28;
+  cup.baseY = scene.tank.y - cup.h / 2 - 30 * S;
+  if (!cup.dragging && !cup.moved) {
+    cup.x = cup.baseX;
+    cup.y = cup.baseY;
+  }
+}
+
+/* ============================================================
+   音效
+============================================================ */
+let audioCtx = null;
+function initAudio() {
+  if (!audioCtx) {
+    try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
+  }
+}
+function beep(freq, dur, vol, type, delay) {
+  vol = vol == null ? 0.06 : vol;
+  type = type || 'sine';
+  delay = delay || 0;
+  if (!audioCtx) return;
+  const t0 = audioCtx.currentTime + delay;
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(freq, t0);
+  o.connect(g);
+  g.connect(audioCtx.destination);
+  g.gain.setValueAtTime(vol, t0);
+  g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+  o.start(t0);
+  o.stop(t0 + dur);
+}
+function sfxGrab() { beep(600, 0.05, 0.05, 'triangle'); }
+function sfxDrop() { beep(400, 0.08, 0.05, 'triangle'); }
+function sfxSplash() {
+  beep(500, 0.10, 0.06, 'sine');
+  beep(340, 0.14, 0.05, 'sine', 0.06);
+}
+function sfxBubble() {
+  beep(700 + Math.random() * 300, 0.04, 0.03, 'sine');
+}
+function sfxWet() {
+  beep(320, 0.10, 0.06, 'triangle');
+  beep(240, 0.14, 0.05, 'triangle', 0.10);
+}
+
+/* ============================================================
+   逻辑：是否在水中
+============================================================ */
+function updateWaterState() {
+  // 杯子的杯底边缘（用于判断入水）
+  const cupBottomY = cup.y + cup.h / 2;
+  const cupTopY = cup.y - cup.h / 2;
+
+  const wasInWater = cup.inWater;
+  cup.inWater = cupBottomY > scene.tank.waterTop;
+
+  // 刚开始入水
+  if (!wasInWater && cup.inWater) {
+    sfxSplash();
+    spawnRipple(cup.x, scene.tank.waterTop);
+  }
+
+  // 计算杯子浸入水中的深度（杯底没入水面以下的距离）
+  let submergedDepth = 0;
+  if (cup.inWater) {
+    submergedDepth = Math.min(cup.h, cupBottomY - scene.tank.waterTop);
+  }
+  cup.submergedDepth = submergedDepth;
+}
+
+/* ============================================================
+   更新
+============================================================ */
+function update(dt) {
+  time += dt;
+
+  updateWaterState();
+
+  // 倾斜平滑
+  cup.tilt += (cup.tiltTarget - cup.tilt) * Math.min(1, dt * 5);
+
+  // 如果在水中
+  if (cup.inWater) {
+    // 浸入深度比例（0~1）
+    const depthRatio = Math.min(1, cup.submergedDepth / cup.h);
+    cup.submergedRatio = depthRatio;
+
+    // 空气占比受倾斜影响
+    // 完全竖直 → 空气留 100%
+    // 完全倾斜 → 空气降到 0
+    const airLoss = cup.tilt * depthRatio * 3 * dt;  // 倾斜时漏气速度
+    if (airLoss > 0) {
+      cup.airFraction = Math.max(0, cup.airFraction - airLoss);
+    }
+
+    // 杯子里的空气越多，水就越进不来
+    // 水占杯内的比例 = 1 - 空气占比
+    cup.waterInside = 1 - cup.airFraction;
+
+    // 如果倾斜且空气还在冒，生成气泡
+    if (cup.tilt > 0.15 && cup.airFraction > 0.02) {
+      if (Math.random() < cup.tilt * 3) {
+        spawnBubble();
+      }
+      // 倾斜过程中不断产生微小水波
+      if (Math.random() < 0.2) {
+        spawnRipple(cup.x + (Math.random() - 0.5) * cup.w * 0.8, scene.tank.waterTop);
+      }
+    }
+  } else {
+    cup.submergedRatio = 0;
+    // 出水面后空气会慢慢恢复（空气无处不在）
+    if (cup.airFraction < 1) {
+      cup.airFraction = Math.min(1, cup.airFraction + dt * 1.5);
+    }
+    cup.waterInside = 0;
+  }
+
+  // 纸巾湿度：杯内水多了，纸巾会湿
+  if (cup.waterInside > 0.5) {
+    paper.wet = Math.min(1, paper.wet + dt * 0.5 * (cup.waterInside - 0.5) * 2);
+  }
+
+  // 气泡更新
+  for (const b of bubbles) {
+    b.x += b.vx * dt;
+    b.y += b.vy * dt;
+    b.vy += 40 * dt;
+    b.vx *= 0.98;
+    b.life -= dt * 0.55;
+    b.r += dt * 3 * S;
+    if (b.y < scene.tank.waterTop - 10 * S) b.life = 0;
+  }
+  bubbles = bubbles.filter(function (b) { return b.life > 0; });
+
+  // 水波更新
+  for (const r of ripples) {
+    r.r += (r.maxR - r.r) * Math.min(1, dt * 5);
+    r.life -= dt * 1.6;
+  }
+  ripples = ripples.filter(function (r) { return r.life > 0; });
+
+  // 杯子晃动
+  cup.wobble *= Math.exp(-dt * 4);
+
+  updateUI();
+}
+
+function spawnBubble() {
+  const cupBottomY = cup.y + cup.h / 2;
+  // 气泡从杯子口（也就是杯底上方）冒出来
+  const bx = cup.x + (Math.random() - 0.5) * cup.w * 0.8;
+  const by = cupBottomY - 4 * S;
+  bubbles.push({
+    x: bx,
+    y: by,
+    vx: (Math.random() - 0.5) * 40,
+    vy: -60 - Math.random() * 60,
+    r: (2 + Math.random() * 3) * S,
+    life: 1
+  });
+  sfxBubble();
+}
+
+function spawnRipple(x, y) {
+  ripples.push({
+    x: x, y: y,
+    r: 4 * S,
+    maxR: (20 + Math.random() * 20) * S,
+    life: 1
+  });
+}
+
+function updateUI() {
+  const airPct = Math.round(cup.airFraction * 100);
+  airValEl.textContent = airPct + '%';
+  airValEl.className = 'num ' + (airPct < 40 ? 'warn' : '');
+
+  // 杯子位置
+  if (!cup.inWater) {
+    posValEl.textContent = '水面上';
+  } else {
+    const depth = Math.round(cup.submergedRatio * 100);
+    if (depth > 80) posValEl.textContent = '完全浸入';
+    else if (depth > 40) posValEl.textContent = '一半入水';
+    else posValEl.textContent = '刚刚入水';
+  }
+
+  // 纸巾
+  if (paper.wet < 0.05) {
+    paperValEl.textContent = '干燥';
+    paperValEl.className = 'num';
+  } else if (paper.wet < 0.6) {
+    paperValEl.textContent = '有点湿';
+    paperValEl.className = 'num warn';
+  } else {
+    paperValEl.textContent = '湿透了';
+    paperValEl.className = 'num warn';
+  }
+
+  // 倾斜按钮是否可用
+  btnTilt.disabled = !cup.inWater || cup.airFraction < 0.05;
+
+  // 状态提示
+  if (!cup.inWater) {
+    if (cup.airFraction > 0.95) {
+      statusEl.textContent = '🫙 杯子里看起来是空的，其实装满了空气';
+      statusEl.style.color = '#ffffff';
+      tipEl.textContent = '👆 上下拖动杯子，把它按进水里';
+    } else {
+      statusEl.textContent = '💧 杯子在水面上，空气正在慢慢恢复';
+      statusEl.style.color = '#ffd54f';
+      tipEl.textContent = '等一等，空气会自动充满整个杯子';
+    }
+  } else {
+    if (cup.airFraction > 0.85 && paper.wet < 0.05) {
+      statusEl.textContent = '🫧 水被空气挡住了！纸巾还是干的';
+      statusEl.style.color = '#7fdd6e';
+      tipEl.textContent = '💡 试试点"倾斜杯子"，看看会发生什么';
+    } else if (cup.airFraction > 0.4) {
+      statusEl.textContent = '🫧 空气正在从杯子里跑出去（冒泡泡）';
+      statusEl.style.color = '#ffd54f';
+      tipEl.textContent = '空气跑出去，水就进来一些';
+    } else if (cup.airFraction > 0.05) {
+      statusEl.textContent = '💧 空气快跑光了，水正在进杯子';
+      statusEl.style.color = '#ffb055';
+      tipEl.textContent = '继续倾斜，纸巾就快湿了';
+    } else {
+      statusEl.textContent = '😢 空气全跑了，水灌进杯子，纸巾湿透了';
+      statusEl.style.color = '#ff9eb5';
+      tipEl.textContent = '点"重新开始"，再试一次吧';
+    }
+  }
+}
+
+/* ============================================================
+   绘制：背景
+============================================================ */
+function drawBackground() {
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#1a2438');
+  g.addColorStop(0.55, '#0d1422');
+  g.addColorStop(1, '#050810');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+
+  // 舞台光晕
+  const glow = ctx.createRadialGradient(
+    W * 0.5, H * 0.4, 30,
+    W * 0.5, H * 0.4, Math.max(W, H) * 0.6
+  );
+  glow.addColorStop(0, 'rgba(120, 180, 255, 0.10)');
+  glow.addColorStop(1, 'rgba(120, 180, 255, 0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+}
+
+/* ============================================================
+   绘制：桌子
+============================================================ */
+function drawTable() {
+  const ty = scene.table;
+
+  const g = ctx.createLinearGradient(0, ty, 0, H);
+  g.addColorStop(0, '#5a3a24');
+  g.addColorStop(0.3, '#3a2410');
+  g.addColorStop(1, '#1a1008');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, ty, W, H - ty);
+
+  // 桌面高光
+  ctx.strokeStyle = 'rgba(200, 150, 100, 0.4)';
+  ctx.lineWidth = 2.5 * S;
+  ctx.beginPath();
+  ctx.moveTo(0, ty);
+  ctx.lineTo(W, ty);
+  ctx.stroke();
+
+  // 木纹
+  ctx.strokeStyle = 'rgba(30, 18, 8, 0.5)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 5; i++) {
+    const y = ty + 12 * S + i * 14 * S;
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(W, y);
+    ctx.stroke();
+  }
+}
+
+/* ============================================================
+   绘制：鱼缸和水
+============================================================ */
+function drawTank() {
+  const t = scene.tank;
+
+  // 鱼缸阴影
+  ctx.save();
+  ctx.shadowBlur = 20 * S;
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
+  ctx.beginPath();
+  roundRect(t.x, t.y, t.w, t.h, 8 * S);
+  ctx.fillStyle = 'rgba(20, 30, 50, 0.5)';
+  ctx.fill();
+  ctx.restore();
+
+  // 鱼缸背景
+  const bg = ctx.createLinearGradient(0, t.y, 0, t.y + t.h);
+  bg.addColorStop(0, 'rgba(40, 55, 80, 0.6)');
+  bg.addColorStop(1, 'rgba(20, 35, 60, 0.8)');
+  ctx.fillStyle = bg;
+  ctx.beginPath();
+  roundRect(t.x, t.y, t.w, t.h, 8 * S);
+  ctx.fill();
+
+  // ---- 水 ----
+  ctx.save();
+  ctx.beginPath();
+  roundRect(t.x, t.y, t.w, t.h, 8 * S);
+  ctx.clip();
+
+  // 水的主体
+  const waterGrad = ctx.createLinearGradient(0, t.waterTop, 0, t.waterBottom);
+  waterGrad.addColorStop(0, 'rgba(90, 190, 250, 0.65)');
+  waterGrad.addColorStop(0.5, 'rgba(40, 130, 210, 0.78)');
+  waterGrad.addColorStop(1, 'rgba(15, 70, 140, 0.9)');
+  ctx.fillStyle = waterGrad;
+  ctx.fillRect(t.x, t.waterTop, t.w, t.waterBottom - t.waterTop);
+
+  // 水下光线
+  ctx.globalAlpha = 0.15;
+  for (let i = 0; i < 4; i++) {
+    const x = t.x + (i + 0.5) * (t.w / 4) + Math.sin(time * 0.5 + i) * 8 * S;
+    ctx.fillStyle = '#bfe4ff';
+    ctx.beginPath();
+    ctx.moveTo(x - 18 * S, t.waterTop);
+    ctx.lineTo(x + 18 * S, t.waterTop);
+    ctx.lineTo(x + 6 * S, t.waterBottom);
+    ctx.lineTo(x - 6 * S, t.waterBottom);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  // 水面波光线
+  ctx.strokeStyle = 'rgba(200, 240, 255, 0.85)';
+  ctx.lineWidth = 2 * S;
+  ctx.beginPath();
+  for (let x = t.x; x <= t.x + t.w; x += 6) {
+    const y = t.waterTop + Math.sin(x * 0.06 + time * 2) * 2 * S;
+    if (x === t.x) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+
+  // 水底的沙
+  ctx.fillStyle = 'rgba(200, 170, 120, 0.5)';
+  ctx.beginPath();
+  ctx.moveTo(t.x, t.waterBottom);
+  for (let x = t.x; x <= t.x + t.w; x += 8) {
+    const y = t.waterBottom - 6 * S + Math.sin(x * 0.1) * 3 * S;
+    ctx.lineTo(x, y);
+  }
+  ctx.lineTo(t.x + t.w, t.waterBottom);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.restore();
+
+  // 鱼缸玻璃边框
+  ctx.beginPath();
+  roundRect(t.x, t.y, t.w, t.h, 8 * S);
+  ctx.strokeStyle = 'rgba(180, 215, 245, 0.7)';
+  ctx.lineWidth = 3 * S;
+  ctx.stroke();
+
+  // 玻璃高光
+  ctx.beginPath();
+  ctx.moveTo(t.x + 8 * S, t.y + t.h * 0.15);
+  ctx.lineTo(t.x + 8 * S, t.y + t.h * 0.5);
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
+  ctx.lineWidth = 3 * S;
+  ctx.lineCap = 'round';
+  ctx.stroke();
+}
+
+/* ============================================================
+   绘制：杯子（含空气和水）
+============================================================ */
+function drawCup() {
+  // 杯子以中心为基准点
+  const cx = cup.x;
+  const cy = cup.y;
+  const w = cup.w;
+  const h = cup.h;
+  const tilt = cup.tilt;
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(tilt * 0.35);   // 倾斜角度
+
+  // 杯子阴影（在水面上时）
+  if (!cup.inWater) {
+    ctx.beginPath();
+    ctx.ellipse(4 * S, h / 2 + 6 * S, w * 0.5, 6 * S, 0, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
+    ctx.fill();
+  }
+
+  // ---- 杯内（从底向上） ----
+  // 空气区域
+  // 水区域
+  // 先画"杯中内容物"
+
+  // 杯子底部（向下）
+  const left = -w / 2;
+  const right = w / 2;
+  const top = -h / 2;
+  const bottom = h / 2;
+
+  // 杯内区域裁剪
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(left + 2 * S, top + 2 * S);
+  ctx.lineTo(right - 2 * S, top + 2 * S);
+  ctx.lineTo(right - 2 * S, bottom - 2 * S);
+  ctx.lineTo(left + 2 * S, bottom - 2 * S);
+  ctx.closePath();
+  ctx.clip();
+
+  // 杯内水（下部）
+  const waterH = h * cup.waterInside;
+  if (waterH > 0) {
+    const waterY = bottom - waterH;
+    const waterGrad = ctx.createLinearGradient(0, waterY, 0, bottom);
+    waterGrad.addColorStop(0, 'rgba(90, 190, 250, 0.75)');
+    waterGrad.addColorStop(1, 'rgba(40, 130, 210, 0.85)');
+    ctx.fillStyle = waterGrad;
+    ctx.fillRect(left, waterY, w, waterH);
+
+    // 水面高光
+    ctx.strokeStyle = 'rgba(220, 240, 255, 0.8)';
+    ctx.lineWidth = 2 * S;
+    ctx.beginPath();
+    ctx.moveTo(left, waterY);
+    ctx.lineTo(right, waterY);
+    ctx.stroke();
+  }
+
+  // 杯内空气（上部），用淡淡的蓝色光泽表示
+  if (cup.airFraction > 0.03) {
+    const airH = h * cup.airFraction;
+    const airY = top + 2 * S;
+    const airGrad = ctx.createLinearGradient(0, airY, 0, airY + airH);
+    airGrad.addColorStop(0, 'rgba(200, 230, 255, 0.15)');
+    airGrad.addColorStop(1, 'rgba(200, 230, 255, 0.05)');
+    ctx.fillStyle = airGrad;
+    ctx.fillRect(left, airY, w, airH);
+
+    // 空气的"小气泡"装饰
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
+    for (let i = 0; i < Math.round(cup.airFraction * 6); i++) {
+      const bx = left + ((i * 37) % w);
+      const by = airY + ((i * 43) % airH);
+      ctx.beginPath();
+      ctx.arc(bx, by, 2 * S, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  ctx.restore();
+
+  // ---- 杯子外形（玻璃） ----
+  // 杯身
+  ctx.beginPath();
+  ctx.moveTo(left, top);
+  ctx.lineTo(right, top);
+  ctx.lineTo(right, bottom);
+  ctx.lineTo(left, bottom);
+  ctx.closePath();
+
+  // 玻璃质感
+  const glassGrad = ctx.createLinearGradient(left, 0, right, 0);
+  glassGrad.addColorStop(0, 'rgba(180, 215, 245, 0.35)');
+  glassGrad.addColorStop(0.4, 'rgba(230, 240, 255, 0.15)');
+  glassGrad.addColorStop(0.6, 'rgba(230, 240, 255, 0.10)');
+  glassGrad.addColorStop(1, 'rgba(180, 215, 245, 0.35)');
+  ctx.fillStyle = glassGrad;
+  ctx.fill();
+
+  ctx.strokeStyle = 'rgba(200, 230, 255, 0.85)';
+  ctx.lineWidth = 2.5 * S;
+  ctx.stroke();
+
+  // 杯底（在下方，也就是杯子的开口向下）
+  ctx.beginPath();
+  ctx.moveTo(left - 3 * S, bottom);
+  ctx.lineTo(right + 3 * S, bottom);
+  ctx.strokeStyle = 'rgba(220, 240, 255, 0.95)';
+  ctx.lineWidth = 3.5 * S;
+  ctx.stroke();
+
+  // 杯顶（上部，原本的杯底）
+  ctx.beginPath();
+  ctx.moveTo(left - 2 * S, top);
+  ctx.lineTo(right + 2 * S, top);
+  ctx.strokeStyle = 'rgba(200, 230, 255, 0.9)';
+  ctx.lineWidth = 3 * S;
+  ctx.stroke();
+
+  // 玻璃高光
+  ctx.beginPath();
+  ctx.moveTo(left + 6 * S, top + 6 * S);
+  ctx.lineTo(left + 6 * S, bottom - 10 * S);
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+  ctx.lineWidth = 2.5 * S;
+  ctx.lineCap = 'round';
+  ctx.stroke();
+
+  // ---- 纸巾（贴在杯顶，也就是杯子的"底"） ----
+  if (paper.wet < 1) {
+    // 干燥的纸巾
+    const paperY = top + 4 * S;
+    const pw = w * 0.7;
+    const ph = 8 * S;
+    const px = -pw / 2;
+
+    ctx.beginPath();
+    roundRect(px, paperY, pw, ph, 2 * S);
+    const paperGrad = ctx.createLinearGradient(0, paperY, 0, paperY + ph);
+    paperGrad.addColorStop(0, '#fffce0');
+    paperGrad.addColorStop(1, '#f0e8c0');
+    ctx.fillStyle = paperGrad;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(200, 180, 120, 0.6)';
+    ctx.lineWidth = 1 * S;
+    ctx.stroke();
+
+    // 纸巾的折痕
+    ctx.strokeStyle = 'rgba(200, 180, 120, 0.4)';
+    ctx.lineWidth = 0.8 * S;
+    for (let i = 1; i < 4; i++) {
+      const pxx = px + pw * (i / 4);
+      ctx.beginPath();
+      ctx.moveTo(pxx, paperY + 1 * S);
+      ctx.lineTo(pxx, paperY + ph - 1 * S);
+      ctx.stroke();
+    }
+  } else {
+    // 湿透的纸巾
+    const paperY = top + 4 * S;
+    const pw = w * 0.7;
+    const ph = 8 * S;
+    const px = -pw / 2;
+
+    ctx.beginPath();
+    roundRect(px, paperY, pw, ph, 2 * S);
+    const wetGrad = ctx.createLinearGradient(0, paperY, 0, paperY + ph);
+    wetGrad.addColorStop(0, '#8fb8d8');
+    wetGrad.addColorStop(1, '#5a90b0');
+    ctx.fillStyle = wetGrad;
+    ctx.fill();
+
+    // 湿透的深色水渍
+    ctx.fillStyle = 'rgba(40, 80, 120, 0.5)';
+    for (let i = 0; i < 5; i++) {
+      const pxx = px + (i + 0.5) * (pw / 5);
+      ctx.beginPath();
+      ctx.arc(pxx, paperY + ph / 2, 2 * S, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  ctx.restore();
+
+  // ---- 杯子周围的空气提示 ----
+  if (cup.inWater && cup.airFraction > 0.5 && cup.tilt < 0.1) {
+    // 杯子在水里，周围画一些"空气护盾"的提示
+    const pulse = 1 + Math.sin(time * 3) * 0.05;
+    ctx.save();
+    ctx.globalAlpha = 0.25;
+    ctx.beginPath();
+    ctx.arc(cx, cy, (cup.w + 20 * S) * pulse, 0, Math.PI * 2);
+    ctx.strokeStyle = '#a8e6ff';
+    ctx.lineWidth = 2 * S;
+    ctx.setLineDash([6 * S, 6 * S]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+  }
+}
+
+/* ============================================================
+   绘制：气泡
+============================================================ */
+function drawBubbles() {
+  for (const b of bubbles) {
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, b.life) * 0.85;
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(220, 240, 255, 0.9)';
+    ctx.lineWidth = 1.5 * S;
+    ctx.stroke();
+    // 高光
+    ctx.beginPath();
+    ctx.arc(b.x - b.r * 0.3, b.y - b.r * 0.3, b.r * 0.3, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+/* ============================================================
+   绘制：水波
+============================================================ */
+function drawRipples() {
+  for (const r of ripples) {
+    ctx.save();
+    ctx.globalAlpha = r.life * 0.7;
+    ctx.beginPath();
+    ctx.ellipse(r.x, r.y, r.r, r.r * 0.35, 0, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(200, 240, 255, 0.9)';
+    ctx.lineWidth = 1.8 * S;
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+/* ============================================================
+   绘制：空气提示标签
+============================================================ */
+function drawAirLabel() {
+  // 在杯子旁边显示空气占比
+  if (!cup.inWater) return;
+
+  const cx = cup.x;
+  const cy = cup.y;
+  const labelX = cx + cup.w / 2 + 20 * S;
+  const labelY = cy;
+
+  ctx.save();
+  ctx.font = 'bold ' + Math.round(12 * S) + 'px system-ui, sans-serif';
+  const text = '空气 ' + Math.round(cup.airFraction * 100) + '%';
+  const tw = ctx.measureText(text).width;
+  const padX = 10 * S;
+  const bh = 24 * S;
+  const bw = tw + padX * 2;
+
+  ctx.fillStyle = 'rgba(16, 22, 38, 0.85)';
+  roundRect(labelX - bw / 2, labelY - bh / 2, bw, bh, bh / 2);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(168, 230, 255, 0.5)';
+  ctx.lineWidth = 1.4 * S;
+  roundRect(labelX - bw / 2, labelY - bh / 2, bw, bh, bh / 2);
+  ctx.stroke();
+
+  ctx.fillStyle = '#a8e6ff';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, labelX, labelY + 1);
+
+  // 连线（从标签到杯子）
+  ctx.beginPath();
+  ctx.moveTo(cx + cup.w / 2, cy);
+  ctx.lineTo(labelX - bw / 2, cy);
+  ctx.strokeStyle = 'rgba(168, 230, 255, 0.4)';
+  ctx.lineWidth = 1 * S;
+  ctx.setLineDash([3 * S, 3 * S]);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.restore();
+}
+
+/* ============================================================
+   工具
+============================================================ */
+function roundRect(x, y, w, h, r) {
+  const rr = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.lineTo(x + w - rr, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+  ctx.lineTo(x + w, y + h - rr);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+  ctx.lineTo(x + rr, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+  ctx.lineTo(x, y + rr);
+  ctx.quadraticCurveTo(x, y, x + rr, y);
+  ctx.closePath();
+}
+
+/* ============================================================
+   渲染
+============================================================ */
+function render() {
+  ctx.clearRect(0, 0, W, H);
+
+  drawBackground();
+  drawTable();
+  drawTank();
+  drawRipples();
+  drawBubbles();
+  drawCup();
+  drawAirLabel();
+}
+
+/* ============================================================
+   交互：拖动杯子
+============================================================ */
+function getPos(e) {
+  const rect = canvas.getBoundingClientRect();
+  return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+}
+
+function hitCup(p) {
+  const dx = Math.abs(p.x - cup.x);
+  const dy = Math.abs(p.y - cup.y);
+  return dx < cup.w * 0.75 && dy < cup.h * 0.75;
+}
+
+function onDown(e) {
+  initAudio();
+  if (activePointer !== null) return;
+  activePointer = e.pointerId;
+  const p = getPos(e);
+
+  if (hitCup(p)) {
+    cup.dragging = true;
+    cup.moved = true;
+    dragOffset.x = cup.x - p.x;
+    dragOffset.y = cup.y - p.y;
+    sfxGrab();
+  }
+}
+
+function onMove(e) {
+  if (activePointer !== e.pointerId) return;
+  if (!cup.dragging) return;
+  const p = getPos(e);
+  cup.x = p.x + dragOffset.x;
+  cup.y = p.y + dragOffset.y;
+
+  // 限制范围
+  cup.x = Math.max(cup.w / 2 + 10 * S, Math.min(W - cup.w / 2 - 10 * S, cup.x));
+  cup.y = Math.max(cup.h / 2 + 10 * S, Math.min(scene.table - cup.h * 0.2, cup.y));
+}
+
+function onUp(e) {
+  if (activePointer !== e.pointerId) return;
+  activePointer = null;
+  if (cup.dragging) {
+    cup.dragging = false;
+    sfxDrop();
+  }
+}
+
+canvas.addEventListener('pointerdown', onDown);
+canvas.addEventListener('pointermove', onMove);
+canvas.addEventListener('pointerup', onUp);
+canvas.addEventListener('pointercancel', onUp);
+canvas.addEventListener('dblclick', function (e) { e.preventDefault(); });
+
+/* ============================================================
+   按钮
+============================================================ */
+btnTilt.addEventListener('click', function () {
+  initAudio();
+  // 切换倾斜状态
+  cup.tiltTarget = cup.tiltTarget < 0.5 ? 1 : 0;
+  btnTilt.textContent = cup.tiltTarget < 0.5 ? '🔄 倾斜杯子' : '↩️ 扶正杯子';
+
+  if (cup.tiltTarget > 0.5) {
+    sfxBubble();
+  }
+});
+
+btnHint.addEventListener('click', function () {
+  initAudio();
+  statusEl.textContent = '💡 杯子里不是空的，是装满空气的！空气占地方，把水挡在外面';
+  statusEl.style.color = '#ffd54f';
+  tipEl.textContent = '💡 倾斜杯子，空气跑出来，水就进去了';
+
+  // 演示：自动倾斜一下
+  if (cup.inWater && cup.airFraction > 0.5) {
+    cup.tiltTarget = 1;
+    btnTilt.textContent = '↩️ 扶正杯子';
+  }
+});
+
+btnReset.addEventListener('click', function () {
+  initAudio();
+  sfxDrop();
+
+  cup.x = cup.baseX;
+  cup.y = cup.baseY;
+  cup.moved = false;
+  cup.tilt = 0;
+  cup.tiltTarget = 0;
+  cup.airFraction = 1;
+  cup.waterInside = 0;
+  cup.inWater = false;
+  bubbles = [];
+  ripples = [];
+  paper.wet = 0;
+
+  btnTilt.textContent = '🔄 倾斜杯子';
+  updateUI();
+});
+
+/* ============================================================
+   启动
+============================================================ */
+resize();
+updateUI();
+
+window.addEventListener('resize', function () {
+  resize();
+  render();
+});
+
+if (window.ResizeObserver) {
+  new ResizeObserver(function () {
+    const cw = canvas.clientWidth, ch = canvas.clientHeight;
+    if (cw > 0 && ch > 0 && (Math.abs(cw - W) > 1 || Math.abs(ch - H) > 1)) {
+      resize();
+      render();
+    }
+  }).observe(canvas);
+}
+
+render();
+requestAnimationFrame(function () {
+  resize();
+  updateUI();
+  render();
+});
+
+gsap.ticker.add(function (t, dt) {
+  const d = Math.min(dt || 16, 50) / 1000;
+  update(d);
+  render();
+});
+</script>
+</body>
+</html>

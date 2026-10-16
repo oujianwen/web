@@ -1,0 +1,1261 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>溶解实验室 —— 糖和盐去哪儿了</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    height: 100%; width: 100%; overflow: hidden; background: #0a1018;
+    touch-action: none;
+    font-family: system-ui, -apple-system, sans-serif;
+    color: #fff;
+  }
+  canvas { display: block; position: absolute; inset: 0; }
+
+  .status {
+    position: fixed;
+    top: 18px; left: 50%;
+    transform: translateX(-50%);
+    padding: 12px 26px;
+    background: rgba(16, 22, 38, 0.88);
+    border-radius: 30px;
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    font-size: 15px; font-weight: 700;
+    z-index: 10; white-space: nowrap; max-width: 92vw;
+    text-align: center; transition: all 0.3s;
+  }
+
+  .readout {
+    position: fixed;
+    top: 18px; right: 18px;
+    padding: 14px 18px;
+    background: rgba(16, 22, 38, 0.88);
+    border-radius: 16px;
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    font-size: 13px; z-index: 10;
+    line-height: 1.9; min-width: 180px;
+  }
+  .readout .row {
+    display: flex; justify-content: space-between; gap: 12px;
+  }
+  .readout .lbl { color: #8898b0; }
+  .readout .num {
+    color: #7fdd6e; font-weight: 800; font-variant-numeric: tabular-nums;
+  }
+  .readout .num.blue { color: #5eb3ff; }
+  .readout .num.warn { color: #ff9eb5; }
+  .readout .divider {
+    margin: 6px 0; border-top: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .panel {
+    position: fixed;
+    bottom: 16px; left: 50%;
+    transform: translateX(-50%);
+    width: min(680px, 94vw);
+    background: rgba(16, 22, 38, 0.92);
+    padding: 14px 22px;
+    border-radius: 18px;
+    backdrop-filter: blur(14px);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    z-index: 10;
+    display: flex; flex-direction: column; gap: 10px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  }
+  .panel .row {
+    display: grid;
+    grid-template-columns: 80px 1fr 60px;
+    align-items: center; gap: 12px; font-size: 13px;
+  }
+  .panel .lbl {
+    font-weight: 700; font-size: 14px; white-space: nowrap;
+  }
+  .panel input[type="range"] {
+    width: 100%; height: 6px; cursor: pointer;
+    -webkit-appearance: none; appearance: none;
+    background: linear-gradient(90deg, #5eb3ff, #ffb055);
+    border-radius: 3px; outline: none;
+  }
+  .panel input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 20px; height: 20px; border-radius: 50%;
+    background: #fff; border: 3px solid #ffb055;
+    cursor: grab; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  }
+  .panel input[type="range"]::-moz-range-thumb {
+    width: 20px; height: 20px; border-radius: 50%;
+    background: #fff; border: 3px solid #ffb055; cursor: grab;
+  }
+  .panel .val {
+    text-align: right; color: #ffd54f; font-weight: 800; font-size: 14px;
+  }
+  .panel .btns {
+    display: grid;
+    grid-template-columns: 1.2fr 1fr 1fr;
+    gap: 8px;
+    margin-top: 4px;
+  }
+  .panel button {
+    padding: 12px 12px;
+    border-radius: 12px;
+    border: none;
+    font-weight: 800; font-size: 13px;
+    cursor: pointer; transition: transform 0.12s, box-shadow 0.2s;
+    white-space: nowrap;
+  }
+  .panel button:active { transform: translateY(1px); }
+  .panel .btn-stir {
+    background: linear-gradient(135deg, #5eb3ff, #7fdd6e);
+    color: #061020;
+    box-shadow: 0 4px 14px rgba(94, 179, 255, 0.35);
+  }
+  .panel .btn-second {
+    background: rgba(255, 255, 255, 0.12);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+  }
+  .panel .btn-second:hover { background: rgba(255, 255, 255, 0.22); }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div class="status" id="status">💧 把旁边的物质拖进水里，看看会发生什么</div>
+
+<div class="readout">
+  <div class="row"><span class="lbl">水温</span><span class="num blue" id="tempVal">20°C</span></div>
+  <div class="row"><span class="lbl">搅拌次数</span><span class="num" id="stirVal">0</span></div>
+  <div class="divider"></div>
+  <div class="row"><span class="lbl">🍬 糖</span><span class="num" id="sugarVal">未测试</span></div>
+  <div class="row"><span class="lbl">🧂 盐</span><span class="num" id="saltVal">未测试</span></div>
+  <div class="row"><span class="lbl">🏖️ 沙</span><span class="num warn" id="sandVal">未测试</span></div>
+  <div class="row"><span class="lbl">🫒 油</span><span class="num warn" id="oilVal">未测试</span></div>
+</div>
+
+<div class="panel">
+  <div class="row">
+    <span class="lbl">🌡️ 水温</span>
+    <input type="range" id="temp" min="5" max="80" value="20" step="1">
+    <span class="val" id="tempSliderVal">20°C</span>
+  </div>
+  <div class="btns">
+    <button class="btn-stir" id="btnStir">🥄 搅拌一下</button>
+    <button class="btn-second" id="btnReset">🔄 重新实验</button>
+    <button class="btn-second" id="btnHint">💡 提示</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+<script>
+/* ============================================================
+   溶解实验室 —— 糖和盐去哪儿了
+   ------------------------------------------------------------
+   教材依据：
+   第五章第二节「水」—— 溶解剂；有些东西能溶解，有些不能
+   第一章「迷思概念」—— 幼儿以为"溶解就是消失了"
+   第六章「好玩的水」—— 直接体验、预测与验证
+   英国《发展至关重要》—— 探索不同物质如何溶解
+
+   核心概念：
+   ① 有些东西放进水里会"消失"（溶解）——糖、盐
+   ② 有些东西放进水里不会消失——沙子会沉底、油会浮起
+   ③ 溶解的东西其实还在水里（糖水是甜的）
+   ④ 搅拌能加快溶解
+   ⑤ 水温越高，溶解越快
+   ============================================================ */
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+const statusEl = document.getElementById('status');
+const tempSlider = document.getElementById('temp');
+const tempSliderVal = document.getElementById('tempSliderVal');
+const tempValEl = document.getElementById('tempVal');
+const stirValEl = document.getElementById('stirVal');
+const sugarValEl = document.getElementById('sugarVal');
+const saltValEl = document.getElementById('saltVal');
+const sandValEl = document.getElementById('sandVal');
+const oilValEl = document.getElementById('oilVal');
+const btnStir = document.getElementById('btnStir');
+const btnReset = document.getElementById('btnReset');
+const btnHint = document.getElementById('btnHint');
+
+let W = 800, H = 600, DPR = 1, S = 1;
+let time = 0;
+
+/* ---------- 场景 ---------- */
+const scene = {
+  table: 0,
+  tank: { x: 0, y: 0, w: 0, h: 0, waterTop: 0, waterBottom: 0, waterLevel: 0.68 },
+  tray: { x: 0, y: 0, w: 0, h: 0 }
+};
+
+/* ---------- 杯子状态 ---------- */
+const cup = {
+  temp: 20,                 // 水温
+  stirProgress: 0,          // 搅拌动画进度
+  swirl: 0,                 // 漩涡强度 0~1
+  stirCount: 0,
+  // 水色（溶解后的色调）
+  tint: { r: 0, g: 0, b: 0 },   // 色调叠加
+  tintSmooth: { r: 0, g: 0, b: 0 },
+  // 总溶解量
+  dissolved: { sugar: 0, salt: 0 }
+};
+
+/* ---------- 物质定义 ---------- */
+const SUBSTANCES = [
+  { id: 'sugar', name: '糖', emoji: '🍬', color: '#ffffff', dissolveTime: 8, tintColor: [255, 255, 240], dissolveColor: '#5a6a7a' },
+  { id: 'salt',  name: '盐', emoji: '🧂', color: '#e8e8e8', dissolveTime: 10, tintColor: [230, 240, 255], dissolveColor: '#7a8a9a' },
+  { id: 'sand',  name: '沙子', emoji: '🏖️', color: '#c8a868', dissolveTime: 0, tintColor: null, dissolveColor: null },
+  { id: 'oil',   name: '油', emoji: '🫒', color: '#ffe066', dissolveTime: 0, tintColor: null, dissolveColor: null }
+];
+
+/* ---------- 物质托盘 ---------- */
+let trayItems = [];
+
+/* ---------- 溶解颗粒 ---------- */
+let particles = [];
+
+/* ---------- 沙粒（沉底） ---------- */
+let sandPiles = [];
+
+/* ---------- 油滴（浮起） ---------- */
+let oilDrops = [];
+
+/* ---------- 水波 ---------- */
+let ripples = [];
+
+/* ---------- 气泡 ---------- */
+let bubbles = [];
+
+/* ---------- 交互 ---------- */
+let activePointer = null;
+let dragging = null;
+let dragOffset = { x: 0, y: 0 };
+let dragOrigin = null;
+
+/* ---------- 实验记录 ---------- */
+const results = { sugar: null, salt: null, sand: null, oil: null };
+
+/* ============================================================
+   尺寸
+============================================================ */
+function resize() {
+  let w = window.innerWidth || document.documentElement.clientWidth || 800;
+  let h = window.innerHeight || document.documentElement.clientHeight || 600;
+  if (w < 200) w = 800;
+  if (h < 200) h = 600;
+
+  W = w; H = h;
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width = Math.floor(W * DPR);
+  canvas.height = Math.floor(H * DPR);
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+  S = Math.max(0.55, Math.min(1.15, H / 800));
+
+  layoutScene();
+  buildTray();
+}
+
+function layoutScene() {
+  scene.table = H * 0.82;
+
+  // 杯子（中央偏上）
+  scene.tank.w = Math.min(W * 0.36, 300 * S);
+  scene.tank.h = Math.min(H * 0.44, 320 * S);
+  scene.tank.x = W * 0.5 - scene.tank.w / 2;
+  scene.tank.y = H * 0.34;
+  scene.tank.waterTop = scene.tank.y + scene.tank.h * (1 - scene.tank.waterLevel);
+  scene.tank.waterBottom = scene.tank.y + scene.tank.h;
+
+  // 底部托盘
+  scene.tray.w = Math.min(W * 0.72, 580 * S);
+  scene.tray.h = 100 * S;
+  scene.tray.x = W * 0.5 - scene.tray.w / 2;
+  scene.tray.y = H - scene.tray.h - 110 * S;
+}
+
+/* ============================================================
+   托盘物品布局
+============================================================ */
+function buildTray() {
+  const count = SUBSTANCES.length;
+  const slotW = scene.tray.w / count;
+  trayItems = SUBSTANCES.map(function (sub, i) {
+    const existing = trayItems.find(function (t) { return t.id === sub.id; });
+    const cx = scene.tray.x + slotW * (i + 0.5);
+    const cy = scene.tray.y + scene.tray.h / 2;
+    return {
+      id: sub.id,
+      name: sub.name,
+      emoji: sub.emoji,
+      color: sub.color,
+      homeX: cx,
+      homeY: cy,
+      x: existing && existing.used ? existing.x : cx,
+      y: existing && existing.used ? existing.y : cy,
+      r: 26 * S,
+      used: existing ? existing.used : false,
+      dragging: false
+    };
+  });
+}
+
+/* ============================================================
+   音效
+============================================================ */
+let audioCtx = null;
+function initAudio() {
+  if (!audioCtx) {
+    try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
+  }
+}
+function beep(freq, dur, vol, type, delay) {
+  vol = vol == null ? 0.06 : vol;
+  type = type || 'sine';
+  delay = delay || 0;
+  if (!audioCtx) return;
+  const t0 = audioCtx.currentTime + delay;
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(freq, t0);
+  o.connect(g);
+  g.connect(audioCtx.destination);
+  g.gain.setValueAtTime(vol, t0);
+  g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+  o.start(t0);
+  o.stop(t0 + dur);
+}
+function sfxGrab() { beep(620, 0.05, 0.05, 'triangle'); }
+function sfxDrop() { beep(400, 0.08, 0.05, 'triangle'); }
+function sfxSplash() {
+  beep(560, 0.08, 0.06, 'sine');
+  beep(360, 0.12, 0.05, 'sine', 0.05);
+}
+function sfxStir() {
+  beep(280, 0.10, 0.05, 'sine');
+  beep(340, 0.10, 0.05, 'sine', 0.10);
+  beep(300, 0.14, 0.05, 'sine', 0.20);
+}
+function sfxDissolve() {
+  beep(760, 0.10, 0.05, 'sine');
+  beep(900, 0.12, 0.05, 'sine', 0.08);
+}
+function sfxSand() {
+  beep(220, 0.14, 0.06, 'triangle');
+}
+function sfxOil() {
+  beep(480, 0.10, 0.05, 'sine');
+  beep(560, 0.12, 0.05, 'sine', 0.10);
+}
+
+/* ============================================================
+   更新
+============================================================ */
+function update(dt) {
+  time += dt;
+
+  // 水温同步
+  cup.temp = +tempSlider.value;
+
+  // 色调平滑
+  cup.tintSmooth.r += (cup.tint.r - cup.tintSmooth.r) * Math.min(1, dt * 2);
+  cup.tintSmooth.g += (cup.tint.g - cup.tintSmooth.g) * Math.min(1, dt * 2);
+  cup.tintSmooth.b += (cup.tint.b - cup.tintSmooth.b) * Math.min(1, dt * 2);
+
+  // 搅拌进度衰减
+  cup.stirProgress = Math.max(0, cup.stirProgress - dt * 0.8);
+  cup.swirl += ((cup.stirProgress > 0.3 ? 1 : 0) - cup.swirl) * Math.min(1, dt * 3);
+
+  // 溶解速度系数：水温越高越快，搅拌也会加快
+  const tempFactor = 0.4 + (cup.temp - 5) / 75 * 2.6;   // 0.4 ~ 3.0
+  const stirFactor = 1 + cup.swirl * 2.5;
+  const dissolveSpeed = tempFactor * stirFactor;
+
+  // 更新溶解颗粒
+  for (const p of particles) {
+    // 颗粒下沉
+    p.vy += 60 * dt;
+    p.vx *= 0.97;
+    p.vy *= 0.97;
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+
+    // 漩涡：搅拌时颗粒绕杯中心转
+    if (cup.swirl > 0.1) {
+      const cx = scene.tank.x + scene.tank.w / 2;
+      const cy = scene.tank.waterTop + (scene.tank.waterBottom - scene.tank.waterTop) / 2;
+      const dx = p.x - cx;
+      const dy = p.y - cy;
+      const dist = Math.hypot(dx, dy);
+      if (dist > 5) {
+        const tangentX = -dy / dist;
+        const tangentY = dx / dist;
+        const force = cup.swirl * 120 * dt;
+        p.vx += tangentX * force;
+        p.vy += tangentY * force;
+      }
+    }
+
+    // 边界
+    if (p.x < scene.tank.x + 4 * S) { p.x = scene.tank.x + 4 * S; p.vx = Math.abs(p.vx) * 0.4; }
+    if (p.x > scene.tank.x + scene.tank.w - 4 * S) { p.x = scene.tank.x + scene.tank.w - 4 * S; p.vx = -Math.abs(p.vx) * 0.4; }
+
+    // 沉到底部
+    if (p.y > scene.tank.waterBottom - 4 * S) {
+      p.y = scene.tank.waterBottom - 4 * S;
+      p.vy *= 0.3;
+    }
+
+    // 溶解：半径逐渐变小
+    if (p.dissolvable) {
+      const dissolveRate = dt / (p.dissolveTime / dissolveSpeed);
+      p.r -= p.r * dissolveRate * 1.2;
+      p.alpha -= dt * dissolveRate * 1.2;
+      if (p.r < 0.6 || p.alpha <= 0) {
+        p.dead = true;
+      }
+    }
+  }
+  particles = particles.filter(function (p) { return !p.dead; });
+
+  // 沙粒堆积：更新沙堆位置（如果沙粒沉底）
+  for (const s of sandPiles) {
+    s.y += (scene.tank.waterBottom - 4 * S - s.y) * Math.min(1, dt * 3);
+  }
+
+  // 油滴浮起
+  for (const o of oilDrops) {
+    o.y += (scene.tank.waterTop + o.r * 0.8 - o.y) * Math.min(1, dt * 1.5);
+    o.vx *= 0.95;
+    o.x += o.vx * dt;
+    // 合并：油滴聚集
+    o.life -= dt * 0.05;
+  }
+  oilDrops = oilDrops.filter(function (o) { return o.life > 0; });
+
+  // 水波
+  for (const r of ripples) {
+    r.r += (r.maxR - r.r) * Math.min(1, dt * 4);
+    r.life -= dt * 1.5;
+  }
+  ripples = ripples.filter(function (r) { return r.life > 0; });
+
+  // 气泡（热水时水面上冒气泡）
+  if (cup.temp > 50 && Math.random() < 0.15) {
+    bubbles.push({
+      x: scene.tank.x + Math.random() * scene.tank.w,
+      y: scene.tank.waterBottom - 4 * S,
+      r: (2 + Math.random() * 3) * S,
+      vy: -30 - Math.random() * 40,
+      life: 1
+    });
+  }
+  for (const b of bubbles) {
+    b.y += b.vy * dt;
+    b.vy -= 20 * dt;
+    b.life -= dt * 1.2;
+    if (b.y < scene.tank.waterTop) b.life = 0;
+  }
+  bubbles = bubbles.filter(function (b) { return b.life > 0; });
+
+  updateUI();
+}
+
+function updateUI() {
+  tempValEl.textContent = cup.temp + '°C';
+  tempSliderVal.textContent = cup.temp + '°C';
+  stirValEl.textContent = cup.stirCount;
+
+  const labels = {
+    sugar: { name: '糖', dissolved: '溶解了', not: '未测试' },
+    salt: { name: '盐', dissolved: '溶解了', not: '未测试' },
+    sand: { name: '沙', dissolved: '不会溶解', not: '未测试' },
+    oil: { name: '油', dissolved: '浮在水面', not: '未测试' }
+  };
+
+  const vals = {
+    sugar: sugarValEl,
+    salt: saltValEl,
+    sand: sandValEl,
+    oil: oilValEl
+  };
+
+  for (const id in results) {
+    if (results[id]) {
+      vals[id].textContent = results[id];
+      vals[id].className = 'num ' +
+        (id === 'sand' || id === 'oil' ? 'warn' : '');
+    } else {
+      vals[id].textContent = labels[id].not;
+    }
+  }
+
+  // 状态提示
+  const totalResults = Object.values(results).filter(function (v) { return v; }).length;
+  if (totalResults === 0) {
+    statusEl.textContent = '💧 把旁边的物质拖进水里，看看会发生什么';
+    statusEl.style.color = '#ffffff';
+  } else if (totalResults < 4) {
+    statusEl.textContent = '🔬 已经试了 ' + totalResults + ' 种，继续拖其它物质试试';
+    statusEl.style.color = '#ffd54f';
+  } else {
+    statusEl.textContent = '🎉 都试过了！糖和盐溶解，沙沉底，油浮起来';
+    statusEl.style.color = '#7fdd6e';
+  }
+}
+
+/* ============================================================
+   拖放：物质入水
+============================================================ */
+function dropSubstance(item) {
+  const sub = SUBSTANCES.find(function (s) { return s.id === item.id; });
+  if (!sub) return;
+
+  const dropX = item.x;
+  const dropY = item.y;
+
+  // 是否在杯口范围内
+  const inTankX = dropX > scene.tank.x && dropX < scene.tank.x + scene.tank.w;
+  const inTankY = dropY > scene.tank.y - 40 * S && dropY < scene.tank.waterBottom;
+
+  if (!inTankX || !inTankY) {
+    // 没放进水里，回到托盘
+    gsap.to(item, {
+      x: item.homeX, y: item.homeY,
+      duration: 0.5, ease: 'power2.out'
+    });
+    return;
+  }
+
+  // 入水
+  sfxSplash();
+  ripples.push({
+    x: dropX, y: scene.tank.waterTop,
+    r: 6 * S, maxR: 40 * S, life: 1
+  });
+
+  item.used = true;
+
+  if (sub.id === 'sugar' || sub.id === 'salt') {
+    // 生成溶解颗粒
+    const count = 12;
+    for (let i = 0; i < count; i++) {
+      particles.push({
+        x: dropX + (Math.random() - 0.5) * 30 * S,
+        y: scene.tank.waterTop + 10 * S + Math.random() * 20 * S,
+        vx: (Math.random() - 0.5) * 40,
+        vy: 30 + Math.random() * 40,
+        r: (3 + Math.random() * 3) * S,
+        alpha: 1,
+        color: sub.color,
+        dissolvable: true,
+        dissolveTime: sub.dissolveTime
+      });
+    }
+
+    // 水色逐渐改变
+    const tint = sub.tintColor;
+    gsap.to(cup.tint, {
+      r: Math.min(40, cup.tint.r + 20),
+      g: Math.min(40, cup.tint.g + 20),
+      b: Math.min(50, cup.tint.b + 25),
+      duration: 3, ease: 'power2.out'
+    });
+
+    sfxDissolve();
+    results[sub.id] = '溶解了';
+
+    // 延迟后更新状态
+    setTimeout(function () {
+      updateUI();
+    }, 2000);
+  }
+  else if (sub.id === 'sand') {
+    // 沙粒：沉底
+    const count = 14;
+    for (let i = 0; i < count; i++) {
+      const sx = dropX + (Math.random() - 0.5) * 40 * S;
+      sandPiles.push({
+        x: sx,
+        y: scene.tank.waterTop + 20 * S,
+        r: (2 + Math.random() * 2.5) * S,
+        color: '#b89858',
+        vy: 40 + Math.random() * 60
+      });
+    }
+    sfxSand();
+    results[sub.id] = '沉到底部';
+    updateUI();
+  }
+  else if (sub.id === 'oil') {
+    // 油滴：浮在水面
+    const count = 10;
+    for (let i = 0; i < count; i++) {
+      oilDrops.push({
+        x: dropX + (Math.random() - 0.5) * 40 * S,
+        y: scene.tank.waterTop + 30 * S + Math.random() * 30 * S,
+        vx: (Math.random() - 0.5) * 30,
+        r: (5 + Math.random() * 4) * S,
+        life: 1
+      });
+    }
+    sfxOil();
+    results[sub.id] = '浮在水面';
+    updateUI();
+  }
+
+  // 让托盘物品淡出
+  gsap.to(item, {
+    x: item.homeX,
+    y: item.homeY,
+    duration: 0.4,
+    ease: 'power2.out'
+  });
+}
+
+/* ============================================================
+   绘制：背景
+============================================================ */
+function drawBackground() {
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#1a2438');
+  g.addColorStop(0.55, '#0d1422');
+  g.addColorStop(1, '#050810');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+
+  // 舞台光晕
+  const glow = ctx.createRadialGradient(
+    W * 0.5, H * 0.35, 30,
+    W * 0.5, H * 0.35, Math.max(W, H) * 0.6
+  );
+  glow.addColorStop(0, 'rgba(120, 180, 255, 0.10)');
+  glow.addColorStop(1, 'rgba(120, 180, 255, 0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+}
+
+/* ============================================================
+   绘制：桌子
+============================================================ */
+function drawTable() {
+  const ty = scene.table;
+
+  const g = ctx.createLinearGradient(0, ty, 0, H);
+  g.addColorStop(0, '#4a3020');
+  g.addColorStop(0.3, '#2a1a10');
+  g.addColorStop(1, '#150c05');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, ty, W, H - ty);
+
+  // 桌面高光
+  ctx.strokeStyle = 'rgba(180, 140, 90, 0.35)';
+  ctx.lineWidth = 2.5 * S;
+  ctx.beginPath();
+  ctx.moveTo(0, ty);
+  ctx.lineTo(W, ty);
+  ctx.stroke();
+}
+
+/* ============================================================
+   绘制：托盘
+============================================================ */
+function drawTray() {
+  const t = scene.tray;
+
+  // 托盘底板
+  const g = ctx.createLinearGradient(0, t.y, 0, t.y + t.h);
+  g.addColorStop(0, 'rgba(60, 75, 110, 0.7)');
+  g.addColorStop(1, 'rgba(30, 42, 65, 0.85)');
+  ctx.beginPath();
+  roundRect(t.x, t.y, t.w, t.h, 16 * S);
+  ctx.fillStyle = g;
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(140, 180, 240, 0.3)';
+  ctx.lineWidth = 2 * S;
+  ctx.stroke();
+
+  // 每个槽位的小圆圈
+  for (let i = 0; i < SUBSTANCES.length; i++) {
+    const cx = t.x + (t.w / SUBSTANCES.length) * (i + 0.5);
+    const cy = t.y + t.h / 2;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 42 * S, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(140, 180, 240, 0.12)';
+    ctx.lineWidth = 1.5 * S;
+    ctx.setLineDash([5 * S, 6 * S]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // 标签
+  ctx.font = 'bold ' + Math.round(11 * S) + 'px system-ui, sans-serif';
+  ctx.fillStyle = 'rgba(140, 180, 240, 0.55)';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillText('把物质拖进水里 →', t.x + 14 * S, t.y - 22 * S);
+}
+
+/* ============================================================
+   绘制：水杯
+============================================================ */
+function drawTank() {
+  const t = scene.tank;
+
+  // 阴影
+  ctx.save();
+  ctx.shadowBlur = 20 * S;
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
+  ctx.beginPath();
+  roundRect(t.x, t.y, t.w, t.h, 8 * S);
+  ctx.fillStyle = 'rgba(20, 30, 50, 0.4)';
+  ctx.fill();
+  ctx.restore();
+
+  // 玻璃杯背景
+  ctx.save();
+  ctx.beginPath();
+  roundRect(t.x, t.y, t.w, t.h, 8 * S);
+  ctx.clip();
+
+  const bg = ctx.createLinearGradient(0, t.y, 0, t.y + t.h);
+  bg.addColorStop(0, 'rgba(50, 65, 90, 0.5)');
+  bg.addColorStop(1, 'rgba(25, 40, 65, 0.7)');
+  ctx.fillStyle = bg;
+  ctx.fillRect(t.x, t.y, t.w, t.h);
+
+  // 水的渐变
+  const waterGrad = ctx.createLinearGradient(0, t.waterTop, 0, t.waterBottom);
+  const tr = cup.tintSmooth.r;
+  const tg = cup.tintSmooth.g;
+  const tb = cup.tintSmooth.b;
+  waterGrad.addColorStop(0, 'rgba(' + (90 + tr) + ', ' + (190 + tg) + ', ' + (250 + tb) + ', 0.62)');
+  waterGrad.addColorStop(0.5, 'rgba(' + (50 + tr) + ', ' + (140 + tg) + ', ' + (215 + tb) + ', 0.78)');
+  waterGrad.addColorStop(1, 'rgba(' + (20 + tr) + ', ' + (80 + tg) + ', ' + (150 + tb) + ', 0.9)');
+  ctx.fillStyle = waterGrad;
+  ctx.fillRect(t.x, t.waterTop, t.w, t.waterBottom - t.waterTop);
+
+  // 水下的水波纹理
+  ctx.globalAlpha = 0.12;
+  for (let i = 0; i < 3; i++) {
+    const y = t.waterTop + 20 * S + i * 30 * S;
+    ctx.strokeStyle = '#bfe4ff';
+    ctx.lineWidth = 1.2 * S;
+    ctx.beginPath();
+    for (let x = t.x; x <= t.x + t.w; x += 8) {
+      const yy = y + Math.sin(x * 0.08 + time * 1.5 + i) * 3 * S;
+      if (x === t.x) ctx.moveTo(x, yy);
+      else ctx.lineTo(x, yy);
+    }
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+
+  // 水面波光
+  ctx.strokeStyle = 'rgba(200, 240, 255, 0.85)';
+  ctx.lineWidth = 2.5 * S;
+  ctx.beginPath();
+  for (let x = t.x; x <= t.x + t.w; x += 6) {
+    const y = t.waterTop + Math.sin(x * 0.06 + time * 2) * 2.5 * S;
+    if (x === t.x) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+
+  ctx.restore();
+
+  // 玻璃边框
+  ctx.beginPath();
+  roundRect(t.x, t.y, t.w, t.h, 8 * S);
+  ctx.strokeStyle = 'rgba(200, 225, 245, 0.75)';
+  ctx.lineWidth = 3 * S;
+  ctx.stroke();
+
+  // 玻璃高光
+  ctx.beginPath();
+  ctx.moveTo(t.x + 10 * S, t.y + t.h * 0.1);
+  ctx.lineTo(t.x + 10 * S, t.y + t.h * 0.5);
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
+  ctx.lineWidth = 3 * S;
+  ctx.lineCap = 'round';
+  ctx.stroke();
+
+  // 水位刻度
+  ctx.strokeStyle = 'rgba(200, 225, 245, 0.4)';
+  ctx.lineWidth = 1.2 * S;
+  for (let i = 1; i <= 3; i++) {
+    const y = t.waterTop + (t.waterBottom - t.waterTop) * (i / 4);
+    ctx.beginPath();
+    ctx.moveTo(t.x + t.w - 6 * S, y);
+    ctx.lineTo(t.x + t.w - 18 * S, y);
+    ctx.stroke();
+  }
+
+  // 温度计图标（显示当前水温）
+  drawTempIndicator();
+}
+
+function drawTempIndicator() {
+  const t = scene.tank;
+  const tx = t.x + t.w + 30 * S;
+  const ty = t.y + 20 * S;
+  const tw = 14 * S;
+  const th = t.h * 0.7;
+
+  // 温度计主体
+  ctx.beginPath();
+  roundRect(tx - tw / 2, ty, tw, th, tw / 2);
+  ctx.fillStyle = 'rgba(20, 30, 50, 0.7)';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(200, 225, 245, 0.45)';
+  ctx.lineWidth = 1.5 * S;
+  ctx.stroke();
+
+  // 温度填充
+  const pct = (cup.temp - 5) / 75;
+  const fillH = th * pct;
+  const fillY = ty + th - fillH;
+  const rr = Math.round(80 + pct * 175);
+  const rg = Math.round(180 - pct * 100);
+  const rb = Math.round(255 - pct * 200);
+  ctx.beginPath();
+  roundRect(tx - tw / 2 + 2 * S, fillY, tw - 4 * S, fillH, (tw - 4 * S) / 2);
+  ctx.fillStyle = 'rgb(' + rr + ',' + rg + ',' + rb + ')';
+  ctx.fill();
+
+  // 数字
+  ctx.font = 'bold ' + Math.round(11 * S) + 'px system-ui, sans-serif';
+  ctx.fillStyle = '#ffd54f';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'bottom';
+  ctx.fillText(cup.temp + '°', tx, ty - 6 * S);
+}
+
+/* ============================================================
+   绘制：粒子
+============================================================ */
+function drawParticles() {
+  for (const p of particles) {
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, p.alpha);
+
+    // 溶解时发光的柔光
+    if (p.dissolvable && p.r < 3 * S) {
+      const glowR = p.r * 3;
+      const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, glowR);
+      g.addColorStop(0, 'rgba(255, 255, 220, ' + (p.alpha * 0.5) + ')');
+      g.addColorStop(1, 'rgba(255, 255, 220, 0)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, glowR, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // 颗粒本体
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+    ctx.fillStyle = p.color;
+    ctx.fill();
+
+    // 小高光
+    if (p.r > 2 * S) {
+      ctx.beginPath();
+      ctx.arc(p.x - p.r * 0.3, p.y - p.r * 0.3, p.r * 0.3, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+      ctx.fill();
+    }
+
+    ctx.restore();
+  }
+}
+
+function drawSand() {
+  for (const s of sandPiles) {
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+    ctx.fillStyle = s.color;
+    ctx.fill();
+
+    // 高光
+    ctx.beginPath();
+    ctx.arc(s.x - s.r * 0.3, s.y - s.r * 0.3, s.r * 0.3, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255, 240, 180, 0.6)';
+    ctx.fill();
+  }
+}
+
+function drawOil() {
+  for (const o of oilDrops) {
+    ctx.save();
+    ctx.globalAlpha = o.life * 0.9;
+
+    // 油滴（椭圆，因为浮在水面上会摊开）
+    const grad = ctx.createRadialGradient(
+      o.x - o.r * 0.3, o.y - o.r * 0.4, o.r * 0.1,
+      o.x, o.y, o.r * 1.2
+    );
+    grad.addColorStop(0, 'rgba(255, 245, 180, 0.95)');
+    grad.addColorStop(0.5, 'rgba(255, 220, 80, 0.85)');
+    grad.addColorStop(1, 'rgba(200, 150, 40, 0.7)');
+
+    ctx.beginPath();
+    ctx.ellipse(o.x, o.y, o.r * 1.4, o.r * 0.5, 0, 0, Math.PI * 2);
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    // 高光
+    ctx.beginPath();
+    ctx.ellipse(o.x - o.r * 0.4, o.y - o.r * 0.2, o.r * 0.35, o.r * 0.15, 0, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+    ctx.fill();
+
+    ctx.restore();
+  }
+}
+
+function drawRipples() {
+  for (const r of ripples) {
+    ctx.save();
+    ctx.globalAlpha = r.life * 0.7;
+    ctx.beginPath();
+    ctx.ellipse(r.x, r.y, r.r, r.r * 0.35, 0, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(200, 240, 255, 0.9)';
+    ctx.lineWidth = 2 * S;
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+function drawBubbles() {
+  for (const b of bubbles) {
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, b.life) * 0.7;
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(220, 240, 255, 0.85)';
+    ctx.lineWidth = 1.2 * S;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(b.x - b.r * 0.3, b.y - b.r * 0.3, b.r * 0.3, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+/* ============================================================
+   绘制：托盘里的物质
+============================================================ */
+function drawTrayItem(item) {
+  const r = item.r;
+
+  // 阴影
+  ctx.beginPath();
+  ctx.ellipse(item.x + 2 * S, item.y + r * 0.85, r * 0.85, r * 0.25, 0, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+  ctx.fill();
+
+  ctx.save();
+  ctx.translate(item.x, item.y);
+
+  // 已使用过 → 半透明显示
+  if (item.used && !item.dragging) {
+    ctx.globalAlpha = 0.4;
+  }
+
+  // 物质圆底
+  ctx.beginPath();
+  ctx.arc(0, 0, r, 0, Math.PI * 2);
+  const g = ctx.createRadialGradient(-r * 0.3, -r * 0.3, r * 0.1, 0, 0, r);
+  g.addColorStop(0, 'rgba(255, 255, 255, 0.25)');
+  g.addColorStop(0.5, 'rgba(60, 80, 120, 0.8)');
+  g.addColorStop(1, 'rgba(30, 45, 75, 0.9)');
+  ctx.fillStyle = g;
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(140, 180, 240, 0.5)';
+  ctx.lineWidth = 2 * S;
+  ctx.stroke();
+
+  // 内容物（用不同形状区分）
+  if (item.id === 'sugar' || item.id === 'salt') {
+    // 小方块堆
+    ctx.fillStyle = item.color;
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * Math.PI * 2;
+      const px = Math.cos(a) * r * 0.28;
+      const py = Math.sin(a) * r * 0.28;
+      ctx.beginPath();
+      roundRect(px - 4 * S, py - 4 * S, 8 * S, 8 * S, 1.5 * S);
+      ctx.fill();
+    }
+    ctx.beginPath();
+    roundRect(-4 * S, -4 * S, 8 * S, 8 * S, 1.5 * S);
+    ctx.fill();
+  }
+  else if (item.id === 'sand') {
+    // 小圆点
+    ctx.fillStyle = item.color;
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * Math.PI * 2;
+      const rr = r * 0.55 * (0.5 + Math.random() * 0.5);
+      const px = Math.cos(a) * rr;
+      const py = Math.sin(a) * rr;
+      ctx.beginPath();
+      ctx.arc(px, py, 1.8 * S, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  else if (item.id === 'oil') {
+    // 油滴形状
+    ctx.beginPath();
+    ctx.ellipse(0, 0, r * 0.55, r * 0.35, 0, 0, Math.PI * 2);
+    const og = ctx.createRadialGradient(-r * 0.2, -r * 0.15, 1, 0, 0, r * 0.6);
+    og.addColorStop(0, 'rgba(255, 250, 200, 0.95)');
+    og.addColorStop(1, 'rgba(220, 170, 40, 0.85)');
+    ctx.fillStyle = og;
+    ctx.fill();
+  }
+
+  // Emoji 标签
+  ctx.font = Math.round(18 * S) + 'px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(item.emoji, 0, r * 1.5);
+
+  // 名字
+  ctx.font = 'bold ' + Math.round(11 * S) + 'px system-ui, sans-serif';
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.75)';
+  ctx.fillText(item.name, 0, r * 1.85);
+
+  ctx.restore();
+}
+
+/* ============================================================
+   工具
+============================================================ */
+function roundRect(x, y, w, h, r) {
+  const rr = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.lineTo(x + w - rr, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+  ctx.lineTo(x + w, y + h - rr);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+  ctx.lineTo(x + rr, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+  ctx.lineTo(x, y + rr);
+  ctx.quadraticCurveTo(x, y, x + rr, y);
+  ctx.closePath();
+}
+
+/* ============================================================
+   渲染
+============================================================ */
+function render() {
+  ctx.clearRect(0, 0, W, H);
+
+  drawBackground();
+  drawTable();
+  drawTank();
+  drawRipples();
+  drawBubbles();
+  drawSand();
+  drawOil();
+  drawParticles();
+  drawTray();
+
+  // 托盘物品（正在拖的放最后）
+  for (const item of trayItems) {
+    if (!item.dragging) drawTrayItem(item);
+  }
+  for (const item of trayItems) {
+    if (item.dragging) drawTrayItem(item);
+  }
+}
+
+/* ============================================================
+   交互
+============================================================ */
+function getPos(e) {
+  const rect = canvas.getBoundingClientRect();
+  return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+}
+
+function hitTrayItem(p) {
+  for (let i = trayItems.length - 1; i >= 0; i--) {
+    const item = trayItems[i];
+    const d = Math.hypot(p.x - item.x, p.y - item.y);
+    if (d < item.r + 12 * S) return item;
+  }
+  return null;
+}
+
+function onDown(e) {
+  initAudio();
+  if (activePointer !== null) return;
+  activePointer = e.pointerId;
+  const p = getPos(e);
+  const item = hitTrayItem(p);
+  if (item) {
+    dragging = item;
+    item.dragging = true;
+    dragOffset.x = item.x - p.x;
+    dragOffset.y = item.y - p.y;
+    sfxGrab();
+  }
+}
+
+function onMove(e) {
+  if (activePointer !== e.pointerId) return;
+  if (!dragging) return;
+  const p = getPos(e);
+  dragging.x = p.x + dragOffset.x;
+  dragging.y = p.y + dragOffset.y;
+
+  // 限制在屏幕内
+  dragging.x = Math.max(dragging.r, Math.min(W - dragging.r, dragging.x));
+  dragging.y = Math.max(dragging.r, Math.min(H - dragging.r, dragging.y));
+}
+
+function onUp(e) {
+  if (activePointer !== e.pointerId) return;
+  activePointer = null;
+  if (dragging) {
+    const item = dragging;
+    dragging = null;
+    item.dragging = false;
+
+    // 如果在水杯范围内，掉落
+    if (item.x > scene.tank.x - 40 * S && item.x < scene.tank.x + scene.tank.w + 40 * S &&
+        item.y > scene.tank.y - 60 * S && item.y < scene.tank.waterBottom + 40 * S) {
+      dropSubstance(item);
+    } else {
+      // 回到原位
+      gsap.to(item, {
+        x: item.homeX,
+        y: item.homeY,
+        duration: 0.5,
+        ease: 'power2.out'
+      });
+    }
+  }
+}
+
+canvas.addEventListener('pointerdown', onDown);
+canvas.addEventListener('pointermove', onMove);
+canvas.addEventListener('pointerup', onUp);
+canvas.addEventListener('pointercancel', onUp);
+canvas.addEventListener('dblclick', function (e) { e.preventDefault(); });
+
+/* ============================================================
+   按钮
+============================================================ */
+btnStir.addEventListener('click', function () {
+  initAudio();
+  sfxStir();
+  cup.stirCount++;
+  cup.stirProgress = 1;
+  // 生成一圈水波
+  const t = scene.tank;
+  for (let i = 0; i < 3; i++) {
+    setTimeout(function () {
+      ripples.push({
+        x: t.x + t.w / 2 + (Math.random() - 0.5) * t.w * 0.6,
+        y: t.waterTop,
+        r: 6 * S, maxR: (30 + Math.random() * 30) * S, life: 1
+      });
+    }, i * 100);
+  }
+});
+
+btnReset.addEventListener('click', function () {
+  initAudio();
+  sfxDrop();
+
+  // 重置所有
+  particles = [];
+  sandPiles = [];
+  oilDrops = [];
+  ripples = [];
+  bubbles = [];
+  cup.tint = { r: 0, g: 0, b: 0 };
+  cup.tintSmooth = { r: 0, g: 0, b: 0 };
+  cup.stirCount = 0;
+  cup.stirProgress = 0;
+  cup.swirl = 0;
+
+  for (const id in results) results[id] = null;
+
+  // 恢复托盘物品
+  for (const item of trayItems) {
+    item.used = false;
+    gsap.to(item, {
+      x: item.homeX, y: item.homeY,
+      duration: 0.5, ease: 'power2.out'
+    });
+  }
+
+  updateUI();
+  statusEl.textContent = '💧 把旁边的物质拖进水里，看看会发生什么';
+  statusEl.style.color = '#ffffff';
+});
+
+btnHint.addEventListener('click', function () {
+  initAudio();
+  statusEl.textContent = '💡 糖和盐溶解到水里了；沙子沉底，油浮在水面——它们不会溶解';
+  statusEl.style.color = '#ffd54f';
+});
+
+tempSlider.addEventListener('input', function (e) {
+  initAudio();
+  cup.temp = +e.target.value;
+  tempSliderVal.textContent = cup.temp + '°C';
+  tempValEl.textContent = cup.temp + '°C';
+});
+
+/* ============================================================
+   启动
+============================================================ */
+resize();
+updateUI();
+
+window.addEventListener('resize', function () {
+  resize();
+  render();
+});
+
+if (window.ResizeObserver) {
+  new ResizeObserver(function () {
+    const cw = canvas.clientWidth, ch = canvas.clientHeight;
+    if (cw > 0 && ch > 0 && (Math.abs(cw - W) > 1 || Math.abs(ch - H) > 1)) {
+      resize();
+      render();
+    }
+  }).observe(canvas);
+}
+
+render();
+requestAnimationFrame(function () {
+  resize();
+  updateUI();
+  render();
+});
+
+gsap.ticker.add(function (t, dt) {
+  const d = Math.min(dt || 16, 50) / 1000;
+  update(d);
+  render();
+});
+</script>
+</body>
+</html>

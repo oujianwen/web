@@ -1,0 +1,919 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>沉与浮 —— 什么会浮起来？</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    height: 100%; overflow: hidden; background: #0a1220;
+    touch-action: none;
+    font-family: system-ui, -apple-system, sans-serif;
+  }
+  canvas { display: block; }
+
+  .reset-btn {
+    position: fixed;
+    top: 18px; right: 18px;
+    padding: 10px 18px;
+    background: rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: 12px;
+    color: #fff;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    backdrop-filter: blur(10px);
+    z-index: 10;
+    transition: all 0.2s;
+  }
+  .reset-btn:hover {
+    background: rgba(255, 255, 255, 0.22);
+  }
+  .reset-btn:active {
+    transform: translateY(1px);
+  }
+
+  .hint {
+    position: fixed;
+    top: 18px; left: 18px;
+    padding: 10px 18px;
+    background: rgba(0, 0, 0, 0.4);
+    border-radius: 12px;
+    color: #fff;
+    font-size: 13px;
+    font-weight: 600;
+    backdrop-filter: blur(10px);
+    z-index: 10;
+    white-space: nowrap;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hint">👆 把物体拖进水里试试看</div>
+<button class="reset-btn" id="reset">🔄 全部放回</button>
+
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+<script>
+/* ============================================================
+   沉与浮 —— 什么会浮起来？
+   ------------------------------------------------------------
+   教材依据：
+   第五章第二节「地球科学」—— 水的浮力、特性
+   第六章「好玩的水」主题—— 直接体验、实验、预测与验证
+   第一章「迷思概念」—— 幼儿对物体轻重与沉浮的直觉判断
+
+   核心概念：
+   ① 有些东西浮在水面上，有些沉到水底
+   ② 不是"大就沉、小就浮"，也不是"重就沉、轻就浮"
+   ③ 物体里如果是空的（像乒乓球），就容易浮
+   ④ 物体如果是实心的、很密实（像铁球、石头），就会沉
+   ⑤ 浮起来的东西只浸入一部分，沉下去的东西碰到水底
+   ============================================================ */
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const resetBtn = document.getElementById('reset');
+
+let W, H, DPR, S = 1;
+let time = 0;
+
+/* ---------- 区域布局 ---------- */
+let WATER_TOP, WATER_BOTTOM, TRAY_TOP;
+
+/* ---------- 物体定义 ---------- */
+const DEFS = [
+  { name: '乒乓球', r: 22, density: 0.08, color: '#fff8e7', kind: 'pingpong' },
+  { name: '苹果',   r: 26, density: 0.85, color: '#e84c4c', kind: 'apple' },
+  { name: '木球',   r: 24, density: 0.62, color: '#a06840', kind: 'wood' },
+  { name: '塑料球', r: 24, density: 0.90, color: '#5eb3ff', kind: 'plastic' },
+  { name: '铁球',   r: 18, density: 7.80, color: '#8899aa', kind: 'metal' },
+  { name: '石块',   r: 22, density: 2.60, color: '#6b7280', kind: 'rock' },
+  { name: '铜球',   r: 16, density: 8.90, color: '#c68a4a', kind: 'copper' },
+  { name: '橡皮球', r: 20, density: 1.50, color: '#ff9eb5', kind: 'rubber' }
+];
+
+let objects = [];
+let dragging = null;
+let activePointer = null;
+let dragOffset = { x: 0, y: 0 };
+let bubbles = [];
+let splashRings = [];
+let feedbacks = [];
+
+/* ---------- 浮力常量 ---------- */
+const WATER_DENSITY = 1.0;
+
+/* ============================================================
+   尺寸
+   ============================================================ */
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width = W * DPR;
+  canvas.height = H * DPR;
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+  S = Math.max(0.55, Math.min(1.0, H / 800));
+
+  WATER_TOP = 120 * S;
+  TRAY_TOP = H * 0.82;
+  WATER_BOTTOM = TRAY_TOP - 6 * S;
+
+  // 更新每个物体的半径
+  for (let i = 0; i < objects.length; i++) {
+    objects[i].rBase = DEFS[i].r * S;
+  }
+  layoutObjects();
+}
+
+function layoutObjects() {
+  const n = objects.length;
+  const slotW = W / n;
+  for (let i = 0; i < n; i++) {
+    const o = objects[i];
+    o.homeX = slotW * (i + 0.5);
+    o.homeY = TRAY_TOP + (H - TRAY_TOP) * 0.5;
+
+    if (o.state === 'tray' || o.state === 'returning') {
+      o.x = o.homeX;
+      o.y = o.homeY;
+    } else if (o.state === 'floating') {
+      o.y = WATER_TOP + o.rBase * (2 * o.density - 1);
+    } else if (o.state === 'sunk') {
+      o.y = WATER_BOTTOM - o.rBase;
+    }
+  }
+}
+
+/* ============================================================
+   初始化物体
+   ============================================================ */
+function initObjects() {
+  objects = DEFS.map((d, i) => ({
+    id: i,
+    name: d.name,
+    density: d.density,
+    rBase: d.r * S,
+    color: d.color,
+    kind: d.kind,
+    state: 'tray',      // tray | dragging | returning | floating | sinking | sunk
+    x: 0, y: 0,
+    homeX: 0, homeY: 0,
+    vy: 0,
+    bob: Math.random() * Math.PI * 2,
+    scale: 1,
+    rotation: 0,
+    submerged: 0
+  }));
+}
+
+/* ============================================================
+   绘制：背景
+   ============================================================ */
+function drawBackground() {
+  // 上方：柔和的室内背景
+  const g = ctx.createLinearGradient(0, 0, 0, WATER_TOP);
+  g.addColorStop(0, '#1a2540');
+  g.addColorStop(1, '#243a5e');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, WATER_TOP);
+
+  // 背景小点（氛围）
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
+  for (let i = 0; i < 30; i++) {
+    const x = (i * 137.5) % W;
+    const y = (i * 53.7) % WATER_TOP;
+    const r = 1 + ((i * 17) % 3);
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+/* ============================================================
+   绘制：水体
+   ============================================================ */
+function drawWater() {
+  // 水渐变
+  const g = ctx.createLinearGradient(0, WATER_TOP, 0, WATER_BOTTOM);
+  g.addColorStop(0, 'rgba(90, 190, 250, 0.62)');
+  g.addColorStop(0.45, 'rgba(40, 130, 210, 0.78)');
+  g.addColorStop(1, 'rgba(15, 70, 140, 0.92)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, WATER_TOP, W, WATER_BOTTOM - WATER_TOP);
+
+  // 水下光线
+  ctx.save();
+  ctx.globalAlpha = 0.16;
+  for (let i = 0; i < 6; i++) {
+    const x = (i * 137.5 + time * 18) % W;
+    ctx.fillStyle = '#bfe4ff';
+    ctx.beginPath();
+    ctx.moveTo(x - 30 * S, WATER_TOP);
+    ctx.lineTo(x + 30 * S, WATER_TOP);
+    ctx.lineTo(x + 8 * S, WATER_BOTTOM);
+    ctx.lineTo(x - 8 * S, WATER_BOTTOM);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+/* ============================================================
+   绘制：水面
+   ============================================================ */
+function drawWaterSurface() {
+  ctx.save();
+  ctx.beginPath();
+  for (let x = 0; x <= W; x += 6) {
+    const y = WATER_TOP
+      + Math.sin(x * 0.022 + time * 1.8) * 2.5 * S
+      + Math.sin(x * 0.055 + time * 3.2) * 1.2 * S;
+    if (x === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.strokeStyle = 'rgba(200, 240, 255, 0.85)';
+  ctx.lineWidth = 2.6 * S;
+  ctx.lineCap = 'round';
+  ctx.stroke();
+  ctx.restore();
+}
+
+/* ============================================================
+   绘制：底部托盘
+   ============================================================ */
+function drawTray() {
+  const g = ctx.createLinearGradient(0, TRAY_TOP, 0, H);
+  g.addColorStop(0, '#2a3042');
+  g.addColorStop(0.5, '#1d2330');
+  g.addColorStop(1, '#131822');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, TRAY_TOP, W, H - TRAY_TOP);
+
+  // 台面高光线
+  ctx.strokeStyle = 'rgba(140, 190, 255, 0.35)';
+  ctx.lineWidth = 2.5 * S;
+  ctx.beginPath();
+  ctx.moveTo(0, TRAY_TOP);
+  ctx.lineTo(W, TRAY_TOP);
+  ctx.stroke();
+
+  // 每个物体的位置刻一个浅圆圈
+  const n = objects.length;
+  const slotW = W / n;
+  for (let i = 0; i < n; i++) {
+    const cx = slotW * (i + 0.5);
+    const cy = TRAY_TOP + (H - TRAY_TOP) * 0.5;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 38 * S, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(120, 160, 220, 0.10)';
+    ctx.lineWidth = 1.4 * S;
+    ctx.setLineDash([5 * S, 6 * S]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+}
+
+/* ============================================================
+   绘制：物体本身
+   ============================================================ */
+function drawObjectBody(o) {
+  const r = o.rBase;
+  const kind = o.kind;
+
+  switch (kind) {
+    case 'pingpong': {
+      const g = ctx.createRadialGradient(-r * 0.3, -r * 0.3, r * 0.1, 0, 0, r);
+      g.addColorStop(0, '#ffffff');
+      g.addColorStop(0.7, '#fff5e0');
+      g.addColorStop(1, '#e8dcc0');
+      ctx.beginPath();
+      ctx.arc(0, 0, r, 0, Math.PI * 2);
+      ctx.fillStyle = g;
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(220, 140, 60, 0.55)';
+      ctx.lineWidth = 1.6 * S;
+      ctx.beginPath();
+      ctx.arc(0, 0, r * 0.86, 0, Math.PI * 2);
+      ctx.stroke();
+      break;
+    }
+    case 'apple': {
+      const g = ctx.createRadialGradient(-r * 0.35, -r * 0.35, r * 0.1, 0, 0, r);
+      g.addColorStop(0, '#ff8080');
+      g.addColorStop(0.6, '#e84c4c');
+      g.addColorStop(1, '#a02020');
+      ctx.beginPath();
+      ctx.arc(0, 0, r, 0, Math.PI * 2);
+      ctx.fillStyle = g;
+      ctx.fill();
+      // 叶子
+      ctx.save();
+      ctx.translate(r * 0.28, -r * 0.9);
+      ctx.rotate(-0.5);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, r * 0.42, r * 0.18, 0, 0, Math.PI * 2);
+      ctx.fillStyle = '#5fb85f';
+      ctx.fill();
+      ctx.restore();
+      // 梗
+      ctx.beginPath();
+      ctx.moveTo(0, -r * 0.92);
+      ctx.lineTo(r * 0.08, -r * 1.1);
+      ctx.strokeStyle = '#5d4037';
+      ctx.lineWidth = 2.4 * S;
+      ctx.lineCap = 'round';
+      ctx.stroke();
+      // 高光
+      ctx.beginPath();
+      ctx.arc(-r * 0.35, -r * 0.3, r * 0.2, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+      ctx.fill();
+      break;
+    }
+    case 'wood': {
+      const g = ctx.createRadialGradient(-r * 0.3, -r * 0.3, r * 0.1, 0, 0, r);
+      g.addColorStop(0, '#c89468');
+      g.addColorStop(0.6, '#a06840');
+      g.addColorStop(1, '#6b4423');
+      ctx.beginPath();
+      ctx.arc(0, 0, r, 0, Math.PI * 2);
+      ctx.fillStyle = g;
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(80, 50, 30, 0.35)';
+      ctx.lineWidth = 1.1 * S;
+      for (let i = -2; i <= 2; i++) {
+        ctx.beginPath();
+        ctx.arc(0, 0, r * (0.45 + i * 0.1), 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.beginPath();
+      ctx.arc(-r * 0.35, -r * 0.32, r * 0.15, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255, 240, 200, 0.35)';
+      ctx.fill();
+      break;
+    }
+    case 'plastic': {
+      const g = ctx.createRadialGradient(-r * 0.35, -r * 0.35, r * 0.1, 0, 0, r);
+      g.addColorStop(0, '#c8e6ff');
+      g.addColorStop(0.55, '#5eb3ff');
+      g.addColorStop(1, '#1f6bb3');
+      ctx.beginPath();
+      ctx.arc(0, 0, r, 0, Math.PI * 2);
+      ctx.fillStyle = g;
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(-r * 0.35, -r * 0.35, r * 0.26, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+      ctx.fill();
+      break;
+    }
+    case 'metal': {
+      const g = ctx.createRadialGradient(-r * 0.3, -r * 0.3, r * 0.1, 0, 0, r);
+      g.addColorStop(0, '#dce4ec');
+      g.addColorStop(0.5, '#a8b4c0');
+      g.addColorStop(1, '#4a5868');
+      ctx.beginPath();
+      ctx.arc(0, 0, r, 0, Math.PI * 2);
+      ctx.fillStyle = g;
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(-r * 0.3, -r * 0.3, r * 0.24, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.75)';
+      ctx.fill();
+      break;
+    }
+    case 'rock': {
+      const g = ctx.createRadialGradient(-r * 0.3, -r * 0.3, r * 0.1, 0, 0, r);
+      g.addColorStop(0, '#9098a5');
+      g.addColorStop(0.6, '#6b7280');
+      g.addColorStop(1, '#3a4048');
+      ctx.beginPath();
+      ctx.arc(0, 0, r, 0, Math.PI * 2);
+      ctx.fillStyle = g;
+      ctx.fill();
+      // 斑点
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.22)';
+      for (let i = 0; i < 5; i++) {
+        const a = i * 1.27;
+        const rr = r * (0.25 + (i * 0.13) % 0.4);
+        ctx.beginPath();
+        ctx.arc(Math.cos(a) * rr, Math.sin(a) * rr, r * 0.09, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      break;
+    }
+    case 'copper': {
+      const g = ctx.createRadialGradient(-r * 0.3, -r * 0.3, r * 0.1, 0, 0, r);
+      g.addColorStop(0, '#f0c090');
+      g.addColorStop(0.6, '#c68a4a');
+      g.addColorStop(1, '#7a5018');
+      ctx.beginPath();
+      ctx.arc(0, 0, r, 0, Math.PI * 2);
+      ctx.fillStyle = g;
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(-r * 0.3, -r * 0.3, r * 0.24, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
+      ctx.fill();
+      break;
+    }
+    case 'rubber': {
+      const g = ctx.createRadialGradient(-r * 0.3, -r * 0.3, r * 0.1, 0, 0, r);
+      g.addColorStop(0, '#ffd6e0');
+      g.addColorStop(0.6, '#ff9eb5');
+      g.addColorStop(1, '#d86080');
+      ctx.beginPath();
+      ctx.arc(0, 0, r, 0, Math.PI * 2);
+      ctx.fillStyle = g;
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(-r * 0.32, -r * 0.32, r * 0.18, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+      ctx.fill();
+      break;
+    }
+  }
+}
+
+function drawObject(o) {
+  // 阴影（只在托盘里或水面以上时画）
+  if (o.state === 'tray' || o.state === 'returning') {
+    ctx.save();
+    ctx.globalAlpha = 0.4;
+    ctx.beginPath();
+    ctx.ellipse(o.x, o.y + o.rBase * 0.95, o.rBase * 0.9, o.rBase * 0.22, 0, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    ctx.fill();
+    ctx.restore();
+  }
+
+  ctx.save();
+  ctx.translate(o.x, o.y);
+  ctx.rotate(o.rotation);
+  ctx.scale(o.scale, o.scale);
+
+  // 拖拽时发光
+  if (o.state === 'dragging') {
+    ctx.shadowBlur = 24 * S;
+    ctx.shadowColor = 'rgba(160, 220, 255, 0.85)';
+  }
+
+  drawObjectBody(o);
+
+  ctx.restore();
+
+  // 名字标签（在托盘里时显示）
+  if (o.state === 'tray' || o.state === 'returning') {
+    ctx.save();
+    ctx.font = `bold ${11 * S}px system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+    ctx.fillText(o.name, o.x, o.y + o.rBase + 18 * S);
+    ctx.restore();
+  }
+}
+
+/* ============================================================
+   绘制：物体被水淹没的部分加一层水色调
+   ============================================================ */
+function drawObjectUnderwaterTint(o) {
+  if (o.state !== 'floating' && o.state !== 'sinking' && o.state !== 'sunk') return;
+  if (o.state === 'floating' && o.density >= 0.98) return;
+
+  ctx.save();
+  // 裁剪到水面以下
+  ctx.beginPath();
+  ctx.rect(0, WATER_TOP, W, WATER_BOTTOM - WATER_TOP);
+  ctx.clip();
+  // 裁剪到物体本身
+  ctx.beginPath();
+  ctx.arc(o.x, o.y, o.rBase, 0, Math.PI * 2);
+  ctx.clip();
+  // 水色调
+  ctx.fillStyle = 'rgba(50, 130, 220, 0.30)';
+  ctx.fillRect(0, WATER_TOP, W, WATER_BOTTOM - WATER_TOP);
+  ctx.restore();
+}
+
+/* ============================================================
+   绘制：气泡
+   ============================================================ */
+function drawBubbles() {
+  for (const b of bubbles) {
+    ctx.save();
+    ctx.globalAlpha = b.life * 0.7;
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(200, 240, 255, 0.9)';
+    ctx.lineWidth = 1.6 * S;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(b.x - b.r * 0.3, b.y - b.r * 0.3, b.r * 0.3, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+/* ============================================================
+   绘制：水花涟漪
+   ============================================================ */
+function drawSplashRings() {
+  for (const r of splashRings) {
+    ctx.save();
+    ctx.globalAlpha = r.life * 0.75;
+    ctx.beginPath();
+    ctx.ellipse(r.x, r.y, r.r, r.r * 0.35, 0, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(200, 240, 255, 0.9)';
+    ctx.lineWidth = 2 * S;
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+/* ============================================================
+   绘制：反馈文字（浮起来了 / 沉下去了）
+   ============================================================ */
+function drawFeedbacks() {
+  for (const f of feedbacks) {
+    ctx.save();
+    ctx.globalAlpha = f.life;
+    ctx.font = `bold ${18 * S}px system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const text = f.text;
+    const tw = ctx.measureText(text).width;
+    const padX = 14 * S;
+    const bh = 34 * S;
+    const bw = tw + padX * 2;
+    const bx = f.x - bw / 2;
+    const by = f.y - bh / 2;
+
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
+    roundRect(bx, by, bw, bh, bh / 2);
+    ctx.fill();
+
+    ctx.fillStyle = f.color;
+    ctx.fillText(text, f.x, f.y + 1);
+    ctx.restore();
+  }
+}
+
+function roundRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+/* ============================================================
+   音效
+   ============================================================ */
+let audioCtx = null;
+function initAudio() {
+  if (!audioCtx) {
+    try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
+  }
+}
+function beep(freq, dur, vol = 0.07, type = 'sine', delay = 0) {
+  if (!audioCtx) return;
+  const t0 = audioCtx.currentTime + delay;
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(freq, t0);
+  o.connect(g);
+  g.connect(audioCtx.destination);
+  g.gain.setValueAtTime(vol, t0);
+  g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+  o.start(t0);
+  o.stop(t0 + dur);
+}
+function sfxGrab() { beep(620, 0.06, 0.05, 'triangle'); }
+function sfxSplash() {
+  beep(440, 0.12, 0.06, 'sine');
+  beep(320, 0.18, 0.05, 'sine', 0.05);
+}
+function sfxFloat() {
+  beep(520, 0.1, 0.06, 'sine');
+  beep(680, 0.14, 0.06, 'sine', 0.09);
+}
+function sfxSink() {
+  beep(280, 0.14, 0.07, 'triangle');
+  beep(180, 0.22, 0.06, 'triangle', 0.1);
+}
+function sfxReset() {
+  beep(500, 0.08, 0.05);
+  beep(700, 0.10, 0.05, 'sine', 0.08);
+}
+
+/* ============================================================
+   粒子生成
+   ============================================================ */
+function spawnBubble(x, y) {
+  bubbles.push({
+    x, y,
+    r: (2 + Math.random() * 4) * S,
+    vy: -40 - Math.random() * 60,
+    vx: (Math.random() - 0.5) * 30,
+    life: 1
+  });
+}
+
+function spawnSplashRing(x, y) {
+  splashRings.push({
+    x, y,
+    r: 8 * S,
+    maxR: 42 * S,
+    life: 1
+  });
+}
+
+function spawnFeedback(x, y, text, color) {
+  feedbacks.push({
+    x, y,
+    text, color,
+    life: 1,
+    vy: -40
+  });
+}
+
+/* ============================================================
+   物理更新
+   ============================================================ */
+function update(dt) {
+  time += dt;
+
+  for (const o of objects) {
+    if (o.state === 'floating') {
+      // 平衡位置：水下深度 = 2r * density，所以圆心 y = WATER_TOP + r*(2d - 1)
+      const eqY = WATER_TOP + o.rBase * (2 * o.density - 1);
+      o.bob += dt * 1.6;
+      const bobOff = Math.sin(o.bob) * 2.8 * S;
+      const targetY = eqY + bobOff;
+      o.y += (targetY - o.y) * Math.min(1, dt * 4.5);
+      o.submerged = o.density;
+    }
+    else if (o.state === 'sinking') {
+      o.vy += 700 * dt;
+      o.vy = Math.min(o.vy, 460 * S);
+      o.y += o.vy * dt;
+
+      // 下沉时偶尔冒泡
+      if (Math.random() < 0.4) {
+        spawnBubble(
+          o.x + (Math.random() - 0.5) * o.rBase,
+          o.y + (Math.random() - 0.5) * o.rBase
+        );
+      }
+
+      const bottomY = WATER_BOTTOM - o.rBase;
+      if (o.y >= bottomY) {
+        o.y = bottomY;
+        o.state = 'sunk';
+        o.vy = 0;
+        spawnSplashRing(o.x, bottomY + o.rBase);
+        for (let i = 0; i < 6; i++) spawnBubble(o.x, bottomY);
+      }
+      o.submerged = 1;
+    }
+    else if (o.state === 'sunk') {
+      o.submerged = 1;
+      // 轻微浮动
+      o.y += (WATER_BOTTOM - o.rBase - o.y) * Math.min(1, dt * 5);
+    }
+    else {
+      o.submerged = 0;
+    }
+  }
+
+  // ---- 气泡 ----
+  for (const b of bubbles) {
+    b.x += b.vx * dt;
+    b.y += b.vy * dt;
+    b.vy -= 30 * dt;
+    b.life -= dt * 1.2;
+    if (b.y < WATER_TOP) b.life = 0;
+  }
+  bubbles = bubbles.filter(b => b.life > 0);
+
+  // ---- 水花 ----
+  for (const r of splashRings) {
+    r.r += (r.maxR - r.r) * Math.min(1, dt * 5);
+    r.life -= dt * 1.5;
+  }
+  splashRings = splashRings.filter(r => r.life > 0);
+
+  // ---- 反馈文字 ----
+  for (const f of feedbacks) {
+    f.y += f.vy * dt;
+    f.vy *= 0.94;
+    f.life -= dt * 0.7;
+  }
+  feedbacks = feedbacks.filter(f => f.life > 0);
+}
+
+/* ============================================================
+   渲染
+   ============================================================ */
+function render() {
+  ctx.clearRect(0, 0, W, H);
+
+  drawBackground();
+  drawWater();
+
+  // 水里的物体
+  for (const o of objects) {
+    if (o.state === 'floating' || o.state === 'sinking' || o.state === 'sunk') {
+      drawObject(o);
+    }
+  }
+
+  // 水色调（水下部分加深）
+  for (const o of objects) {
+    drawObjectUnderwaterTint(o);
+  }
+
+  drawBubbles();
+  drawWaterSurface();
+  drawSplashRings();
+
+  // 托盘
+  drawTray();
+
+  // 托盘里的物体
+  for (const o of objects) {
+    if (o.state === 'tray' || o.state === 'returning') {
+      drawObject(o);
+    }
+  }
+
+  // 正在拖拽的物体
+  for (const o of objects) {
+    if (o.state === 'dragging') {
+      drawObject(o);
+    }
+  }
+
+  drawFeedbacks();
+}
+
+/* ============================================================
+   交互
+   ============================================================ */
+function getPos(e) {
+  const rect = canvas.getBoundingClientRect();
+  return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+}
+
+function onDown(e) {
+  initAudio();
+  if (activePointer !== null) return;
+  activePointer = e.pointerId;
+  const p = getPos(e);
+
+  // 从后往前找（最上层的先被点中）
+  for (let i = objects.length - 1; i >= 0; i--) {
+    const o = objects[i];
+    if (o.state === 'returning') continue;
+    const d = Math.hypot(p.x - o.x, p.y - o.y);
+    if (d < o.rBase + 18 * S) {
+      dragging = o;
+      dragOffset.x = o.x - p.x;
+      dragOffset.y = o.y - p.y;
+      o.state = 'dragging';
+      o.vy = 0;
+      gsap.killTweensOf(o);
+      gsap.to(o, { scale: 1.15, duration: 0.2, ease: 'back.out(2)' });
+      sfxGrab();
+      return;
+    }
+  }
+}
+
+function onMove(e) {
+  if (activePointer !== e.pointerId || !dragging) return;
+  const p = getPos(e);
+  dragging.x = p.x + dragOffset.x;
+  dragging.y = p.y + dragOffset.y;
+
+  // 限制在画面内
+  dragging.x = Math.max(dragging.rBase, Math.min(W - dragging.rBase, dragging.x));
+  dragging.y = Math.max(dragging.rBase, Math.min(H - dragging.rBase, dragging.y));
+}
+
+function onUp(e) {
+  if (activePointer !== e.pointerId) return;
+  activePointer = null;
+
+  if (!dragging) return;
+  const o = dragging;
+  dragging = null;
+  o.scale = 1;
+
+  // 判断释放位置
+  if (o.y > WATER_TOP) {
+    // 落入水中
+    spawnSplashRing(o.x, WATER_TOP);
+    sfxSplash();
+
+    if (o.density < WATER_DENSITY) {
+      o.state = 'floating';
+      const eqY = WATER_TOP + o.rBase * (2 * o.density - 1);
+      if (o.y < eqY - 80 * S) {
+        // 从高处落下，先冲入水中，再浮上来
+        o.y = eqY + 40 * S;
+      }
+      sfxFloat();
+      spawnFeedback(o.x, o.y - o.rBase - 24 * S, '浮起来了 ↑', '#7fdd6e');
+    } else {
+      o.state = 'sinking';
+      o.vy = 80 * S;
+      sfxSink();
+      spawnFeedback(o.x, o.y - o.rBase - 24 * S, '沉下去了 ↓', '#ff9eb5');
+    }
+  } else {
+    // 回到托盘
+    o.state = 'returning';
+    gsap.to(o, {
+      x: o.homeX,
+      y: o.homeY,
+      duration: 0.55,
+      ease: 'power2.out',
+      onComplete: () => { o.state = 'tray'; }
+    });
+  }
+}
+
+/* ============================================================
+   重置
+   ============================================================ */
+resetBtn.addEventListener('click', () => {
+  initAudio();
+  sfxReset();
+
+  for (const o of objects) {
+    gsap.killTweensOf(o);
+    o.vy = 0;
+    o.state = 'returning';
+    gsap.to(o, {
+      x: o.homeX,
+      y: o.homeY,
+      duration: 0.6,
+      delay: Math.random() * 0.12,
+      ease: 'power2.inOut',
+      onComplete: () => { o.state = 'tray'; }
+    });
+  }
+
+  bubbles = [];
+  splashRings = [];
+  feedbacks = [];
+});
+
+/* ============================================================
+   启动
+   ============================================================ */
+function boot() {
+  initObjects();
+  resize();
+  render();
+
+  window.addEventListener('resize', () => {
+    resize();
+    render();
+  });
+
+  canvas.addEventListener('pointerdown', onDown);
+  canvas.addEventListener('pointermove', onMove);
+  canvas.addEventListener('pointerup', onUp);
+  canvas.addEventListener('pointercancel', onUp);
+  canvas.addEventListener('dblclick', e => e.preventDefault());
+}
+
+gsap.ticker.add((t, deltaTime) => {
+  const dt = Math.min(deltaTime, 50) / 1000;
+  update(dt);
+  render();
+});
+
+boot();
+</script>
+</body>
+</html>

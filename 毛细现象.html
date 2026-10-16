@@ -1,0 +1,950 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>毛细现象 —— 水自己会往上爬</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    height: 100%; width: 100%; overflow: hidden; background: #0a1018;
+    touch-action: none;
+    font-family: system-ui, -apple-system, sans-serif;
+    color: #fff;
+  }
+  canvas { display: block; position: absolute; inset: 0; }
+
+  .status {
+    position: fixed;
+    top: 18px; left: 50%;
+    transform: translateX(-50%);
+    padding: 12px 26px;
+    background: rgba(16, 22, 38, 0.88);
+    border-radius: 30px;
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    font-size: 15px; font-weight: 700;
+    z-index: 10; white-space: nowrap; max-width: 92vw;
+    text-align: center; transition: all 0.3s;
+  }
+
+  .readout {
+    position: fixed;
+    top: 18px; right: 18px;
+    padding: 14px 18px;
+    background: rgba(16, 22, 38, 0.88);
+    border-radius: 16px;
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    font-size: 13px; z-index: 10;
+    line-height: 1.9; min-width: 195px;
+  }
+  .readout .row {
+    display: flex; justify-content: space-between; gap: 12px;
+  }
+  .readout .lbl { color: #8898b0; }
+  .readout .num {
+    color: #5eb3ff; font-weight: 800; font-variant-numeric: tabular-nums;
+  }
+  .readout .num.high { color: #7fdd6e; }
+  .readout .divider {
+    margin: 6px 0; border-top: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  .readout .note {
+    font-size: 11px; color: #a8c0e0; line-height: 1.5;
+  }
+
+  .panel {
+    position: fixed;
+    bottom: 16px; left: 50%;
+    transform: translateX(-50%);
+    width: min(660px, 94vw);
+    background: rgba(16, 22, 38, 0.92);
+    padding: 14px 22px;
+    border-radius: 18px;
+    backdrop-filter: blur(14px);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    z-index: 10;
+    display: flex; flex-direction: column; gap: 10px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  }
+  .panel .row {
+    display: grid;
+    grid-template-columns: 90px 1fr 60px;
+    align-items: center; gap: 12px; font-size: 13px;
+  }
+  .panel .lbl {
+    font-weight: 700; font-size: 14px; white-space: nowrap;
+  }
+  .panel input[type="range"] {
+    width: 100%; height: 6px; cursor: pointer;
+    -webkit-appearance: none; appearance: none;
+    background: linear-gradient(90deg, #5eb3ff, #7fdd6e);
+    border-radius: 3px; outline: none;
+  }
+  .panel input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 20px; height: 20px; border-radius: 50%;
+    background: #fff; border: 3px solid #5eb3ff;
+    cursor: grab; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  }
+  .panel input[type="range"]::-moz-range-thumb {
+    width: 20px; height: 20px; border-radius: 50%;
+    background: #fff; border: 3px solid #5eb3ff; cursor: grab;
+  }
+  .panel .val {
+    text-align: right; color: #ffd54f; font-weight: 800; font-size: 14px;
+  }
+  .panel .btns {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr 1fr;
+    gap: 8px;
+    margin-top: 4px;
+  }
+  .panel button {
+    padding: 12px 12px;
+    border-radius: 12px;
+    border: none;
+    font-weight: 800; font-size: 14px;
+    cursor: pointer; transition: transform 0.12s, box-shadow 0.2s;
+    white-space: nowrap;
+  }
+  .panel button:active { transform: translateY(1px); }
+  .panel .btn-go {
+    background: linear-gradient(135deg, #5eb3ff, #7fdd6e);
+    color: #061020;
+    box-shadow: 0 4px 14px rgba(94, 179, 255, 0.35);
+  }
+  .panel .btn-go:disabled {
+    background: rgba(120, 130, 150, 0.3);
+    color: rgba(255, 255, 255, 0.35);
+    cursor: not-allowed; box-shadow: none;
+  }
+  .panel .btn-color {
+    background: rgba(255, 255, 255, 0.12);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+  }
+  .panel .btn-reset {
+    background: rgba(255, 255, 255, 0.12);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+  }
+  .panel .btn-color:hover, .panel .btn-reset:hover {
+    background: rgba(255, 255, 255, 0.22);
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div class="status" id="status">💧 点击"倒水"，看看水能不能自己往上爬</div>
+
+<div class="readout">
+  <div class="row"><span class="lbl">水位</span><span class="num" id="levelVal">0%</span></div>
+  <div class="divider"></div>
+  <div class="row"><span class="lbl">粗管</span><span class="num" id="wideVal">0 mm</span></div>
+  <div class="row"><span class="lbl">中管</span><span class="num" id="midVal">0 mm</span></div>
+  <div class="row"><span class="lbl">细管</span><span class="num high" id="thinVal">0 mm</span></div>
+  <div class="divider"></div>
+  <div class="note" id="note">管子越细，水爬得越高</div>
+</div>
+
+<div class="panel">
+  <div class="row">
+    <span class="lbl">💧 倒水量</span>
+    <input type="range" id="water" min="0" max="100" value="0">
+    <span class="val" id="waterVal">0%</span>
+  </div>
+  <div class="btns">
+    <button class="btn-go" id="btnGo">💧 倒水</button>
+    <button class="btn-color" id="btnColor">🎨 换颜色</button>
+    <button class="btn-reset" id="btnReset">🔄 重置</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+<script>
+/* ============================================================
+   毛细现象 —— 水自己会往上爬
+   ------------------------------------------------------------
+   教材依据：
+   第五章第一节「植物」—— 根、茎、叶；植物怎么喝水
+   第五章第二节「水」—— 水的特性；毛细现象
+   第一章「下雨前后」—— 手帕吸水、毛细作用
+   英国《发展至关重要》—— 探索事物如何运作
+
+   核心概念：
+   ① 水能沿着细小的管子或缝隙往上爬，这叫毛细现象
+   ② 管子越细，水爬得越高
+   ③ 这是因为水会"吸附"在管壁上，细管子里的水被拉得更紧
+   ④ 植物能喝到水，就是靠茎里细细的管道
+   ⑤ 纸巾、棉布、灯芯都能吸水，都是毛细现象
+   ============================================================ */
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+const statusEl = document.getElementById('status');
+const waterSlider = document.getElementById('water');
+const waterValEl = document.getElementById('waterVal');
+const levelValEl = document.getElementById('levelVal');
+const wideValEl = document.getElementById('wideVal');
+const midValEl = document.getElementById('midVal');
+const thinValEl = document.getElementById('thinVal');
+const noteEl = document.getElementById('note');
+const btnGo = document.getElementById('btnGo');
+const btnColor = document.getElementById('btnColor');
+const btnReset = document.getElementById('btnReset');
+
+let W = 800, H = 600, DPR = 1, S = 1;
+let time = 0;
+
+/* ---------- 状态 ---------- */
+const state = {
+  waterLevel: 0,          // 0~1 水槽水位
+  capillaryProgress: 0,   // 0~1 毛细上升进度
+  colorIndex: 0,
+  // 水分子粒子
+  particles: []
+};
+
+/* ---------- 水的颜色（循环切换） ---------- */
+const COLOR_PRESETS = [
+  { name: '清水', c: [90, 190, 250], light: [160, 220, 255], dark: [30, 100, 170] },
+  { name: '红水', c: [255, 90, 110], light: [255, 170, 180], dark: [150, 20, 50] },
+  { name: '蓝水', c: [90, 130, 255], light: [170, 200, 255], dark: [30, 50, 160] },
+  { name: '紫水', c: [200, 100, 240], light: [230, 180, 255], dark: [100, 30, 150] },
+  { name: '绿水', c: [100, 220, 140], light: [180, 250, 200], dark: [30, 130, 60] }
+];
+
+/* ---------- 场景布局 ---------- */
+const scene = {
+  table: 0,
+  tank: { x: 0, y: 0, w: 0, h: 0, bottomY: 0, leftX: 0, rightX: 0 },
+  tubes: [],
+  plant: { x: 0, y: 0, h: 0, leafY: 0 }
+};
+
+/* ---------- 毛细上升系数 ---------- */
+// 毛细上升高度 h ∝ 1/r
+// 用 k 来换算成屏幕像素
+const CAPILLARY_K = 520;
+
+/* ============================================================
+   尺寸
+============================================================ */
+function resize() {
+  let w = window.innerWidth || document.documentElement.clientWidth || 800;
+  let h = window.innerHeight || document.documentElement.clientHeight || 600;
+  if (w < 200) w = 800;
+  if (h < 200) h = 600;
+
+  W = w; H = h;
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width = Math.floor(W * DPR);
+  canvas.height = Math.floor(H * DPR);
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+  S = Math.max(0.55, Math.min(1.15, H / 800));
+
+  layoutScene();
+}
+
+function layoutScene() {
+  scene.table = H * 0.82;
+
+  // 水槽
+  scene.tank.w = Math.min(W * 0.56, 440 * S);
+  scene.tank.h = Math.min(H * 0.42, 300 * S);
+  scene.tank.x = W * 0.44 - scene.tank.w / 2;
+  scene.tank.y = H * 0.48 - scene.tank.h / 2;
+  scene.tank.bottomY = scene.tank.y + scene.tank.h;
+  scene.tank.leftX = scene.tank.x;
+  scene.tank.rightX = scene.tank.x + scene.tank.w;
+
+  // 三根不同粗细的管子（放在水槽内，从左到右：粗、中、细）
+  const slotW = scene.tank.w / 4;
+  const tubeBaseY = scene.tank.y + scene.tank.h - 4 * S;
+  const tubeTopBaseY = scene.tank.y - 120 * S;   // 管子顶部（略高于水槽）
+
+  scene.tubes = [
+    {
+      id: 'wide',
+      label: '粗管',
+      radius: 14 * S,
+      x: scene.tank.x + slotW * 1,
+      topY: tubeTopBaseY,
+      bottomY: tubeBaseY,
+      rise: 0,       // 当前水柱高度（像素）
+      maxRise: 0,    // 最大毛细上升高度
+      color: '#a8c8e8'
+    },
+    {
+      id: 'mid',
+      label: '中管',
+      radius: 9 * S,
+      x: scene.tank.x + slotW * 2,
+      topY: tubeTopBaseY - 30 * S,
+      bottomY: tubeBaseY,
+      rise: 0,
+      maxRise: 0,
+      color: '#a8c8e8'
+    },
+    {
+      id: 'thin',
+      label: '细管',
+      radius: 5 * S,
+      x: scene.tank.x + slotW * 3,
+      topY: tubeTopBaseY - 100 * S,
+      bottomY: tubeBaseY,
+      rise: 0,
+      maxRise: 0,
+      color: '#a8c8e8'
+    }
+  ];
+
+  // 计算每根管子的毛细上升高度（像素）
+  // h ∝ 1/r，用 CAPILLARY_K 换算
+  const rRef = 14 * S;   // 基准半径
+  for (const t of scene.tubes) {
+    t.maxRise = CAPILLARY_K * S * (rRef / t.radius) * 0.28;
+  }
+
+  // 植物（在水槽右侧）
+  scene.plant.x = scene.tank.x + scene.tank.w + W * 0.11;
+  scene.plant.y = scene.tank.bottomY;
+  scene.plant.h = H * 0.42;
+  scene.plant.leafY = scene.plant.y - scene.plant.h;
+}
+
+/* ============================================================
+   音效
+============================================================ */
+let audioCtx = null;
+function initAudio() {
+  if (!audioCtx) {
+    try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
+  }
+}
+function beep(freq, dur, vol, type, delay) {
+  vol = vol == null ? 0.06 : vol;
+  type = type || 'sine';
+  delay = delay || 0;
+  if (!audioCtx) return;
+  const t0 = audioCtx.currentTime + delay;
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(freq, t0);
+  o.connect(g);
+  g.connect(audioCtx.destination);
+  g.gain.setValueAtTime(vol, t0);
+  g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+  o.start(t0);
+  o.stop(t0 + dur);
+}
+function sfxClick() { beep(520, 0.06, 0.05, 'triangle'); }
+function sfxPour() {
+  beep(320, 0.12, 0.05, 'sine');
+  beep(400, 0.16, 0.05, 'sine', 0.10);
+}
+function sfxCapillary() {
+  beep(660, 0.08, 0.05, 'sine');
+  beep(880, 0.12, 0.05, 'sine', 0.08);
+  beep(1100, 0.16, 0.05, 'sine', 0.18);
+}
+
+/* ============================================================
+   更新
+============================================================ */
+function update(dt) {
+  time += dt;
+
+  // 水位从滑块读取
+  const targetLevel = +waterSlider.value / 100;
+  state.waterLevel += (targetLevel - state.waterLevel) * Math.min(1, dt * 3);
+
+  // 毛细上升进度
+  if (state.waterLevel > 0.05) {
+    state.capillaryProgress = Math.min(1, state.capillaryProgress + dt * 0.35);
+  } else {
+    state.capillaryProgress = Math.max(0, state.capillaryProgress - dt * 1.2);
+  }
+
+  // 每根管子的水柱高度
+  for (const t of scene.tubes) {
+    t.rise = t.maxRise * state.capillaryProgress;
+  }
+
+  // 水分子粒子（沿管子往上爬的小圆点）
+  updateParticles(dt);
+
+  updateUI();
+}
+
+function updateParticles(dt) {
+  // 当毛细上升进行中，随机在细管里生成水分子
+  if (state.capillaryProgress > 0.05 && Math.random() < state.capillaryProgress * 0.8) {
+    const t = scene.tubes[Math.floor(Math.random() * 3)];
+    // 从水面位置往上
+    const startY = scene.tank.bottomY - scene.tank.h * state.waterLevel;
+    const endY = startY - t.rise;
+    state.particles.push({
+      tube: t,
+      y: startY + Math.random() * 20 * S,
+      targetY: endY,
+      speed: (30 + Math.random() * 50) * state.capillaryProgress,
+      alpha: 1,
+      r: 1.8 * S
+    });
+  }
+
+  // 更新粒子
+  for (const p of state.particles) {
+    p.y -= p.speed * dt;
+    if (p.y < p.targetY) {
+      p.alpha -= dt * 1.5;
+    }
+    if (p.alpha <= 0) p.dead = true;
+  }
+  state.particles = state.particles.filter(function (p) { return !p.dead; });
+}
+
+/* ============================================================
+   UI
+============================================================ */
+function updateUI() {
+  waterValEl.textContent = Math.round(state.waterLevel * 100) + '%';
+  levelValEl.textContent = Math.round(state.waterLevel * 100) + '%';
+
+  // 换算成毫米显示（视觉换算）
+  const mmPerPx = 0.35;
+  wideValEl.textContent = Math.round(scene.tubes[0].rise * mmPerPx) + ' mm';
+  midValEl.textContent = Math.round(scene.tubes[1].rise * mmPerPx) + ' mm';
+  thinValEl.textContent = Math.round(scene.tubes[2].rise * mmPerPx) + ' mm';
+
+  // 状态提示
+  if (state.waterLevel < 0.05) {
+    statusEl.textContent = '💧 点击"倒水"，看看水能不能自己往上爬';
+    statusEl.style.color = '#ffffff';
+    noteEl.textContent = '管子越细，水爬得越高';
+  } else if (state.capillaryProgress < 0.3) {
+    statusEl.textContent = '💧 水正在慢慢往上爬……';
+    statusEl.style.color = '#5eb3ff';
+    noteEl.textContent = '水沿着细管子往上爬，这叫毛细现象';
+  } else if (state.capillaryProgress < 0.9) {
+    statusEl.textContent = '🔬 三根管子里的水在比赛，细管已经遥遥领先！';
+    statusEl.style.color = '#ffd54f';
+    noteEl.textContent = '管子越细，水爬得越高';
+  } else {
+    statusEl.textContent = '🏆 细管里的水爬得最高！管越细，水爬得越高';
+    statusEl.style.color = '#7fdd6e';
+    noteEl.textContent = '植物就是靠茎里的细管子喝水的';
+  }
+
+  btnGo.disabled = state.waterLevel > 0.95;
+  if (state.waterLevel > 0.95) {
+    btnGo.textContent = '✅ 已倒满';
+  } else if (state.waterLevel > 0.05) {
+    btnGo.textContent = '💧 继续倒水';
+  } else {
+    btnGo.textContent = '💧 倒水';
+  }
+}
+
+/* ============================================================
+   绘制：背景
+============================================================ */
+function drawBackground() {
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#1a2438');
+  g.addColorStop(0.55, '#0d1422');
+  g.addColorStop(1, '#050810');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+
+  // 舞台光晕
+  const glow = ctx.createRadialGradient(
+    W * 0.45, H * 0.4, 30,
+    W * 0.45, H * 0.4, Math.max(W, H) * 0.6
+  );
+  glow.addColorStop(0, 'rgba(120, 180, 255, 0.10)');
+  glow.addColorStop(1, 'rgba(120, 180, 255, 0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+}
+
+/* ============================================================
+   绘制：桌子
+============================================================ */
+function drawTable() {
+  const ty = scene.table;
+
+  const g = ctx.createLinearGradient(0, ty, 0, H);
+  g.addColorStop(0, '#4a3020');
+  g.addColorStop(0.3, '#2a1a10');
+  g.addColorStop(1, '#150c05');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, ty, W, H - ty);
+
+  ctx.strokeStyle = 'rgba(180, 140, 90, 0.35)';
+  ctx.lineWidth = 2.5 * S;
+  ctx.beginPath();
+  ctx.moveTo(0, ty);
+  ctx.lineTo(W, ty);
+  ctx.stroke();
+}
+
+/* ============================================================
+   绘制：水槽
+============================================================ */
+function drawTank() {
+  const t = scene.tank;
+  const color = COLOR_PRESETS[state.colorIndex];
+  const waterHeight = t.h * state.waterLevel;
+  const waterTopY = t.bottomY - waterHeight;
+
+  // 水槽阴影
+  ctx.save();
+  ctx.shadowBlur = 20 * S;
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
+  ctx.beginPath();
+  roundRect(t.x, t.y, t.w, t.h, 8 * S);
+  ctx.fillStyle = 'rgba(20, 30, 50, 0.4)';
+  ctx.fill();
+  ctx.restore();
+
+  // 水槽背景
+  ctx.save();
+  ctx.beginPath();
+  roundRect(t.x, t.y, t.w, t.h, 8 * S);
+  ctx.clip();
+
+  const bg = ctx.createLinearGradient(0, t.y, 0, t.bottomY);
+  bg.addColorStop(0, 'rgba(50, 65, 90, 0.5)');
+  bg.addColorStop(1, 'rgba(25, 40, 65, 0.7)');
+  ctx.fillStyle = bg;
+  ctx.fillRect(t.x, t.y, t.w, t.h);
+
+  // 水
+  if (waterHeight > 0.5) {
+    const c = color.c;
+    const cl = color.light;
+    const cd = color.dark;
+
+    const waterGrad = ctx.createLinearGradient(0, waterTopY, 0, t.bottomY);
+    waterGrad.addColorStop(0, 'rgba(' + cl[0] + ',' + cl[1] + ',' + cl[2] + ', 0.55)');
+    waterGrad.addColorStop(0.5, 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ', 0.72)');
+    waterGrad.addColorStop(1, 'rgba(' + cd[0] + ',' + cd[1] + ',' + cd[2] + ', 0.85)');
+    ctx.fillStyle = waterGrad;
+    ctx.fillRect(t.x, waterTopY, t.w, waterHeight);
+
+    // 水面高光
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
+    ctx.lineWidth = 2 * S;
+    ctx.beginPath();
+    for (let x = t.x; x <= t.rightX; x += 6) {
+      const y = waterTopY + Math.sin(x * 0.06 + time * 2) * 2 * S;
+      if (x === t.x) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+
+  ctx.restore();
+
+  // 水槽边框
+  ctx.beginPath();
+  roundRect(t.x, t.y, t.w, t.h, 8 * S);
+  ctx.strokeStyle = 'rgba(200, 225, 245, 0.75)';
+  ctx.lineWidth = 3 * S;
+  ctx.stroke();
+
+  // 水槽高光
+  ctx.beginPath();
+  ctx.moveTo(t.x + 10 * S, t.y + t.h * 0.1);
+  ctx.lineTo(t.x + 10 * S, t.y + t.h * 0.5);
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
+  ctx.lineWidth = 3 * S;
+  ctx.lineCap = 'round';
+  ctx.stroke();
+}
+
+/* ============================================================
+   绘制：玻璃管（含毛细水柱）
+   ============================================================ */
+function drawTube(tube) {
+  const color = COLOR_PRESETS[state.colorIndex];
+  const r = tube.radius;
+  const top = tube.topY;
+  const bottom = tube.bottomY;
+
+  // ---- 管子背景 ----
+  // 管内空气区域（未爬水的部分）
+  ctx.beginPath();
+  roundRect(tube.x - r, top, r * 2, bottom - top, r);
+  const emptyGrad = ctx.createLinearGradient(0, top, 0, bottom);
+  emptyGrad.addColorStop(0, 'rgba(30, 45, 70, 0.4)');
+  emptyGrad.addColorStop(1, 'rgba(40, 60, 90, 0.5)');
+  ctx.fillStyle = emptyGrad;
+  ctx.fill();
+
+  // ---- 毛细水柱 ----
+  const waterSurfaceY = scene.tank.bottomY - scene.tank.h * state.waterLevel;
+  const waterTopInTube = waterSurfaceY - tube.rise;
+
+  if (tube.rise > 0.5) {
+    ctx.save();
+    ctx.beginPath();
+    roundRect(tube.x - r + 1.5 * S, top, r * 2 - 3 * S, bottom - top - 2 * S, r);
+    ctx.clip();
+
+    const c = color.c;
+    const cl = color.light;
+    const cd = color.dark;
+
+    const waterGrad = ctx.createLinearGradient(0, waterTopInTube, 0, bottom);
+    waterGrad.addColorStop(0, 'rgba(' + cl[0] + ',' + cl[1] + ',' + cl[2] + ', 0.85)');
+    waterGrad.addColorStop(0.5, 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ', 0.9)');
+    waterGrad.addColorStop(1, 'rgba(' + cd[0] + ',' + cd[1] + ',' + cd[2] + ', 0.95)');
+    ctx.fillStyle = waterGrad;
+    ctx.fillRect(tube.x - r, waterTopInTube, r * 2, bottom - waterTopInTube);
+
+    // 弯月面（水在细管里会形成凹形的液面）
+    ctx.beginPath();
+    const curveDepth = Math.min(r * 0.9, 6 * S);
+    ctx.moveTo(tube.x - r, waterTopInTube);
+    ctx.quadraticCurveTo(tube.x, waterTopInTube + curveDepth, tube.x + r, waterTopInTube);
+    ctx.lineTo(tube.x + r, waterTopInTube - 4 * S);
+    ctx.lineTo(tube.x - r, waterTopInTube - 4 * S);
+    ctx.closePath();
+    const surfaceGrad = ctx.createLinearGradient(0, waterTopInTube - 4 * S, 0, waterTopInTube + curveDepth);
+    surfaceGrad.addColorStop(0, 'rgba(255, 255, 255, 0.7)');
+    surfaceGrad.addColorStop(1, 'rgba(' + cl[0] + ',' + cl[1] + ',' + cl[2] + ', 0.9)');
+    ctx.fillStyle = surfaceGrad;
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  // ---- 玻璃管壁 ----
+  ctx.beginPath();
+  roundRect(tube.x - r, top, r * 2, bottom - top, r);
+  ctx.strokeStyle = 'rgba(200, 225, 245, 0.85)';
+  ctx.lineWidth = 2.5 * S;
+  ctx.stroke();
+
+  // 管子内部高光
+  ctx.beginPath();
+  ctx.moveTo(tube.x - r * 0.5, top + 10 * S);
+  ctx.lineTo(tube.x - r * 0.5, bottom - 10 * S);
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+  ctx.lineWidth = 1.5 * S;
+  ctx.stroke();
+
+  // 管子标签
+  ctx.font = 'bold ' + Math.round(11 * S) + 'px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'bottom';
+  ctx.fillStyle = 'rgba(168, 200, 232, 0.9)';
+  ctx.fillText(tube.label, tube.x, top - 8 * S);
+
+  // 上升高度的数字
+  if (tube.rise > 2 * S) {
+    const mm = Math.round(tube.rise * 0.35);
+    ctx.font = 'bold ' + Math.round(11 * S) + 'px system-ui, sans-serif';
+    ctx.fillStyle = tube.id === 'thin' ? '#7fdd6e' : '#5eb3ff';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(mm + ' mm', tube.x, waterTopInTube - 14 * S);
+  }
+}
+
+/* ============================================================
+   绘制：水分子粒子
+============================================================ */
+function drawParticles() {
+  const color = COLOR_PRESETS[state.colorIndex];
+  for (const p of state.particles) {
+    ctx.save();
+    ctx.globalAlpha = p.alpha;
+    ctx.beginPath();
+    ctx.arc(p.tube.x, p.y, p.r, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(' + color.light[0] + ',' + color.light[1] + ',' + color.light[2] + ', 0.95)';
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+/* ============================================================
+   绘制：植物（演示植物靠毛细现象喝水）
+============================================================ */
+function drawPlant() {
+  const p = scene.plant;
+  const color = COLOR_PRESETS[state.colorIndex];
+
+  // 花盆
+  const potW = 70 * S;
+  const potH = 44 * S;
+  const potX = p.x - potW / 2;
+  const potY = p.y - potH;
+
+  // 花盆阴影
+  ctx.beginPath();
+  ctx.ellipse(p.x, p.y + 4 * S, potW * 0.6, 6 * S, 0, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+  ctx.fill();
+
+  // 花盆
+  ctx.beginPath();
+  ctx.moveTo(potX, potY);
+  ctx.lineTo(potX + 8 * S, p.y);
+  ctx.lineTo(potX + potW - 8 * S, p.y);
+  ctx.lineTo(potX + potW, potY);
+  ctx.closePath();
+  const potGrad = ctx.createLinearGradient(potX, 0, potX + potW, 0);
+  potGrad.addColorStop(0, '#8a5a38');
+  potGrad.addColorStop(0.5, '#c87a48');
+  potGrad.addColorStop(1, '#6a3a20');
+  ctx.fillStyle = potGrad;
+  ctx.fill();
+  ctx.strokeStyle = '#3a1a08';
+  ctx.lineWidth = 2 * S;
+  ctx.stroke();
+
+  // 花盆顶部边缘
+  ctx.beginPath();
+  roundRect(potX - 4 * S, potY - 6 * S, potW + 8 * S, 10 * S, 3 * S);
+  ctx.fillStyle = '#a86a44';
+  ctx.fill();
+  ctx.strokeStyle = '#3a1a08';
+  ctx.stroke();
+
+  // 土壤
+  ctx.beginPath();
+  ctx.moveTo(potX + 4 * S, potY);
+  ctx.lineTo(potX + potW - 4 * S, potY);
+  ctx.lineTo(potX + potW - 8 * S, potY + 12 * S);
+  ctx.lineTo(potX + 8 * S, potY + 12 * S);
+  ctx.closePath();
+  ctx.fillStyle = '#3a2518';
+  ctx.fill();
+
+  // 茎
+  const stemTopY = p.leafY;
+  const stemX = p.x;
+  const stemBottomY = potY;
+
+  ctx.beginPath();
+  ctx.moveTo(stemX, stemBottomY);
+  ctx.quadraticCurveTo(stemX + 4 * S, (stemBottomY + stemTopY) / 2, stemX + 2 * S, stemTopY);
+  ctx.strokeStyle = '#4a8b3a';
+  ctx.lineWidth = 5 * S;
+  ctx.lineCap = 'round';
+  ctx.stroke();
+
+  // 茎里的水分子（沿茎往上爬）
+  if (state.capillaryProgress > 0.15) {
+    const c = color.c;
+    const cl = color.light;
+    for (let i = 0; i < 8; i++) {
+      const t = ((time * 0.5 + i / 8) % 1);
+      const wave = (1 - t) * (1 - t);
+      const x = stemX + 4 * S * wave;
+      const y = stemBottomY + (stemTopY - stemBottomY) * t;
+      const alpha = state.capillaryProgress * 0.9;
+      ctx.beginPath();
+      ctx.arc(x, y, 2.2 * S, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(' + cl[0] + ',' + cl[1] + ',' + cl[2] + ', ' + alpha + ')';
+      ctx.fill();
+    }
+  }
+
+  // 叶子
+  const leafY1 = stemTopY + 30 * S;
+  const leafY2 = stemTopY + 70 * S;
+
+  // 右叶
+  ctx.beginPath();
+  ctx.moveTo(stemX + 2 * S, leafY1);
+  ctx.quadraticCurveTo(stemX + 40 * S, leafY1 - 20 * S, stemX + 50 * S, leafY1 + 6 * S);
+  ctx.quadraticCurveTo(stemX + 30 * S, leafY1 + 14 * S, stemX + 2 * S, leafY1);
+  ctx.closePath();
+  const lg1 = ctx.createLinearGradient(stemX, leafY1, stemX + 50 * S, leafY1);
+  lg1.addColorStop(0, '#5FB85F');
+  lg1.addColorStop(1, '#3D8B45');
+  ctx.fillStyle = lg1;
+  ctx.fill();
+  ctx.strokeStyle = '#2A5A2A';
+  ctx.lineWidth = 1.5 * S;
+  ctx.stroke();
+
+  // 左叶
+  ctx.beginPath();
+  ctx.moveTo(stemX, leafY2);
+  ctx.quadraticCurveTo(stemX - 38 * S, leafY2 - 18 * S, stemX - 46 * S, leafY2 + 6 * S);
+  ctx.quadraticCurveTo(stemX - 26 * S, leafY2 + 14 * S, stemX, leafY2);
+  ctx.closePath();
+  const lg2 = ctx.createLinearGradient(stemX, leafY2, stemX - 46 * S, leafY2);
+  lg2.addColorStop(0, '#5FB85F');
+  lg2.addColorStop(1, '#3D8B45');
+  ctx.fillStyle = lg2;
+  ctx.fill();
+  ctx.strokeStyle = '#2A5A2A';
+  ctx.lineWidth = 1.5 * S;
+  ctx.stroke();
+
+  // 顶端小叶子
+  ctx.beginPath();
+  ctx.moveTo(stemX + 2 * S, stemTopY);
+  ctx.quadraticCurveTo(stemX + 8 * S, stemTopY - 14 * S, stemX + 20 * S, stemTopY - 8 * S);
+  ctx.quadraticCurveTo(stemX + 12 * S, stemTopY + 2 * S, stemX + 2 * S, stemTopY);
+  ctx.closePath();
+  ctx.fillStyle = '#5FB85F';
+  ctx.fill();
+  ctx.strokeStyle = '#2A5A2A';
+  ctx.stroke();
+
+  // 标签
+  ctx.font = 'bold ' + Math.round(11 * S) + 'px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillStyle = 'rgba(140, 220, 140, 0.85)';
+  ctx.fillText('植物靠茎喝水', p.x, p.y + 12 * S);
+}
+
+/* ============================================================
+   绘制：说明标签（水槽下方）
+============================================================ */
+function drawHint() {
+  const t = scene.tank;
+
+  ctx.font = 'bold ' + Math.round(12 * S) + 'px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillStyle = 'rgba(168, 200, 232, 0.75)';
+  ctx.fillText('毛细现象：水沿着细小缝隙往上爬', t.x + t.w / 2, t.y + t.h + 14 * S);
+}
+
+/* ============================================================
+   工具
+============================================================ */
+function roundRect(x, y, w, h, r) {
+  const rr = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.lineTo(x + w - rr, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+  ctx.lineTo(x + w, y + h - rr);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+  ctx.lineTo(x + rr, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+  ctx.lineTo(x, y + rr);
+  ctx.quadraticCurveTo(x, y, x + rr, y);
+  ctx.closePath();
+}
+
+/* ============================================================
+   渲染
+============================================================ */
+function render() {
+  ctx.clearRect(0, 0, W, H);
+
+  drawBackground();
+  drawTable();
+  drawTank();
+  drawPlant();
+
+  for (const tube of scene.tubes) {
+    drawTube(tube);
+  }
+
+  drawParticles();
+  drawHint();
+}
+
+/* ============================================================
+   交互与按钮
+============================================================ */
+waterSlider.addEventListener('input', function (e) {
+  initAudio();
+  // 拖动时水慢慢上升
+});
+
+btnGo.addEventListener('click', function () {
+  initAudio();
+  sfxPour();
+
+  // 一次性倒满
+  gsap.to(waterSlider, {
+    value: 100,
+    duration: 1.6,
+    ease: 'power2.out',
+    onComplete: function () {
+      sfxCapillary();
+    }
+  });
+
+  // 更新水色
+  // （保持当前颜色）
+});
+
+btnColor.addEventListener('click', function () {
+  initAudio();
+  sfxClick();
+  state.colorIndex = (state.colorIndex + 1) % COLOR_PRESETS.length;
+  noteEl.textContent = '现在是' + COLOR_PRESETS[state.colorIndex].name + '，管子越细，水爬得越高';
+});
+
+btnReset.addEventListener('click', function () {
+  initAudio();
+  sfxClick();
+  state.waterLevel = 0;
+  state.capillaryProgress = 0;
+  state.particles = [];
+  waterSlider.value = 0;
+  waterValEl.textContent = '0%';
+  levelValEl.textContent = '0%';
+  updateUI();
+});
+
+canvas.addEventListener('dblclick', function (e) { e.preventDefault(); });
+
+/* ============================================================
+   启动
+============================================================ */
+resize();
+updateUI();
+
+window.addEventListener('resize', function () {
+  resize();
+  render();
+});
+
+if (window.ResizeObserver) {
+  new ResizeObserver(function () {
+    const cw = canvas.clientWidth, ch = canvas.clientHeight;
+    if (cw > 0 && ch > 0 && (Math.abs(cw - W) > 1 || Math.abs(ch - H) > 1)) {
+      resize();
+      render();
+    }
+  }).observe(canvas);
+}
+
+render();
+requestAnimationFrame(function () {
+  resize();
+  updateUI();
+  render();
+});
+
+gsap.ticker.add(function (t, dt) {
+  const d = Math.min(dt || 16, 50) / 1000;
+  update(d);
+  render();
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,1766 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>毛毛虫变蝴蝶 —— 蝴蝶的一生</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    height: 100%; width: 100%; overflow: hidden; background: #87CEEB;
+    touch-action: none;
+    font-family: system-ui, -apple-system, sans-serif;
+    color: #fff;
+  }
+  canvas {
+    display: block;
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+  }
+
+  .status {
+    position: fixed;
+    top: 20px; left: 50%;
+    transform: translateX(-50%);
+    padding: 14px 28px;
+    background: rgba(16, 22, 38, 0.85);
+    border-radius: 30px;
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    font-size: 15px;
+    font-weight: 700;
+    z-index: 10;
+    white-space: nowrap;
+    max-width: 92vw;
+    text-align: center;
+    transition: all 0.3s;
+  }
+  .status.flash {
+    background: rgba(60, 130, 60, 0.92);
+    border-color: rgba(127, 221, 110, 0.6);
+  }
+
+  .progress {
+    position: fixed;
+    top: 20px; right: 20px;
+    padding: 14px 18px;
+    background: rgba(16, 22, 38, 0.85);
+    border-radius: 16px;
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    font-size: 13px;
+    z-index: 10;
+    min-width: 180px;
+    line-height: 1.9;
+  }
+  .progress .row {
+    display: flex;
+    justify-content: space-between;
+    gap: 14px;
+  }
+  .progress .lbl { color: #8898b0; }
+  .progress .num {
+    color: #ffd54f;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+  }
+  .stages {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  .stages .stage {
+    flex: 1;
+    height: 6px;
+    background: rgba(255, 255, 255, 0.12);
+    border-radius: 3px;
+    transition: background 0.3s;
+  }
+  .stages .stage.done {
+    background: #7fdd6e;
+  }
+  .stages .stage.current {
+    background: #ffd54f;
+  }
+
+  .panel {
+    position: fixed;
+    bottom: 18px; left: 50%;
+    transform: translateX(-50%);
+    width: min(600px, 94vw);
+    background: rgba(16, 22, 38, 0.9);
+    padding: 16px 22px;
+    border-radius: 20px;
+    backdrop-filter: blur(14px);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  }
+  .panel .tip {
+    font-size: 13px;
+    color: #a8c0e0;
+    text-align: center;
+    line-height: 1.5;
+  }
+  .panel .btns {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 10px;
+  }
+  .panel button {
+    padding: 14px 18px;
+    border-radius: 14px;
+    border: none;
+    font-weight: 800;
+    font-size: 15px;
+    cursor: pointer;
+    transition: transform 0.12s, box-shadow 0.2s;
+    letter-spacing: 0.5px;
+  }
+  .panel button:active { transform: translateY(1px); }
+  .panel button:disabled {
+    background: rgba(120, 130, 150, 0.3);
+    color: rgba(255, 255, 255, 0.35);
+    cursor: not-allowed;
+    box-shadow: none;
+  }
+  .panel .btn-feed {
+    background: linear-gradient(135deg, #7fdd6e, #a8e6a0);
+    color: #0a2010;
+    box-shadow: 0 4px 14px rgba(127, 221, 110, 0.35);
+  }
+  .panel .btn-feed:hover:not(:disabled) {
+    box-shadow: 0 6px 20px rgba(127, 221, 110, 0.5);
+  }
+  .panel .btn-reset {
+    background: rgba(255, 255, 255, 0.12);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+  }
+  .panel .btn-reset:hover {
+    background: rgba(255, 255, 255, 0.22);
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div class="status" id="status">🥚 一片叶子上，有一颗小小的卵</div>
+
+<div class="progress">
+  <div class="row"><span class="lbl">阶段</span><span class="num" id="stageVal">卵</span></div>
+  <div class="row"><span class="lbl">已吃叶子</span><span class="num" id="leafVal">0 / 5</span></div>
+  <div class="stages">
+    <div class="stage current" data-i="0"></div>
+    <div class="stage" data-i="1"></div>
+    <div class="stage" data-i="2"></div>
+    <div class="stage" data-i="3"></div>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="tip" id="tip">点击卵，看看会发生什么</div>
+  <div class="btns">
+    <button class="btn-feed" id="btnFeed" disabled>🍃 喂它吃一片叶子</button>
+    <button class="btn-reset" id="btnReset">🔄 重新开始</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+<script>
+/* ============================================================
+   毛毛虫变蝴蝶 —— 蝴蝶的一生
+   ------------------------------------------------------------
+   教材依据：
+   第五章第一节「生命科学」—— 动物的成长变化、变态
+   第六章「种子的一生」的同构：动物的一生
+   第一章「迷思概念」—— 幼儿以为毛毛虫和蝴蝶是两种动物
+
+   核心概念：
+   ① 蝴蝶的一生有四个阶段：卵 → 毛毛虫 → 蛹 → 蝴蝶
+   ② 毛毛虫靠吃叶子长大
+   ③ 长大后会结蛹，蛹里正在发生巨大变化
+   ④ 破茧而出的蝴蝶与毛毛虫形态完全不同（完全变态）
+   ⑤ 蝴蝶会飞到花上采蜜，然后产卵，循环继续
+   ============================================================ */
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+const statusEl = document.getElementById('status');
+const stageValEl = document.getElementById('stageVal');
+const leafValEl = document.getElementById('leafVal');
+const tipEl = document.getElementById('tip');
+const btnFeed = document.getElementById('btnFeed');
+const btnReset = document.getElementById('btnReset');
+const stageEls = document.querySelectorAll('.stages .stage');
+
+let W = 800, H = 600, DPR = 1, S = 1;
+let time = 0;
+
+/* ---------- 状态 ---------- */
+const state = {
+  stage: 'egg',   // egg | caterpillar | climbing | chrysalis | emerging | butterfly
+  leafEaten: 0,
+  maxLeaves: 5,
+  stageIndex: 0,  // 0 卵 1 毛毛虫 2 蛹 3 蝴蝶
+  // 过渡动画用
+  caterpillarSize: 0,
+  caterpillarX: 0,
+  caterpillarY: 0,
+  chrysalisShake: 0,
+  chrysalisCrack: 0,
+  butterflyWings: 0,
+  flowerVisits: 0
+};
+
+/* ---------- 场景 ---------- */
+const scene = {
+  groundY: 0,
+  treeBaseX: 0,
+  treeBaseY: 0,
+  branchStartX: 0,
+  branchStartY: 0,
+  branchEndX: 0,
+  branchEndY: 0,
+  leafX: 0,
+  leafY: 0,
+  leafW: 0,
+  leafH: 0,
+  leafHoles: [],   // 被吃掉的位置
+  chrysalisX: 0,
+  chrysalisY: 0,
+  chrysalisLen: 0
+};
+
+/* ---------- 卵 ---------- */
+const egg = {
+  x: 0, y: 0,
+  r: 0,
+  wobble: 0,
+  broken: false,
+  hatchProgress: 0
+};
+
+/* ---------- 毛毛虫 ---------- */
+const caterpillar = {
+  segments: 6,
+  segR: 0,
+  phase: 0,       // 爬行相位
+  rotation: 0,
+  mouthOpen: 0,
+  happiness: 0,
+  targetX: 0,
+  targetY: 0
+};
+
+/* ---------- 蝴蝶 ---------- */
+const butterfly = {
+  x: 0, y: 0,
+  vx: 0, vy: 0,
+  wingPhase: 0,
+  wingOpen: 0,
+  rotation: 0,
+  dragging: false,
+  targetX: null,
+  targetY: null,
+  scale: 1
+};
+
+/* ---------- 花朵 ---------- */
+let flowers = [];
+
+/* ---------- 叶子（飞向毛毛虫） ---------- */
+let flyingLeaves = [];
+
+/* ---------- 粒子 ---------- */
+let sparks = [];
+let sparkles = [];
+let clouds = [];
+
+/* ---------- 交互 ---------- */
+let activePointer = null;
+let dragOffset = { x: 0, y: 0 };
+
+/* ============================================================
+   尺寸
+============================================================ */
+function resize() {
+  let w = window.innerWidth || document.documentElement.clientWidth || 800;
+  let h = window.innerHeight || document.documentElement.clientHeight || 600;
+  if (w < 200) w = 800;
+  if (h < 200) h = 600;
+
+  W = w;
+  H = h;
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+
+  canvas.width = Math.floor(W * DPR);
+  canvas.height = Math.floor(H * DPR);
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+  S = Math.max(0.55, Math.min(1.15, H / 800));
+
+  layoutScene();
+  initClouds();
+  initFlowers();
+
+  // 重新定位角色
+  if (state.stage === 'egg' && !egg.broken) {
+    egg.x = scene.leafX + scene.leafW * 0.2;
+    egg.y = scene.leafY - 6 * S;
+    egg.r = 8 * S;
+  }
+  if (state.stage === 'caterpillar') {
+    caterpillar.segR = (8 + state.caterpillarSize * 6) * S;
+    caterpillar.targetX = scene.leafX - scene.leafW * 0.1;
+    caterpillar.targetY = scene.leafY - 4 * S;
+  }
+  if (state.stage === 'chrysalis') {
+    scene.chrysalisX = scene.branchEndX;
+    scene.chrysalisY = scene.branchEndY + 44 * S;
+    scene.chrysalisLen = 46 * S;
+  }
+  if (state.stage === 'butterfly') {
+    butterfly.scale = 1.4 * S;
+  }
+}
+
+function layoutScene() {
+  scene.groundY = H * 0.80;
+
+  // 树干
+  scene.treeBaseX = W * 0.16;
+  scene.treeBaseY = scene.groundY;
+  scene.branchStartX = scene.treeBaseX;
+  scene.branchStartY = H * 0.40;
+  scene.branchEndX = W * 0.55;
+  scene.branchEndY = H * 0.30;
+
+  // 叶子（长在树枝末端）
+  scene.leafX = W * 0.62;
+  scene.leafY = H * 0.42;
+  scene.leafW = 170 * S;
+  scene.leafH = 70 * S;
+
+  // 蛹的位置（挂在树枝末端下方）
+  scene.chrysalisX = scene.branchEndX;
+  scene.chrysalisY = scene.branchEndY + 44 * S;
+  scene.chrysalisLen = 46 * S;
+}
+
+function initClouds() {
+  clouds = [];
+  for (let i = 0; i < 5; i++) {
+    const n = 4 + Math.floor(Math.random() * 3);
+    const puffs = [];
+    for (let j = 0; j < n; j++) {
+      puffs.push({
+        dx: (j - n / 2) * 30 * S + (Math.random() - 0.5) * 16 * S,
+        dy: (Math.random() - 0.5) * 12 * S,
+        r: (18 + Math.random() * 16) * S
+      });
+    }
+    clouds.push({
+      x: Math.random() * W,
+      y: 40 * S + Math.random() * (H * 0.28),
+      scale: 0.5 + Math.random() * 0.7,
+      speed: 8 + Math.random() * 14,
+      puffs: puffs
+    });
+  }
+}
+
+function initFlowers() {
+  flowers = [];
+  const count = 6;
+  for (let i = 0; i < count; i++) {
+    const fx = W * (0.14 + 0.72 * (i / (count - 1))) + (Math.random() - 0.5) * 30 * S;
+    flowers.push({
+      x: fx,
+      y: scene.groundY - 4 * S,
+      stemH: (40 + Math.random() * 20) * S,
+      petalR: (12 + Math.random() * 4) * S,
+      color: ['#FF6B8A', '#FFD93D', '#C7A4FF', '#FF8FA3', '#7FDD6E'][i % 5],
+      centerColor: '#FFD54F',
+      phase: Math.random() * Math.PI * 2,
+      visited: false
+    });
+  }
+}
+
+/* ============================================================
+   音效
+============================================================ */
+let audioCtx = null;
+function initAudio() {
+  if (!audioCtx) {
+    try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
+  }
+}
+function beep(freq, dur, vol, type, delay) {
+  vol = vol || 0.07;
+  type = type || 'sine';
+  delay = delay || 0;
+  if (!audioCtx) return;
+  const t0 = audioCtx.currentTime + delay;
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(freq, t0);
+  o.connect(g);
+  g.connect(audioCtx.destination);
+  g.gain.setValueAtTime(vol, t0);
+  g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+  o.start(t0);
+  o.stop(t0 + dur);
+}
+function sfxClick() { beep(520, 0.06, 0.05, 'triangle'); }
+function sfxHatch() {
+  beep(660, 0.08, 0.08, 'sine');
+  beep(880, 0.10, 0.08, 'sine', 0.06);
+  beep(1100, 0.12, 0.07, 'sine', 0.14);
+}
+function sfxEat() {
+  beep(420, 0.05, 0.06, 'triangle');
+  beep(320, 0.08, 0.05, 'triangle', 0.05);
+}
+function sfxSpin() {
+  beep(320, 0.15, 0.06, 'sine');
+  beep(400, 0.15, 0.06, 'sine', 0.12);
+  beep(500, 0.20, 0.06, 'sine', 0.26);
+}
+function sfxEmerging() {
+  beep(440, 0.14, 0.08, 'sine');
+  beep(554, 0.14, 0.08, 'sine', 0.14);
+  beep(659, 0.14, 0.08, 'sine', 0.28);
+  beep(880, 0.20, 0.09, 'sine', 0.42);
+  beep(1046, 0.32, 0.10, 'sine', 0.58);
+}
+function sfxFlower() {
+  beep(880, 0.10, 0.06, 'sine');
+  beep(1046, 0.12, 0.05, 'sine', 0.08);
+}
+
+/* ============================================================
+   阶段转换
+============================================================ */
+function setStage(name) {
+  state.stage = name;
+
+  if (name === 'egg') {
+    state.stageIndex = 0;
+    tipEl.textContent = '点击卵，看看会发生什么';
+    btnFeed.disabled = true;
+    statusEl.textContent = '🥚 一片叶子上，有一颗小小的卵';
+  }
+  else if (name === 'caterpillar') {
+    state.stageIndex = 1;
+    tipEl.textContent = '多喂它几片叶子，让它慢慢长大';
+    btnFeed.disabled = false;
+    statusEl.textContent = '🐛 卵孵化了！一条小毛毛虫爬了出来';
+    statusEl.classList.add('flash');
+    setTimeout(function () { statusEl.classList.remove('flash'); }, 1500);
+  }
+  else if (name === 'climbing') {
+    state.stageIndex = 1;
+    tipEl.textContent = '毛毛虫吃饱了，正准备爬到树枝上';
+    btnFeed.disabled = true;
+  }
+  else if (name === 'chrysalis') {
+    state.stageIndex = 2;
+    tipEl.textContent = '蛹里正在发生神奇的变化，耐心等一等';
+    btnFeed.disabled = true;
+    statusEl.textContent = '🪴 毛毛虫变成了蛹，它要在里面待一会儿';
+  }
+  else if (name === 'emerging') {
+    state.stageIndex = 2;
+    tipEl.textContent = '蛹裂开了，有什么要出来！';
+    btnFeed.disabled = true;
+    statusEl.textContent = '✨ 蛹正在裂开……';
+  }
+  else if (name === 'butterfly') {
+    state.stageIndex = 3;
+    tipEl.textContent = '用小手拖动蝴蝶，让它去花上采蜜吧';
+    btnFeed.disabled = true;
+    statusEl.textContent = '🦋 蝴蝶出来了！它可以飞到花朵上采蜜';
+    statusEl.classList.add('flash');
+    setTimeout(function () { statusEl.classList.remove('flash'); }, 1800);
+  }
+
+  updateUI();
+}
+
+function updateUI() {
+  const names = ['卵', '毛毛虫', '蛹', '蝴蝶'];
+  stageValEl.textContent = names[state.stageIndex];
+  leafValEl.textContent = state.leafEaten + ' / ' + state.maxLeaves;
+
+  stageEls.forEach(function (el, i) {
+    el.classList.remove('done', 'current');
+    if (i < state.stageIndex) el.classList.add('done');
+    else if (i === state.stageIndex) el.classList.add('current');
+  });
+}
+
+/* ============================================================
+   交互：点击卵
+============================================================ */
+function breakEgg() {
+  if (egg.broken) return;
+  egg.broken = true;
+  sfxHatch();
+
+  // 卵壳碎裂的小粒子
+  for (let i = 0; i < 10; i++) {
+    const a = (Math.PI * 2 / 10) * i;
+    sparks.push({
+      x: egg.x, y: egg.y,
+      vx: Math.cos(a) * 80,
+      vy: Math.sin(a) * 80 - 20,
+      life: 1,
+      size: 3 * S,
+      color: '#FFF8C0'
+    });
+  }
+
+  // 延迟一下出现毛毛虫
+  setTimeout(function () {
+    setStage('caterpillar');
+    state.caterpillarSize = 0.15;
+    caterpillar.segR = (8 + state.caterpillarSize * 6) * S;
+    caterpillar.targetX = scene.leafX - scene.leafW * 0.1;
+    caterpillar.targetY = scene.leafY - 4 * S;
+  }, 400);
+}
+
+/* ============================================================
+   交互：喂叶子
+============================================================ */
+function feedLeaf() {
+  if (state.stage !== 'caterpillar') return;
+  if (state.leafEaten >= state.maxLeaves) return;
+
+  initAudio();
+  sfxEat();
+  state.leafEaten++;
+
+  // 生成一片飞行的叶子
+  const startX = W * 0.85;
+  const startY = H * 0.25;
+  const endX = caterpillar.targetX + caterpillar.segR * 0.6;
+  const endY = caterpillar.targetY;
+
+  flyingLeaves.push({
+    x: startX,
+    y: startY,
+    startX: startX,
+    startY: startY,
+    endX: endX,
+    endY: endY,
+    t: 0,
+    size: 22 * S,
+    rotation: 0
+  });
+
+  // 更新大小
+  state.caterpillarSize = state.leafEaten / state.maxLeaves;
+  caterpillar.segR = (8 + state.caterpillarSize * 6) * S;
+  caterpillar.segments = 6 + Math.floor(state.caterpillarSize * 4);
+  caterpillar.mouthOpen = 1;
+  caterpillar.happiness = 1;
+
+  // 叶子在叶子上留一个"缺口"
+  scene.leafHoles.push({
+    u: 0.5 + (Math.random() - 0.5) * 0.5,
+    v: 0.5 + (Math.random() - 0.5) * 0.6,
+    r: (12 + Math.random() * 8) * S
+  });
+
+  updateUI();
+
+  // 到达后检查是否吃饱
+  setTimeout(function () {
+    if (state.leafEaten >= state.maxLeaves) {
+      // 进入爬树阶段
+      setStage('climbing');
+      statusEl.textContent = '🐛 吃饱了！它开始往上爬……';
+      startClimbing();
+    } else {
+      const left = state.maxLeaves - state.leafEaten;
+      statusEl.textContent = '😋 吃得真香！再吃 ' + left + ' 片就饱了';
+    }
+  }, 700);
+}
+
+function startClimbing() {
+  // 毛毛虫从叶子爬到树枝上的蛹位置
+  gsap.to(caterpillar, {
+    targetX: scene.branchEndX,
+    targetY: scene.branchEndY + 10 * S,
+    duration: 2.2,
+    ease: 'power1.inOut',
+    onComplete: function () {
+      // 结蛹
+      setStage('chrysalis');
+      sfxSpin();
+
+      // 毛毛虫缩小，变成蛹
+      gsap.to(state, {
+        caterpillarSize: 0,
+        duration: 1.2,
+        ease: 'power2.inOut'
+      });
+
+      setTimeout(function () {
+        startChrysalisLife();
+      }, 1600);
+    }
+  });
+}
+
+function startChrysalisLife() {
+  // 蛹轻微摇晃
+  gsap.to(state, {
+    chrysalisShake: 1,
+    duration: 0.5,
+    yoyo: true,
+    repeat: 6,
+    ease: 'sine.inOut'
+  });
+
+  // 一段时间后破茧
+  setTimeout(function () {
+    setStage('emerging');
+    // 裂纹
+    gsap.to(state, {
+      chrysalisCrack: 1,
+      duration: 1.6,
+      ease: 'power2.in'
+    });
+
+    setTimeout(function () {
+      setStage('butterfly');
+      sfxEmerging();
+
+      // 蝴蝶飞出来
+      butterfly.x = scene.chrysalisX;
+      butterfly.y = scene.chrysalisY;
+      butterfly.scale = 0.3 * S;
+      butterfly.wingOpen = 0;
+
+      gsap.to(butterfly, {
+        scale: 1.4 * S,
+        duration: 1.0,
+        ease: 'back.out(1.7)'
+      });
+      gsap.to(butterfly, {
+        wingOpen: 1,
+        duration: 0.8,
+        ease: 'power2.out'
+      });
+
+      // 飞到画面中间
+      gsap.to(butterfly, {
+        x: W * 0.5,
+        y: H * 0.4,
+        duration: 2.0,
+        ease: 'power2.inOut'
+      });
+
+      // 撒花庆祝
+      for (let i = 0; i < 40; i++) {
+        spawnSparkle(
+          scene.chrysalisX + (Math.random() - 0.5) * 80 * S,
+          scene.chrysalisY + (Math.random() - 0.5) * 80 * S
+        );
+      }
+    }, 1800);
+  }, 3500);
+}
+
+/* ============================================================
+   粒子
+============================================================ */
+function spawnSparkle(x, y) {
+  sparkles.push({
+    x: x, y: y,
+    vx: (Math.random() - 0.5) * 60,
+    vy: (Math.random() - 0.5) * 60 - 30,
+    life: 1,
+    size: (2 + Math.random() * 4) * S,
+    rot: Math.random() * Math.PI * 2,
+    rotSpeed: (Math.random() - 0.5) * 8,
+    color: ['#fff7c4', '#ffd54f', '#ffb0e0', '#a8e6ff'][Math.floor(Math.random() * 4)]
+  });
+}
+
+/* ============================================================
+   更新
+============================================================ */
+function update(dt) {
+  time += dt;
+
+  // 卵
+  if (state.stage === 'egg' && !egg.broken) {
+    egg.wobble += dt * 2.5;
+  }
+
+  // 毛毛虫
+  if (state.stage === 'caterpillar' || state.stage === 'climbing') {
+    caterpillar.phase += dt * 6;
+    caterpillar.happiness = Math.max(0, caterpillar.happiness - dt * 0.8);
+    caterpillar.mouthOpen = Math.max(0, caterpillar.mouthOpen - dt * 1.6);
+  }
+
+  // 蝴蝶
+  if (state.stage === 'butterfly') {
+    butterfly.wingPhase += dt * 10;
+    if (!butterfly.dragging) {
+      if (butterfly.targetX !== null) {
+        const dx = butterfly.targetX - butterfly.x;
+        const dy = butterfly.targetY - butterfly.y;
+        const d = Math.hypot(dx, dy);
+        if (d < 20 * S) {
+          // 到达花朵
+          butterfly.targetX = null;
+          butterfly.targetY = null;
+          const f = flowers.find(function (fl) { return !fl.visited && Math.hypot(fl.x - butterfly.x, fl.y - butterfly.y) < 60 * S; });
+          if (f) {
+            f.visited = true;
+            sfxFlower();
+            for (let i = 0; i < 6; i++) spawnSparkle(butterfly.x, butterfly.y);
+          }
+        } else {
+          butterfly.x += (dx / d) * 200 * S * dt;
+          butterfly.y += (dy / d) * 200 * S * dt;
+        }
+        butterfly.rotation = Math.atan2(dy, dx) * 0.1;
+      } else {
+        // 自由飘动
+        butterfly.vx += (Math.random() - 0.5) * 40 * dt;
+        butterfly.vy += (Math.random() - 0.5) * 40 * dt - 5 * dt;
+        butterfly.vx *= 0.94;
+        butterfly.vy *= 0.94;
+        butterfly.x += butterfly.vx * dt * 60;
+        butterfly.y += butterfly.vy * dt * 60;
+
+        // 边界
+        if (butterfly.x < 60 * S) { butterfly.x = 60 * S; butterfly.vx = Math.abs(butterfly.vx); }
+        if (butterfly.x > W - 60 * S) { butterfly.x = W - 60 * S; butterfly.vx = -Math.abs(butterfly.vx); }
+        if (butterfly.y < 80 * S) { butterfly.y = 80 * S; butterfly.vy = Math.abs(butterfly.vy); }
+        if (butterfly.y > scene.groundY - 60 * S) { butterfly.y = scene.groundY - 60 * S; butterfly.vy = -Math.abs(butterfly.vy); }
+
+        butterfly.rotation = Math.sin(time * 2) * 0.1;
+      }
+    }
+  }
+
+  // 飞行的叶子
+  for (const fl of flyingLeaves) {
+    fl.t += dt * 1.6;
+    if (fl.t >= 1) {
+      fl.dead = true;
+    }
+    // 二次贝塞尔
+    const u = 1 - Math.min(1, fl.t);
+    const t = Math.min(1, fl.t);
+    const ctrlX = (fl.startX + fl.endX) / 2;
+    const ctrlY = Math.min(fl.startY, fl.endY) - 80 * S;
+    fl.x = u * u * fl.startX + 2 * u * t * ctrlX + t * t * fl.endX;
+    fl.y = u * u * fl.startY + 2 * u * t * ctrlY + t * t * fl.endY;
+    fl.rotation += dt * 6;
+  }
+  flyingLeaves = flyingLeaves.filter(function (fl) { return !fl.dead; });
+
+  // 粒子
+  for (const s of sparks) {
+    s.x += s.vx * dt;
+    s.y += s.vy * dt;
+    s.vy += 200 * dt;
+    s.life -= dt * 1.4;
+  }
+  sparks = sparks.filter(function (s) { return s.life > 0; });
+
+  for (const s of sparkles) {
+    s.x += s.vx * dt;
+    s.y += s.vy * dt;
+    s.vy += 40 * dt;
+    s.vx *= 0.97;
+    s.life -= dt * 1.1;
+    s.rot += s.rotSpeed * dt;
+  }
+  sparkles = sparkles.filter(function (s) { return s.life > 0; });
+
+  // 云
+  for (const c of clouds) {
+    c.x += c.speed * dt;
+    if (c.x - 200 * S > W) {
+      c.x = -200 * S;
+      c.y = 40 * S + Math.random() * (H * 0.28);
+    }
+  }
+}
+
+/* ============================================================
+   绘制：背景
+============================================================ */
+function drawSky() {
+  const g = ctx.createLinearGradient(0, 0, 0, scene.groundY);
+  g.addColorStop(0, '#7EC8E3');
+  g.addColorStop(0.55, '#A8DDF0');
+  g.addColorStop(1, '#DFF3E4');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, scene.groundY);
+}
+
+function drawSun() {
+  const sx = W * 0.88;
+  const sy = H * 0.14;
+  const r = 42 * S;
+
+  const glow = ctx.createRadialGradient(sx, sy, r * 0.5, sx, sy, r * 4);
+  glow.addColorStop(0, 'rgba(255, 245, 180, 0.7)');
+  glow.addColorStop(0.4, 'rgba(255, 240, 160, 0.22)');
+  glow.addColorStop(1, 'rgba(255, 240, 160, 0)');
+  ctx.fillStyle = glow;
+  ctx.beginPath();
+  ctx.arc(sx, sy, r * 4, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.arc(sx, sy, r, 0, Math.PI * 2);
+  ctx.fillStyle = '#FFF7C4';
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.arc(sx, sy, r * 0.82, 0, Math.PI * 2);
+  ctx.fillStyle = '#FFFCE0';
+  ctx.fill();
+}
+
+function drawClouds() {
+  for (const c of clouds) {
+    ctx.save();
+    ctx.translate(c.x, c.y);
+    ctx.scale(c.scale, c.scale);
+    ctx.beginPath();
+    for (const p of c.puffs) {
+      ctx.moveTo(p.dx + p.r, p.dy);
+      ctx.arc(p.dx, p.dy, p.r, 0, Math.PI * 2);
+    }
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+function drawGround() {
+  const g = ctx.createLinearGradient(0, scene.groundY - 20 * S, 0, H);
+  g.addColorStop(0, '#7BD17F');
+  g.addColorStop(0.5, '#5BB85F');
+  g.addColorStop(1, '#3A7A40');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, scene.groundY, W, H - scene.groundY);
+
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
+  ctx.lineWidth = 2 * S;
+  ctx.beginPath();
+  ctx.moveTo(0, scene.groundY);
+  ctx.lineTo(W, scene.groundY);
+  ctx.stroke();
+}
+
+/* ============================================================
+   绘制：花朵
+============================================================ */
+function drawFlowers() {
+  for (const f of flowers) {
+    const sway = Math.sin(time * 1.5 + f.phase) * 2 * S;
+
+    // 茎
+    ctx.beginPath();
+    ctx.moveTo(f.x, f.y);
+    ctx.quadraticCurveTo(f.x + sway * 0.5, f.y - f.stemH * 0.5, f.x + sway, f.y - f.stemH);
+    ctx.strokeStyle = '#4A8B3A';
+    ctx.lineWidth = 3 * S;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+
+    // 花朵中心
+    const fx = f.x + sway;
+    const fy = f.y - f.stemH;
+
+    // 花瓣
+    for (let i = 0; i < 6; i++) {
+      const a = (Math.PI * 2 / 6) * i + f.phase * 0.2;
+      const px = fx + Math.cos(a) * f.petalR * 0.7;
+      const py = fy + Math.sin(a) * f.petalR * 0.7;
+      ctx.beginPath();
+      ctx.ellipse(px, py, f.petalR * 0.7, f.petalR * 0.5, a, 0, Math.PI * 2);
+      ctx.fillStyle = f.color;
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.1)';
+      ctx.lineWidth = 1 * S;
+      ctx.stroke();
+    }
+
+    // 花心
+    ctx.beginPath();
+    ctx.arc(fx, fy, f.petalR * 0.45, 0, Math.PI * 2);
+    ctx.fillStyle = f.centerColor;
+    ctx.fill();
+
+    // 花心小点
+    ctx.fillStyle = 'rgba(120, 80, 20, 0.6)';
+    for (let i = 0; i < 5; i++) {
+      const a = (Math.PI * 2 / 5) * i;
+      ctx.beginPath();
+      ctx.arc(fx + Math.cos(a) * f.petalR * 0.2, fy + Math.sin(a) * f.petalR * 0.2, 1.2 * S, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+}
+
+/* ============================================================
+   绘制：树
+============================================================ */
+function drawTree() {
+  // 树干
+  const grad = ctx.createLinearGradient(scene.treeBaseX - 30 * S, 0, scene.treeBaseX + 30 * S, 0);
+  grad.addColorStop(0, '#5A3E28');
+  grad.addColorStop(0.5, '#8A5A38');
+  grad.addColorStop(1, '#4A3018');
+
+  ctx.beginPath();
+  ctx.moveTo(scene.treeBaseX - 38 * S, scene.treeBaseY);
+  ctx.quadraticCurveTo(
+    scene.treeBaseX - 32 * S, scene.treeBaseY - H * 0.35,
+    scene.treeBaseX - 14 * S, scene.treeBaseY - H * 0.55
+  );
+  ctx.lineTo(scene.treeBaseX + 14 * S, scene.treeBaseY - H * 0.55);
+  ctx.quadraticCurveTo(
+    scene.treeBaseX + 32 * S, scene.treeBaseY - H * 0.35,
+    scene.treeBaseX + 38 * S, scene.treeBaseY
+  );
+  ctx.closePath();
+  ctx.fillStyle = grad;
+  ctx.fill();
+  ctx.strokeStyle = '#3A2410';
+  ctx.lineWidth = 2 * S;
+  ctx.stroke();
+
+  // 树干纹理
+  ctx.strokeStyle = 'rgba(40, 25, 15, 0.5)';
+  ctx.lineWidth = 1.5 * S;
+  for (let i = 0; i < 4; i++) {
+    const x = scene.treeBaseX - 20 * S + i * 14 * S;
+    ctx.beginPath();
+    ctx.moveTo(x, scene.treeBaseY);
+    ctx.quadraticCurveTo(x - 4 * S, scene.treeBaseY - H * 0.3, x, scene.treeBaseY - H * 0.5);
+    ctx.stroke();
+  }
+
+  // 树枝（伸向右边）
+  ctx.beginPath();
+  ctx.moveTo(scene.treeBaseX - 8 * S, scene.treeBaseY - H * 0.45);
+  ctx.quadraticCurveTo(
+    scene.treeBaseX + (scene.branchEndX - scene.treeBaseX) * 0.4,
+    scene.treeBaseY - H * 0.52,
+    scene.branchEndX,
+    scene.branchEndY
+  );
+  ctx.strokeStyle = grad;
+  ctx.lineWidth = 16 * S;
+  ctx.lineCap = 'round';
+  ctx.stroke();
+
+  // 树枝高光
+  ctx.beginPath();
+  ctx.moveTo(scene.treeBaseX - 8 * S, scene.treeBaseY - H * 0.45);
+  ctx.quadraticCurveTo(
+    scene.treeBaseX + (scene.branchEndX - scene.treeBaseX) * 0.4,
+    scene.treeBaseY - H * 0.52,
+    scene.branchEndX,
+    scene.branchEndY
+  );
+  ctx.strokeStyle = 'rgba(200, 150, 100, 0.4)';
+  ctx.lineWidth = 4 * S;
+  ctx.stroke();
+
+  // 树枝末端的小枝
+  ctx.beginPath();
+  ctx.moveTo(scene.branchEndX, scene.branchEndY);
+  ctx.lineTo(scene.branchEndX + 8 * S, scene.branchEndY - 12 * S);
+  ctx.lineTo(scene.branchEndX + 20 * S, scene.branchEndY - 16 * S);
+  ctx.strokeStyle = grad;
+  ctx.lineWidth = 6 * S;
+  ctx.lineCap = 'round';
+  ctx.stroke();
+
+  // 一些小叶子装饰
+  for (let i = 0; i < 6; i++) {
+    const t = 0.2 + i * 0.14;
+    const x = scene.treeBaseX + (scene.branchEndX - scene.treeBaseX) * t;
+    const y = scene.treeBaseY - H * 0.45 + (scene.branchEndY - (scene.treeBaseY - H * 0.45)) * t;
+    const side = i % 2 === 0 ? -1 : 1;
+    ctx.beginPath();
+    ctx.ellipse(x, y - 6 * S, 12 * S, 6 * S, side * 0.6, 0, Math.PI * 2);
+    ctx.fillStyle = '#5FB85F';
+    ctx.fill();
+  }
+}
+
+/* ============================================================
+   绘制：叶子
+============================================================ */
+function drawLeaf() {
+  const lx = scene.leafX;
+  const ly = scene.leafY;
+  const lw = scene.leafW;
+  const lh = scene.leafH;
+
+  // 叶柄
+  ctx.beginPath();
+  ctx.moveTo(lx - lw * 0.4, ly);
+  ctx.quadraticCurveTo(lx - lw * 0.55, ly - 4 * S, scene.branchEndX, scene.branchEndY + 4 * S);
+  ctx.strokeStyle = '#3D8B45';
+  ctx.lineWidth = 3 * S;
+  ctx.lineCap = 'round';
+  ctx.stroke();
+
+  // 叶子主体（两个圆弧组成）
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(lx - lw * 0.5, ly);
+  ctx.quadraticCurveTo(lx, ly - lh, lx + lw * 0.5, ly);
+  ctx.quadraticCurveTo(lx, ly + lh, lx - lw * 0.5, ly);
+  ctx.closePath();
+
+  const leafGrad = ctx.createLinearGradient(lx - lw * 0.5, ly - lh, lx + lw * 0.5, ly + lh);
+  leafGrad.addColorStop(0, '#7BC98D');
+  leafGrad.addColorStop(0.5, '#5FB85F');
+  leafGrad.addColorStop(1, '#3D8B45');
+  ctx.fillStyle = leafGrad;
+  ctx.fill();
+  ctx.strokeStyle = '#2A5A2A';
+  ctx.lineWidth = 2 * S;
+  ctx.stroke();
+
+  // 叶脉
+  ctx.beginPath();
+  ctx.moveTo(lx - lw * 0.45, ly);
+  ctx.lineTo(lx + lw * 0.42, ly);
+  ctx.strokeStyle = 'rgba(40, 90, 40, 0.55)';
+  ctx.lineWidth = 2 * S;
+  ctx.stroke();
+
+  // 侧脉
+  for (let i = 1; i <= 4; i++) {
+    const t = i / 5;
+    const x = lx - lw * 0.45 + lw * 0.87 * t;
+    const a = 0.5;
+    ctx.beginPath();
+    ctx.moveTo(x, ly);
+    ctx.lineTo(x + 12 * S, ly - lh * a * (1 - Math.abs(t - 0.5) * 1.4));
+    ctx.moveTo(x, ly);
+    ctx.lineTo(x + 12 * S, ly + lh * a * (1 - Math.abs(t - 0.5) * 1.4));
+    ctx.strokeStyle = 'rgba(40, 90, 40, 0.4)';
+    ctx.lineWidth = 1.2 * S;
+    ctx.stroke();
+  }
+
+  // 被吃掉的缺口（用背景色补丁模拟）
+  for (const h of scene.leafHoles) {
+    const holeX = lx - lw * 0.45 + lw * 0.87 * h.u;
+    const holeY = ly + (h.v - 0.5) * lh * 0.8;
+    ctx.beginPath();
+    ctx.arc(holeX, holeY, h.r, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(0, 0, 0, 0)';
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.fill();
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  ctx.restore();
+}
+
+/* ============================================================
+   绘制：卵
+============================================================ */
+function drawEgg() {
+  if (state.stage !== 'egg' || egg.broken) return;
+
+  const wobble = Math.sin(egg.wobble) * 0.08;
+  const pulse = 1 + Math.sin(egg.wobble * 0.7) * 0.05;
+
+  ctx.save();
+  ctx.translate(egg.x, egg.y);
+
+  // 阴影
+  ctx.beginPath();
+  ctx.ellipse(2 * S, egg.r * 0.8, egg.r * 0.8, egg.r * 0.25, 0, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+  ctx.fill();
+
+  ctx.rotate(wobble);
+
+  // 卵
+  ctx.beginPath();
+  ctx.ellipse(0, 0, egg.r * pulse, egg.r * 1.15 * pulse, 0, 0, Math.PI * 2);
+  const eg = ctx.createRadialGradient(-egg.r * 0.3, -egg.r * 0.3, egg.r * 0.1, 0, 0, egg.r * 1.2);
+  eg.addColorStop(0, '#FFFCE0');
+  eg.addColorStop(0.6, '#FFE9A8');
+  eg.addColorStop(1, '#E8C878');
+  ctx.fillStyle = eg;
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(180, 140, 60, 0.6)';
+  ctx.lineWidth = 1.2 * S;
+  ctx.stroke();
+
+  // 高光
+  ctx.beginPath();
+  ctx.arc(-egg.r * 0.3, -egg.r * 0.35, egg.r * 0.3, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+  ctx.fill();
+
+  ctx.restore();
+
+  // 提示环（脉动）
+  const pulse2 = 1 + Math.sin(time * 3) * 0.15;
+  ctx.beginPath();
+  ctx.arc(egg.x, egg.y, egg.r * 2.2 * pulse2, 0, Math.PI * 2);
+  ctx.strokeStyle = 'rgba(255, 240, 140, ' + (0.4 + Math.sin(time * 3) * 0.2) + ')';
+  ctx.lineWidth = 2 * S;
+  ctx.setLineDash([5 * S, 5 * S]);
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+/* ============================================================
+   绘制：毛毛虫
+============================================================ */
+function drawCaterpillar() {
+  if (state.stage !== 'caterpillar' && state.stage !== 'climbing') return;
+  if (state.caterpillarSize < 0.01) return;
+
+  const segR = caterpillar.segR;
+  const cx = caterpillar.targetX;
+  const cy = caterpillar.targetY;
+  const phase = caterpillar.phase;
+
+  // 阴影
+  ctx.beginPath();
+  ctx.ellipse(cx, cy + segR * 0.9, segR * (caterpillar.segments * 0.7), segR * 0.3, 0, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
+  ctx.fill();
+
+  ctx.save();
+  ctx.translate(cx, cy);
+
+  // 身体：从尾到头画
+  const bodyColor = '#7FDD6E';
+  const bodyColorDark = '#4A9E50';
+
+  // 从右向左画（头在右）
+  for (let i = caterpillar.segments - 1; i >= 0; i--) {
+    const t = i / (caterpillar.segments - 1);
+    // 身体微微上下起伏
+    const wave = Math.sin(phase + i * 0.6) * segR * 0.3;
+    const x = -i * segR * 1.45 + segR * 2;
+    const y = wave;
+    const r = segR * (1 - t * 0.15);
+
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    const g = ctx.createRadialGradient(x - r * 0.3, y - r * 0.3, r * 0.1, x, y, r);
+    g.addColorStop(0, '#B8F0A8');
+    g.addColorStop(0.6, bodyColor);
+    g.addColorStop(1, bodyColorDark);
+    ctx.fillStyle = g;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(40, 90, 40, 0.5)';
+    ctx.lineWidth = 1.2 * S;
+    ctx.stroke();
+
+    // 身体上的小点
+    if (i > 0 && i < caterpillar.segments - 1) {
+      ctx.beginPath();
+      ctx.arc(x, y - r * 0.4, r * 0.15, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(40, 90, 40, 0.35)';
+      ctx.fill();
+    }
+  }
+
+  // 头
+  const headX = segR * 2;
+  const headY = 0;
+  const headR = segR * 1.1;
+
+  ctx.beginPath();
+  ctx.arc(headX, headY, headR, 0, Math.PI * 2);
+  const hg = ctx.createRadialGradient(headX - headR * 0.3, headY - headR * 0.3, headR * 0.1, headX, headY, headR);
+  hg.addColorStop(0, '#C8F8B8');
+  hg.addColorStop(0.6, '#8FE87E');
+  hg.addColorStop(1, '#5FA84F');
+  ctx.fillStyle = hg;
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(40, 90, 40, 0.5)';
+  ctx.lineWidth = 1.2 * S;
+  ctx.stroke();
+
+  // 触角
+  for (const side of [-1, 1]) {
+    ctx.beginPath();
+    ctx.moveTo(headX + headR * 0.2, headY + side * headR * 0.35);
+    ctx.quadraticCurveTo(
+      headX + headR * 1.2, headY + side * headR * 0.8,
+      headX + headR * 1.4, headY + side * headR * 1.3
+    );
+    ctx.strokeStyle = '#5FA84F';
+    ctx.lineWidth = 2 * S;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(headX + headR * 1.4, headY + side * headR * 1.3, 2 * S, 0, Math.PI * 2);
+    ctx.fillStyle = '#5FA84F';
+    ctx.fill();
+  }
+
+  // 眼睛
+  for (const side of [-1, 1]) {
+    ctx.beginPath();
+    ctx.arc(headX + headR * 0.4, headY + side * headR * 0.35, headR * 0.22, 0, Math.PI * 2);
+    ctx.fillStyle = '#1A2818';
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(headX + headR * 0.48, headY + side * headR * 0.28, headR * 0.08, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
+  }
+
+  // 嘴巴（吃东西时张开）
+  const mouthOpen = caterpillar.mouthOpen;
+  if (mouthOpen > 0.1) {
+    ctx.beginPath();
+    ctx.ellipse(headX + headR * 0.5, headY + headR * 0.5, headR * 0.3, headR * 0.25 * (1 + mouthOpen), 0, 0, Math.PI * 2);
+    ctx.fillStyle = '#3A1A2A';
+    ctx.fill();
+  }
+
+  // 腮红
+  if (caterpillar.happiness > 0.2) {
+    ctx.globalAlpha = caterpillar.happiness * 0.6;
+    for (const side of [-1, 1]) {
+      ctx.beginPath();
+      ctx.arc(headX + headR * 0.7, headY + side * headR * 0.6, headR * 0.2, 0, Math.PI * 2);
+      ctx.fillStyle = '#FF8FA3';
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  ctx.restore();
+}
+
+/* ============================================================
+   绘制：蛹
+============================================================ */
+function drawChrysalis() {
+  if (state.stage !== 'chrysalis' && state.stage !== 'emerging') return;
+
+  const x = scene.chrysalisX;
+  const y = scene.chrysalisY;
+  const len = scene.chrysalisLen;
+  const shake = Math.sin(time * 12) * 2 * S * state.chrysalisShake;
+
+  ctx.save();
+  ctx.translate(x + shake, y);
+
+  // 连接丝（从树枝到蛹）
+  ctx.beginPath();
+  ctx.moveTo(0, -len * 0.9);
+  ctx.lineTo(0, -len * 1.7);
+  ctx.strokeStyle = 'rgba(180, 180, 160, 0.7)';
+  ctx.lineWidth = 1.5 * S;
+  ctx.stroke();
+
+  // 蛹主体
+  const grad = ctx.createLinearGradient(-len * 0.4, 0, len * 0.4, 0);
+  grad.addColorStop(0, '#4A7A38');
+  grad.addColorStop(0.4, '#7FBF5E');
+  grad.addColorStop(0.7, '#5FA84F');
+  grad.addColorStop(1, '#2F5F23');
+
+  ctx.beginPath();
+  ctx.ellipse(0, 0, len * 0.42, len * 0.9, 0, 0, Math.PI * 2);
+  ctx.fillStyle = grad;
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(30, 60, 20, 0.6)';
+  ctx.lineWidth = 2 * S;
+  ctx.stroke();
+
+  // 蛹上的装饰纹
+  ctx.strokeStyle = 'rgba(30, 60, 20, 0.4)';
+  ctx.lineWidth = 1.5 * S;
+  for (let i = -2; i <= 2; i++) {
+    const ty = i * len * 0.22;
+    ctx.beginPath();
+    ctx.moveTo(-len * 0.32, ty);
+    ctx.quadraticCurveTo(0, ty + len * 0.08, len * 0.32, ty);
+    ctx.stroke();
+  }
+
+  // 高光
+  ctx.beginPath();
+  ctx.ellipse(-len * 0.15, -len * 0.3, len * 0.1, len * 0.35, -0.2, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
+  ctx.fill();
+
+  // 裂纹（破茧时）
+  if (state.chrysalisCrack > 0.05) {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255, 220, 120, ' + state.chrysalisCrack + ')';
+    ctx.lineWidth = 2.5 * S;
+    ctx.shadowColor = 'rgba(255, 200, 80, 0.8)';
+    ctx.shadowBlur = 10 * S * state.chrysalisCrack;
+    // 从中间裂开的锯齿线
+    ctx.beginPath();
+    const cx0 = 0;
+    const cy0 = -len * 0.5;
+    const cy1 = len * 0.5;
+    ctx.moveTo(cx0 + Math.sin(0) * 4 * S, cy0);
+    for (let i = 1; i <= 8; i++) {
+      const t = i / 8;
+      const yy = cy0 + (cy1 - cy0) * t;
+      const xx = Math.sin(i * 2) * 4 * S * state.chrysalisCrack;
+      ctx.lineTo(cx0 + xx, yy);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  ctx.restore();
+
+  // 提示环（蛹阶段脉动）
+  if (state.stage === 'chrysalis') {
+    const pulse = 1 + Math.sin(time * 2.5) * 0.1;
+    ctx.beginPath();
+    ctx.arc(x, y, len * 1.4 * pulse, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(127, 221, 110, ' + (0.25 + Math.sin(time * 2.5) * 0.15) + ')';
+    ctx.lineWidth = 2 * S;
+    ctx.setLineDash([5 * S, 6 * S]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+}
+
+/* ============================================================
+   绘制：蝴蝶
+============================================================ */
+function drawButterfly() {
+  if (state.stage !== 'butterfly') return;
+
+  const x = butterfly.x;
+  const y = butterfly.y;
+  const scale = butterfly.scale;
+  const wingOpen = butterfly.wingOpen;
+  const phase = butterfly.wingPhase;
+
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(butterfly.rotation);
+  ctx.scale(scale, scale);
+
+  // 翅膀开合：0 收拢，1 完全展开
+  const wingW = Math.abs(Math.cos(phase)) * 0.7 + 0.3;
+  const finalWing = wingW * wingOpen;
+  const bodyScale = wingOpen;
+
+  // 阴影
+  if (!butterfly.dragging) {
+    ctx.beginPath();
+    ctx.ellipse(0, 30 * bodyScale, 30, 6, 0, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
+    ctx.fill();
+  }
+
+  // ---- 上翅 ----
+  for (const side of [-1, 1]) {
+    ctx.save();
+    ctx.scale(side * finalWing, 1);
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.bezierCurveTo(-8, -14, -32, -30, -34, -10);
+    ctx.bezierCurveTo(-36, 6, -16, 6, 0, 0);
+    ctx.closePath();
+
+    const wg = ctx.createRadialGradient(-16, -14, 2, -16, -12, 30);
+    wg.addColorStop(0, '#FFB0D0');
+    wg.addColorStop(0.5, '#FF6B8A');
+    wg.addColorStop(0.85, '#C84060');
+    wg.addColorStop(1, '#8A2040');
+    ctx.fillStyle = wg;
+    ctx.fill();
+
+    ctx.strokeStyle = 'rgba(80, 20, 40, 0.7)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // 翅膀上的斑点
+    ctx.beginPath();
+    ctx.arc(-22, -14, 4, 0, Math.PI * 2);
+    ctx.fillStyle = '#FFF7C4';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(80, 20, 40, 0.7)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(-30, -6, 2.5, 0, Math.PI * 2);
+    ctx.fillStyle = '#FFD54F';
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  // ---- 下翅 ----
+  for (const side of [-1, 1]) {
+    ctx.save();
+    ctx.scale(side * finalWing, 1);
+    ctx.beginPath();
+    ctx.moveTo(0, 4);
+    ctx.bezierCurveTo(-6, 10, -26, 22, -22, 4);
+    ctx.bezierCurveTo(-18, -8, -8, 0, 0, 4);
+    ctx.closePath();
+
+    const wg = ctx.createRadialGradient(-10, 10, 2, -12, 10, 24);
+    wg.addColorStop(0, '#FFC8B0');
+    wg.addColorStop(0.5, '#FF8F8A');
+    wg.addColorStop(1, '#A84040');
+    ctx.fillStyle = wg;
+    ctx.fill();
+
+    ctx.strokeStyle = 'rgba(80, 20, 40, 0.7)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // 斑点
+    ctx.beginPath();
+    ctx.arc(-16, 10, 3, 0, Math.PI * 2);
+    ctx.fillStyle = '#FFF7C4';
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  // ---- 身体 ----
+  ctx.beginPath();
+  ctx.ellipse(0, 2, 4, 14 * bodyScale, 0, 0, Math.PI * 2);
+  const bodyGrad = ctx.createLinearGradient(-4, 0, 4, 0);
+  bodyGrad.addColorStop(0, '#3A1A2A');
+  bodyGrad.addColorStop(0.5, '#6A3A4A');
+  bodyGrad.addColorStop(1, '#2A0F1A');
+  ctx.fillStyle = bodyGrad;
+  ctx.fill();
+
+  // 头
+  ctx.beginPath();
+  ctx.arc(0, -13 * bodyScale, 5 * bodyScale, 0, Math.PI * 2);
+  ctx.fillStyle = '#3A1A2A';
+  ctx.fill();
+
+  // 触角
+  for (const side of [-1, 1]) {
+    ctx.beginPath();
+    ctx.moveTo(side * 1.5, -16 * bodyScale);
+    ctx.quadraticCurveTo(
+      side * 6, -24 * bodyScale,
+      side * 10, -28 * bodyScale
+    );
+    ctx.strokeStyle = '#3A1A2A';
+    ctx.lineWidth = 1.2;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(side * 10, -28 * bodyScale, 1.8, 0, Math.PI * 2);
+    ctx.fillStyle = '#3A1A2A';
+    ctx.fill();
+  }
+
+  // 眼睛
+  for (const side of [-1, 1]) {
+    ctx.beginPath();
+    ctx.arc(side * 2, -13 * bodyScale, 1.2, 0, Math.PI * 2);
+    ctx.fillStyle = '#fff';
+    ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+/* ============================================================
+   绘制：飞行的叶子
+============================================================ */
+function drawFlyingLeaves() {
+  for (const fl of flyingLeaves) {
+    ctx.save();
+    ctx.translate(fl.x, fl.y);
+    ctx.rotate(fl.rotation);
+
+    ctx.beginPath();
+    ctx.moveTo(-fl.size, 0);
+    ctx.quadraticCurveTo(0, -fl.size * 0.7, fl.size, 0);
+    ctx.quadraticCurveTo(0, fl.size * 0.7, -fl.size, 0);
+    ctx.closePath();
+
+    const g = ctx.createLinearGradient(-fl.size, 0, fl.size, 0);
+    g.addColorStop(0, '#7BC98D');
+    g.addColorStop(1, '#3D8B45');
+    ctx.fillStyle = g;
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.moveTo(-fl.size * 0.8, 0);
+    ctx.lineTo(fl.size * 0.8, 0);
+    ctx.strokeStyle = 'rgba(40, 90, 40, 0.5)';
+    ctx.lineWidth = 1.2 * S;
+    ctx.stroke();
+
+    ctx.restore();
+  }
+}
+
+/* ============================================================
+   绘制：粒子
+============================================================ */
+function drawSparks() {
+  for (const s of sparks) {
+    ctx.save();
+    ctx.globalAlpha = s.life;
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, s.size * s.life, 0, Math.PI * 2);
+    ctx.fillStyle = s.color;
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+function drawSparkles() {
+  for (const s of sparkles) {
+    ctx.save();
+    ctx.translate(s.x, s.y);
+    ctx.rotate(s.rot);
+    ctx.globalAlpha = s.life;
+    drawStar(0, 0, s.size, s.size * 0.4, 5);
+    ctx.fillStyle = s.color;
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+function drawStar(cx, cy, outer, inner, points) {
+  ctx.beginPath();
+  for (let i = 0; i < points * 2; i++) {
+    const r = i % 2 === 0 ? outer : inner;
+    const a = (Math.PI / points) * i - Math.PI / 2;
+    const x = cx + Math.cos(a) * r;
+    const y = cy + Math.sin(a) * r;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+}
+
+/* ============================================================
+   渲染
+============================================================ */
+function render() {
+  ctx.clearRect(0, 0, W, H);
+
+  drawSky();
+  drawSun();
+  drawClouds();
+  drawGround();
+  drawFlowers();
+  drawTree();
+  drawLeaf();
+  drawEgg();
+  drawCaterpillar();
+  drawChrysalis();
+  drawButterfly();
+  drawFlyingLeaves();
+  drawSparks();
+  drawSparkles();
+}
+
+/* ============================================================
+   交互
+============================================================ */
+function getPos(e) {
+  const rect = canvas.getBoundingClientRect();
+  return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+}
+
+function onDown(e) {
+  initAudio();
+  if (activePointer !== null) return;
+  activePointer = e.pointerId;
+  const p = getPos(e);
+
+  // 卵阶段：点击卵
+  if (state.stage === 'egg' && !egg.broken) {
+    const d = Math.hypot(p.x - egg.x, p.y - egg.y);
+    if (d < egg.r * 3) {
+      sfxClick();
+      breakEgg();
+      return;
+    }
+  }
+
+  // 蝴蝶阶段：拖动蝴蝶
+  if (state.stage === 'butterfly') {
+    const d = Math.hypot(p.x - butterfly.x, p.y - butterfly.y);
+    if (d < 60 * S) {
+      butterfly.dragging = true;
+      dragOffset.x = butterfly.x - p.x;
+      dragOffset.y = butterfly.y - p.y;
+      butterfly.targetX = null;
+      butterfly.targetY = null;
+      return;
+    }
+
+    // 点击花朵
+    for (const f of flowers) {
+      const fx = f.x;
+      const fy = f.y - f.stemH;
+      const d2 = Math.hypot(p.x - fx, p.y - fy);
+      if (d2 < 40 * S) {
+        butterfly.targetX = fx;
+        butterfly.targetY = fy - 20 * S;
+        sfxClick();
+        return;
+      }
+    }
+  }
+}
+
+function onMove(e) {
+  if (activePointer !== e.pointerId) return;
+  if (butterfly.dragging) {
+    const p = getPos(e);
+    butterfly.x = p.x + dragOffset.x;
+    butterfly.y = p.y + dragOffset.y;
+  }
+}
+
+function onUp(e) {
+  if (activePointer !== e.pointerId) return;
+  activePointer = null;
+  butterfly.dragging = false;
+}
+
+canvas.addEventListener('pointerdown', onDown);
+canvas.addEventListener('pointermove', onMove);
+canvas.addEventListener('pointerup', onUp);
+canvas.addEventListener('pointercancel', onUp);
+canvas.addEventListener('dblclick', function (e) { e.preventDefault(); });
+
+/* ============================================================
+   按钮
+============================================================ */
+btnFeed.addEventListener('click', function () {
+  initAudio();
+  feedLeaf();
+});
+
+btnReset.addEventListener('click', function () {
+  initAudio();
+  sfxClick();
+
+  // 重置所有
+  state.stage = 'egg';
+  state.stageIndex = 0;
+  state.leafEaten = 0;
+  state.caterpillarSize = 0;
+  state.chrysalisShake = 0;
+  state.chrysalisCrack = 0;
+  state.flowerVisits = 0;
+
+  egg.broken = false;
+  egg.wobble = 0;
+  egg.x = scene.leafX + scene.leafW * 0.2;
+  egg.y = scene.leafY - 6 * S;
+  egg.r = 8 * S;
+
+  caterpillar.phase = 0;
+  caterpillar.happiness = 0;
+  caterpillar.mouthOpen = 0;
+
+  butterfly.wingOpen = 0;
+  butterfly.wingPhase = 0;
+  butterfly.scale = 1;
+  butterfly.x = 0;
+  butterfly.y = 0;
+
+  scene.leafHoles = [];
+  flyingLeaves = [];
+  sparks = [];
+  sparkles = [];
+
+  flowers.forEach(function (f) { f.visited = false; });
+
+  // 恢复被吃掉的叶子（重置后从空白开始，需要保留原始叶子画法）
+  // 重新添加叶子上的几个"装饰缺口"（视觉上像被啃过）
+  // 这里不添加，让叶子显示完整
+
+  setStage('egg');
+});
+
+/* ============================================================
+   启动
+============================================================ */
+resize();
+setStage('egg');
+
+window.addEventListener('resize', function () {
+  resize();
+  render();
+});
+
+if (window.ResizeObserver) {
+  new ResizeObserver(function () {
+    const cw = canvas.clientWidth;
+    const ch = canvas.clientHeight;
+    if (cw > 0 && ch > 0 && (Math.abs(cw - W) > 1 || Math.abs(ch - H) > 1)) {
+      resize();
+      render();
+    }
+  }).observe(canvas);
+}
+
+render();
+requestAnimationFrame(function () {
+  resize();
+  render();
+});
+
+gsap.ticker.add(function (t, deltaTime) {
+  const dt = Math.min(deltaTime || 16, 50) / 1000;
+  update(dt);
+  render();
+});
+</script>
+</body>
+</html>

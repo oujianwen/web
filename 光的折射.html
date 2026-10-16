@@ -1,0 +1,1006 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>光的折射 —— 筷子在水里怎么断了</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    height: 100%; width: 100%; overflow: hidden; background: #0a1018;
+    touch-action: none;
+    font-family: system-ui, -apple-system, sans-serif;
+    color: #fff;
+  }
+  canvas { display: block; position: absolute; inset: 0; }
+
+  .status {
+    position: fixed;
+    top: 16px; left: 50%;
+    transform: translateX(-50%);
+    padding: 14px 28px;
+    background: rgba(16, 22, 38, 0.92);
+    border-radius: 30px;
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    font-size: 16px; font-weight: 700;
+    z-index: 10; white-space: nowrap; max-width: 94vw;
+    text-align: center; transition: all 0.3s;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+  }
+  .status.flash {
+    background: rgba(40, 130, 60, 0.95);
+    border-color: rgba(127, 221, 110, 0.7);
+  }
+
+  .panel {
+    position: fixed;
+    bottom: 14px; left: 50%;
+    transform: translateX(-50%);
+    width: min(720px, 94vw);
+    background: rgba(16, 22, 38, 0.94);
+    padding: 14px 22px;
+    border-radius: 20px;
+    backdrop-filter: blur(14px);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    z-index: 10;
+    display: flex; flex-direction: column; gap: 10px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+  }
+  .panel .row {
+    display: grid;
+    grid-template-columns: 100px 1fr 60px;
+    align-items: center; gap: 12px; font-size: 13px;
+  }
+  .panel .lbl {
+    font-weight: 700; font-size: 14px; white-space: nowrap;
+  }
+  .panel input[type="range"] {
+    width: 100%; height: 8px; cursor: pointer;
+    -webkit-appearance: none; appearance: none;
+    background: linear-gradient(90deg, #5eb3ff, #a8e6ff);
+    border-radius: 4px; outline: none;
+  }
+  .panel input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 24px; height: 24px; border-radius: 50%;
+    background: #fff; border: 3px solid #5eb3ff;
+    cursor: grab; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  }
+  .panel input[type="range"]::-moz-range-thumb {
+    width: 24px; height: 24px; border-radius: 50%;
+    background: #fff; border: 3px solid #5eb3ff; cursor: grab;
+  }
+  .panel .val {
+    text-align: right; color: #5eb3ff; font-weight: 800; font-size: 15px;
+  }
+  .panel .btns {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr;
+    gap: 10px;
+    margin-top: 4px;
+  }
+  .panel button {
+    padding: 13px 14px;
+    border-radius: 13px;
+    border: none;
+    font-weight: 800; font-size: 14px;
+    cursor: pointer; transition: transform 0.12s, box-shadow 0.2s;
+    white-space: nowrap;
+  }
+  .panel button:active { transform: translateY(1px); }
+  .panel .btn-rays {
+    background: linear-gradient(135deg, #5eb3ff, #a8e6ff);
+    color: #061020;
+    box-shadow: 0 4px 14px rgba(94, 179, 255, 0.4);
+  }
+  .panel .btn-rays.active {
+    background: linear-gradient(135deg, #ffd54f, #ff9eb5);
+    color: #1a0a00;
+  }
+  .panel .btn-reset {
+    background: rgba(255, 255, 255, 0.14);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.22);
+  }
+  .panel .btn-reset:hover { background: rgba(255, 255, 255, 0.24); }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div class="status" id="status">💧 拖动水位滑杆，观察筷子和硬币发生了什么</div>
+
+<div class="panel">
+  <div class="row">
+    <span class="lbl">💧 水位</span>
+    <input type="range" id="waterLevel" min="0" max="100" value="0" step="1">
+    <span class="val" id="waterVal">0%</span>
+  </div>
+  <div class="btns">
+    <button class="btn-rays" id="btnRays">🔦 显示光路</button>
+    <button class="btn-reset" id="btnReset">🔄 重置</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+<script>
+/* ============================================================
+   光的折射 —— 筷子在水里怎么断了
+   ------------------------------------------------------------
+   教材依据：
+   第五章第三节「光」—— 光直线前进；光穿过不同介质
+   第六章「光影好朋友」—— 光的现象
+
+   核心概念：
+   ① 光在同一种介质里沿直线前进
+   ② 光从水进入空气（或相反），方向会改变 —— 这叫折射
+   ③ 因为折射，水下的东西看起来位置会变（变浅、偏移）
+   ④ 筷子在水面处"断掉"，就是光在水面发生折射
+   ⑤ 硬币"隐身"和"出现"，也是折射在起作用
+   ============================================================ */
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+const statusEl = document.getElementById('status');
+const waterSlider = document.getElementById('waterLevel');
+const waterValEl = document.getElementById('waterVal');
+const btnRays = document.getElementById('btnRays');
+const btnReset = document.getElementById('btnReset');
+
+let W = 800, H = 600, DPR = 1, S = 1;
+let time = 0;
+
+/* ---------- 状态 ---------- */
+const state = {
+  waterLevel: 0,       // 0 ~ 1
+  targetWaterLevel: 0,
+  showRays: false,
+  bubbles: [],
+  ripples: []
+};
+
+/* ---------- 场景 ---------- */
+const scene = {
+  groundY: 0,
+  // 左侧：筷子实验
+  left: {
+    cup: { x: 0, y: 0, w: 0, h: 0 },
+    eye: { x: 0, y: 0 },
+    // 筷子实际位置
+    chopstick: {
+      topX: 0, topY: 0,
+      bottomX: 0, bottomY: 0
+    },
+    // 水面以上的筷子顶端（超出杯口）
+    chopstickTopY: 0,
+    chopstickTopX: 0
+  },
+  // 右侧：硬币实验
+  right: {
+    cup: { x: 0, y: 0, w: 0, h: 0 },
+    eye: { x: 0, y: 0 },
+    coin: { x: 0, y: 0, r: 0 }
+  }
+};
+
+/* ---------- 折射率相关 ---------- */
+const N_WATER = 1.33;
+// 视觉偏移比例：水下物体看起来比实际浅
+const APPARENT_SHIFT = 1 - 1 / N_WATER;   // ≈ 0.248
+
+/* ============================================================
+   尺寸与布局
+============================================================ */
+function resize() {
+  let w = window.innerWidth || document.documentElement.clientWidth || 800;
+  let h = window.innerHeight || document.documentElement.clientHeight || 600;
+  if (w < 200) w = 800;
+  if (h < 200) h = 600;
+
+  W = w; H = h;
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width = Math.floor(W * DPR);
+  canvas.height = Math.floor(H * DPR);
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+  S = Math.max(0.55, Math.min(1.15, H / 800));
+
+  layoutScene();
+}
+
+function layoutScene() {
+  scene.groundY = H * 0.82;
+
+  // 左侧杯子
+  const cupW = Math.min(W * 0.24, 200 * S);
+  const cupH = Math.min(H * 0.42, 300 * S);
+  scene.left.cup.w = cupW;
+  scene.left.cup.h = cupH;
+  scene.left.cup.x = W * 0.28 - cupW / 2;
+  scene.left.cup.y = scene.groundY - cupH;
+
+  // 右侧杯子
+  scene.right.cup.w = cupW;
+  scene.right.cup.h = cupH;
+  scene.right.cup.x = W * 0.72 - cupW / 2;
+  scene.right.cup.y = scene.groundY - cupH;
+
+  // 观察者的眼睛（左上方，斜着看向杯子）
+  scene.left.eye.x = scene.left.cup.x - cupW * 0.1;
+  scene.left.eye.y = scene.left.cup.y - cupH * 0.35;
+  scene.right.eye.x = scene.right.cup.x - cupW * 0.1;
+  scene.right.eye.y = scene.right.cup.y - cupH * 0.35;
+
+  // 筷子：从杯口左上方斜插到杯底右下方
+  scene.left.chopstick.topX = scene.left.cup.x + cupW * 0.30;
+  scene.left.chopstick.topY = scene.left.cup.y + cupH * 0.10;
+  scene.left.chopstick.bottomX = scene.left.cup.x + cupW * 0.75;
+  scene.left.chopstick.bottomY = scene.left.cup.y + cupH - 4 * S;
+  // 筷子向上延伸超出杯口的部分
+  scene.left.chopstickTopX = scene.left.chopstick.topX - cupW * 0.10;
+  scene.left.chopstickTopY = scene.left.cup.y - cupH * 0.20;
+
+  // 硬币：右杯底中心
+  scene.right.coin.x = scene.right.cup.x + cupW * 0.5;
+  scene.right.coin.y = scene.right.cup.y + cupH - 8 * S;
+  scene.right.coin.r = cupW * 0.16;
+}
+
+/* ============================================================
+   音效
+============================================================ */
+let audioCtx = null;
+function initAudio() {
+  if (!audioCtx) {
+    try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
+  }
+}
+function beep(freq, dur, vol, type, delay) {
+  vol = vol == null ? 0.05 : vol;
+  type = type || 'sine';
+  delay = delay || 0;
+  if (!audioCtx) return;
+  const t0 = audioCtx.currentTime + delay;
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(freq, t0);
+  o.connect(g);
+  g.connect(audioCtx.destination);
+  g.gain.setValueAtTime(vol, t0);
+  g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+  o.start(t0);
+  o.stop(t0 + dur);
+}
+function sfxPour() {
+  beep(320, 0.12, 0.05, 'sine');
+  beep(400, 0.16, 0.05, 'sine', 0.10);
+}
+function sfxClick() { beep(520, 0.06, 0.05, 'triangle'); }
+function sfxMagic() {
+  beep(660, 0.10, 0.06, 'sine');
+  beep(880, 0.12, 0.06, 'sine', 0.08);
+  beep(1046, 0.16, 0.06, 'sine', 0.18);
+}
+
+/* ============================================================
+   更新
+============================================================ */
+function update(dt) {
+  time += dt;
+
+  // 水位平滑
+  state.waterLevel += (state.targetWaterLevel - state.waterLevel) * Math.min(1, dt * 3);
+
+  // 生成气泡（水位上升时）
+  if (state.waterLevel > 0.02 && Math.random() < 0.15) {
+    const cups = [scene.left.cup, scene.right.cup];
+    const cup = cups[Math.floor(Math.random() * 2)];
+    const waterTopY = getWaterTopY(cup);
+    state.bubbles.push({
+      x: cup.x + cup.w * (0.15 + Math.random() * 0.7),
+      y: waterTopY + Math.random() * 20 * S,
+      r: (1.5 + Math.random() * 2) * S,
+      vy: -30 - Math.random() * 30,
+      life: 1
+    });
+  }
+  for (const b of state.bubbles) {
+    b.y += b.vy * dt;
+    b.life -= dt * 0.8;
+  }
+  state.bubbles = state.bubbles.filter(function (b) { return b.life > 0; });
+
+  // 水面波纹
+  for (const r of state.ripples) {
+    r.r += (r.maxR - r.r) * Math.min(1, dt * 4);
+    r.life -= dt * 1.5;
+  }
+  state.ripples = state.ripples.filter(function (r) { return r.life > 0; });
+
+  updateUI();
+}
+
+function getWaterTopY(cup) {
+  return cup.y + cup.h * (1 - state.waterLevel * 0.92);
+}
+
+function updateUI() {
+  waterValEl.textContent = Math.round(state.waterLevel * 100) + '%';
+
+  if (state.waterLevel < 0.05) {
+    statusEl.textContent = '💧 拖动水位滑杆，观察筷子和硬币发生了什么';
+    statusEl.className = 'status';
+  } else if (state.waterLevel < 0.5) {
+    statusEl.textContent = '💧 水慢慢升起来了……看看筷子';
+    statusEl.className = 'status';
+  } else {
+    statusEl.textContent = '🔍 筷子在水里"断"了！硬币也"出现"了！';
+    statusEl.className = 'status flash';
+  }
+}
+
+/* ============================================================
+   绘制：背景和桌子
+============================================================ */
+function drawBackground() {
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#1a2438');
+  g.addColorStop(0.55, '#0d1422');
+  g.addColorStop(1, '#050810');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+
+  const glow = ctx.createRadialGradient(W * 0.5, H * 0.4, 30, W * 0.5, H * 0.4, Math.max(W, H) * 0.6);
+  glow.addColorStop(0, 'rgba(120, 180, 255, 0.10)');
+  glow.addColorStop(1, 'rgba(120, 180, 255, 0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+}
+
+function drawTable() {
+  const ty = scene.groundY;
+  const g = ctx.createLinearGradient(0, ty, 0, H);
+  g.addColorStop(0, '#4a3020');
+  g.addColorStop(0.4, '#2a1a10');
+  g.addColorStop(1, '#150c05');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, ty, W, H - ty);
+
+  ctx.strokeStyle = 'rgba(180, 140, 90, 0.4)';
+  ctx.lineWidth = 2.5 * S;
+  ctx.beginPath();
+  ctx.moveTo(0, ty);
+  ctx.lineTo(W, ty);
+  ctx.stroke();
+
+  ctx.strokeStyle = 'rgba(60, 40, 20, 0.5)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 4; i++) {
+    const y = ty + 20 * S + i * 26 * S;
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(W, y);
+    ctx.stroke();
+  }
+}
+
+/* ============================================================
+   绘制：玻璃杯（带水）
+============================================================ */
+function drawCup(cup, waterLevel) {
+  const x = cup.x;
+  const y = cup.y;
+  const w = cup.w;
+  const h = cup.h;
+  const waterTopY = getWaterTopY(cup);
+  const waterBottomY = y + h;
+
+  // 杯底阴影
+  ctx.save();
+  ctx.globalAlpha = 0.35;
+  ctx.beginPath();
+  ctx.ellipse(x + w / 2, y + h + 3 * S, w * 0.55, 6 * S, 0, 0, Math.PI * 2);
+  ctx.fillStyle = '#000';
+  ctx.fill();
+  ctx.restore();
+
+  // 杯子背景（淡淡的玻璃感）
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.lineTo(x, y + h);
+  ctx.quadraticCurveTo(x + w / 2, y + h + w * 0.10, x + w, y + h);
+  ctx.lineTo(x + w, y);
+  ctx.closePath();
+
+  const glassBg = ctx.createLinearGradient(x, 0, x + w, 0);
+  glassBg.addColorStop(0, 'rgba(80, 110, 150, 0.15)');
+  glassBg.addColorStop(0.5, 'rgba(120, 150, 190, 0.08)');
+  glassBg.addColorStop(1, 'rgba(80, 110, 150, 0.15)');
+  ctx.fillStyle = glassBg;
+  ctx.fill();
+
+  // 水（如果水位 > 0）
+  if (waterLevel > 0.01) {
+    // 裁剪到杯子形状
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x, y + h);
+    ctx.quadraticCurveTo(x + w / 2, y + h + w * 0.10, x + w, y + h);
+    ctx.lineTo(x + w, y);
+    ctx.closePath();
+    ctx.clip();
+
+    // 水的渐变
+    const waterGrad = ctx.createLinearGradient(0, waterTopY, 0, y + h);
+    waterGrad.addColorStop(0, 'rgba(140, 210, 250, 0.55)');
+    waterGrad.addColorStop(0.5, 'rgba(70, 160, 230, 0.72)');
+    waterGrad.addColorStop(1, 'rgba(30, 100, 180, 0.88)');
+    ctx.fillStyle = waterGrad;
+    ctx.fillRect(x, waterTopY, w, y + h - waterTopY);
+
+    // 水面波动
+    ctx.beginPath();
+    for (let px = x; px <= x + w; px += 4) {
+      const wave = Math.sin(px * 0.12 + time * 2) * 1.5 * S;
+      if (px === x) ctx.moveTo(px, waterTopY + wave);
+      else ctx.lineTo(px, waterTopY + wave);
+    }
+    ctx.strokeStyle = 'rgba(220, 245, 255, 0.85)';
+    ctx.lineWidth = 2 * S;
+    ctx.stroke();
+
+    // 水中气泡
+    for (const b of state.bubbles) {
+      if (b.x >= x && b.x <= x + w) {
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(220, 245, 255, ' + (b.life * 0.7) + ')';
+        ctx.lineWidth = 1.2 * S;
+        ctx.stroke();
+      }
+    }
+
+    ctx.restore();
+  }
+
+  // 杯子轮廓（玻璃边框）
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.lineTo(x, y + h);
+  ctx.quadraticCurveTo(x + w / 2, y + h + w * 0.10, x + w, y + h);
+  ctx.lineTo(x + w, y);
+  ctx.strokeStyle = 'rgba(200, 225, 245, 0.75)';
+  ctx.lineWidth = 2.5 * S;
+  ctx.stroke();
+
+  // 杯口椭圆
+  ctx.beginPath();
+  ctx.ellipse(x + w / 2, y, w / 2, 5 * S, 0, 0, Math.PI * 2);
+  ctx.strokeStyle = 'rgba(200, 225, 245, 0.85)';
+  ctx.lineWidth = 2 * S;
+  ctx.stroke();
+
+  // 杯底椭圆
+  ctx.beginPath();
+  ctx.ellipse(x + w / 2, y + h + w * 0.05, w / 2, 4 * S, 0, Math.PI, Math.PI * 2);
+  ctx.strokeStyle = 'rgba(200, 225, 245, 0.5)';
+  ctx.stroke();
+
+  // 玻璃高光
+  ctx.beginPath();
+  ctx.moveTo(x + w * 0.15, y + 20 * S);
+  ctx.lineTo(x + w * 0.15, y + h * 0.6);
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
+  ctx.lineWidth = 3 * S;
+  ctx.lineCap = 'round';
+  ctx.stroke();
+
+  return { waterTopY: waterTopY };
+}
+
+/* ============================================================
+   绘制：左侧筷子
+============================================================ */
+function drawChopstick() {
+  const cup = scene.left.cup;
+  const waterTopY = getWaterTopY(cup);
+  const cs = scene.left.chopstick;
+
+  // 检查水位是否覆盖筷子底部
+  const isUnderwater = waterTopY < cs.bottomY;
+  const actualWaterTopOnStick = waterTopY;
+
+  // 水上部分（从杯口上方一直到水面）
+  ctx.save();
+  // 水上部分：从 chopstickTop 到 waterTop 位置的直线上
+  const waterY = Math.max(cs.topY, waterTopY);
+  const tWater = (waterY - cs.topY) / (cs.bottomY - cs.topY);
+  const waterX = cs.topX + (cs.bottomX - cs.topX) * tWater;
+
+  // 水上（含超出杯口）—— 实际位置
+  ctx.beginPath();
+  ctx.moveTo(scene.left.chopstickTopX, scene.left.chopstickTopY);
+  ctx.lineTo(waterX, waterY);
+  ctx.strokeStyle = '#e8d4a0';
+  ctx.lineWidth = 8 * S;
+  ctx.lineCap = 'round';
+  ctx.stroke();
+
+  // 深色描边（木头质感）
+  ctx.beginPath();
+  ctx.moveTo(scene.left.chopstickTopX, scene.left.chopstickTopY);
+  ctx.lineTo(waterX, waterY);
+  ctx.strokeStyle = 'rgba(120, 80, 40, 0.6)';
+  ctx.lineWidth = 2 * S;
+  ctx.stroke();
+
+  // 水上部分的高光
+  ctx.beginPath();
+  ctx.moveTo(scene.left.chopstickTopX - 2 * S, scene.left.chopstickTopY);
+  ctx.lineTo(waterX - 2 * S, waterY);
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+  ctx.lineWidth = 2 * S;
+  ctx.stroke();
+
+  ctx.restore();
+
+  // 水下部分：因折射，视觉位置向上偏移
+  if (isUnderwater) {
+    const waterH = cs.bottomY - actualWaterTopOnStick;
+
+    // 水下部分 - "看起来"的位置
+    // 计算水下每一点的实际深度，然后向上偏移
+    // 关键：从水面到杯底，偏移量越来越大（越深越偏移）
+
+    ctx.save();
+    ctx.beginPath();
+
+    const segments = 20;
+    let firstPoint = true;
+
+    for (let i = 0; i <= segments; i++) {
+      const t = i / segments;
+      // 实际位置
+      const actualY = actualWaterTopOnStick + (cs.bottomY - actualWaterTopOnStick) * t;
+      const actualX = waterX + (cs.bottomX - waterX) * t;
+      // 视觉位置：从水面开始偏移，越深偏移越大
+      // 偏移量 = 该点离水面的深度 × APPARENT_SHIFT
+      const depth = actualY - actualWaterTopOnStick;
+      const visualY = actualY - depth * APPARENT_SHIFT;
+
+      // 水平方向也略偏移（因斜视）
+      const visualX = actualX + depth * 0.06;
+
+      if (firstPoint) {
+        ctx.moveTo(visualX, visualY);
+        firstPoint = false;
+      } else {
+        ctx.lineTo(visualX, visualY);
+      }
+    }
+
+    ctx.strokeStyle = '#e8d4a0';
+    ctx.lineWidth = 8 * S;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+
+    // 水下部分描边
+    ctx.strokeStyle = 'rgba(120, 80, 40, 0.5)';
+    ctx.lineWidth = 2 * S;
+    ctx.stroke();
+
+    ctx.restore();
+
+    // 显示"实际位置"的虚线（当显示光路时）
+    if (state.showRays) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(waterX, actualWaterTopOnStick);
+      ctx.lineTo(cs.bottomX, cs.bottomY);
+      ctx.strokeStyle = 'rgba(255, 213, 79, 0.5)';
+      ctx.lineWidth = 2 * S;
+      ctx.setLineDash([6 * S, 6 * S]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // 标注
+      ctx.font = 'bold ' + Math.round(11 * S) + 'px system-ui, sans-serif';
+      ctx.fillStyle = 'rgba(255, 213, 79, 0.9)';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillText('实际位置', cs.bottomX + 40 * S, cs.bottomY - 10 * S);
+      ctx.fillStyle = 'rgba(160, 200, 240, 0.9)';
+      ctx.fillText('看起来位置', cs.bottomX + 40 * S, cs.bottomY - 60 * S);
+      ctx.restore();
+    }
+  }
+}
+
+/* ============================================================
+   绘制：右侧硬币
+============================================================ */
+function drawCoin() {
+  const cup = scene.right.cup;
+  const waterTopY = getWaterTopY(cup);
+  const coin = scene.right.coin;
+
+  // 硬币可见性：水位低于某个阈值时，从观察者角度看，被杯壁挡住
+  // 简化处理：水位超过杯高的 50% 时"出现"
+  const visibleThreshold = 0.5;
+  let visibility;
+  if (state.waterLevel < visibleThreshold) {
+    visibility = Math.max(0, state.waterLevel / visibleThreshold * 0.15);  // 最多 15% 可见
+  } else {
+    visibility = Math.min(1, (state.waterLevel - visibleThreshold) / 0.3 + 0.15);
+  }
+
+  // 视觉偏移（折射）
+  const depth = coin.y - waterTopY;
+  const visualY = coin.y - Math.max(0, depth) * APPARENT_SHIFT;
+
+  // 绘制硬币（在可见范围内）
+  if (visibility > 0.01) {
+    ctx.save();
+    ctx.globalAlpha = visibility;
+
+    // 硬币阴影
+    ctx.beginPath();
+    ctx.ellipse(coin.x + 2 * S, visualY + coin.r * 0.4, coin.r * 1.05, coin.r * 0.32, 0, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+    ctx.fill();
+
+    // 硬币主体（金色椭圆）
+    ctx.beginPath();
+    ctx.ellipse(coin.x, visualY, coin.r, coin.r * 0.32, 0, 0, Math.PI * 2);
+    const coinGrad = ctx.createRadialGradient(
+      coin.x - coin.r * 0.3, visualY - coin.r * 0.1, coin.r * 0.05,
+      coin.x, visualY, coin.r * 1.1
+    );
+    coinGrad.addColorStop(0, '#ffe894');
+    coinGrad.addColorStop(0.5, '#f0b93a');
+    coinGrad.addColorStop(1, '#8a5a10');
+    ctx.fillStyle = coinGrad;
+    ctx.fill();
+
+    // 硬币描边
+    ctx.strokeStyle = 'rgba(120, 80, 20, 0.9)';
+    ctx.lineWidth = 2 * S;
+    ctx.stroke();
+
+    // 内圈
+    ctx.beginPath();
+    ctx.ellipse(coin.x, visualY, coin.r * 0.75, coin.r * 0.24, 0, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(120, 80, 20, 0.5)';
+    ctx.lineWidth = 1.2 * S;
+    ctx.stroke();
+
+    // 高光
+    ctx.beginPath();
+    ctx.ellipse(coin.x - coin.r * 0.3, visualY - coin.r * 0.08, coin.r * 0.3, coin.r * 0.08, 0, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  // 当显示光路时，标注硬币的实际位置
+  if (state.showRays) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.ellipse(coin.x, coin.y, coin.r, coin.r * 0.32, 0, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(255, 213, 79, 0.55)';
+    ctx.lineWidth = 2 * S;
+    ctx.setLineDash([6 * S, 6 * S]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.font = 'bold ' + Math.round(11 * S) + 'px system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(255, 213, 79, 0.9)';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText('硬币实际位置', coin.x, coin.y - 4 * S);
+    ctx.restore();
+  }
+}
+
+/* ============================================================
+   绘制：眼睛图标
+============================================================ */
+function drawEye(eye) {
+  const x = eye.x;
+  const y = eye.y;
+  const r = 14 * S;
+
+  // 眼睛外形
+  ctx.beginPath();
+  ctx.ellipse(x, y, r * 1.4, r, 0, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(80, 110, 150, 0.9)';
+  ctx.lineWidth = 2 * S;
+  ctx.stroke();
+
+  // 瞳孔（看向右下 - 也就是杯子方向）
+  ctx.beginPath();
+  ctx.arc(x + r * 0.3, y + r * 0.15, r * 0.42, 0, Math.PI * 2);
+  ctx.fillStyle = '#1a2030';
+  ctx.fill();
+
+  // 高光
+  ctx.beginPath();
+  ctx.arc(x + r * 0.15, y + r * 0.05, r * 0.15, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+  ctx.fill();
+
+  // 小标签
+  ctx.font = 'bold ' + Math.round(11 * S) + 'px system-ui, sans-serif';
+  ctx.fillStyle = 'rgba(168, 200, 232, 0.85)';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'bottom';
+  ctx.fillText('眼睛', x, y - r - 8 * S);
+}
+
+/* ============================================================
+   绘制：光路（当显示光路时）
+============================================================ */
+function drawLightRays() {
+  if (!state.showRays) return;
+
+  const cup = scene.right.cup;
+  const eye = scene.right.eye;
+  const coin = scene.right.coin;
+  const waterTopY = getWaterTopY(cup);
+
+  if (state.waterLevel < 0.05) return;
+
+  // 从硬币到水面，再到眼睛
+  // 硬币位置
+  const coinEdgeX = coin.x;
+  const coinEdgeY = coin.y;
+
+  // 硬币发出的光线在水面的交点（选一个合理的位置）
+  const waterHitX = cup.x + cup.w * 0.35;
+  const waterHitY = waterTopY;
+
+  // 从硬币到水面交点
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(coinEdgeX, coinEdgeY);
+  ctx.lineTo(waterHitX, waterHitY);
+  ctx.strokeStyle = 'rgba(255, 213, 79, 0.85)';
+  ctx.lineWidth = 2 * S;
+  ctx.stroke();
+
+  // 从水面交点到眼睛（方向因折射而改变）
+  ctx.beginPath();
+  ctx.moveTo(waterHitX, waterHitY);
+  ctx.lineTo(eye.x, eye.y);
+  ctx.strokeStyle = 'rgba(255, 213, 79, 0.85)';
+  ctx.lineWidth = 2 * S;
+  ctx.stroke();
+
+  // 水面交点的小圆点
+  ctx.beginPath();
+  ctx.arc(waterHitX, waterHitY, 4 * S, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255, 213, 79, 1)';
+  ctx.fill();
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 1.5 * S;
+  ctx.stroke();
+
+  // 光线方向箭头
+  ctx.beginPath();
+  const arrowT = 0.5;
+  const ax = coinEdgeX + (waterHitX - coinEdgeX) * arrowT;
+  const ay = coinEdgeY + (waterHitY - coinEdgeY) * arrowT;
+  const angle = Math.atan2(waterHitY - coinEdgeY, waterHitX - coinEdgeX);
+  ctx.moveTo(ax + Math.cos(angle) * 8 * S, ay + Math.sin(angle) * 8 * S);
+  ctx.lineTo(ax - Math.cos(angle) * 8 * S - Math.sin(angle) * 5 * S, ay - Math.sin(angle) * 8 * S + Math.cos(angle) * 5 * S);
+  ctx.lineTo(ax - Math.cos(angle) * 8 * S + Math.sin(angle) * 5 * S, ay - Math.sin(angle) * 8 * S - Math.cos(angle) * 5 * S);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(255, 213, 79, 1)';
+  ctx.fill();
+
+  ctx.restore();
+
+  // 左侧筷子实验的光路
+  const cupL = scene.left.cup;
+  const eyeL = scene.left.eye;
+  const cs = scene.left.chopstick;
+  const waterTopYL = getWaterTopY(cupL);
+
+  if (state.waterLevel > 0.05) {
+    // 水下筷子某一点作为光源
+    const chopUnderX = cupL.x + cupL.w * 0.55;
+    const chopUnderY = cupL.y + cupL.h * 0.75;
+    const waterHitXL = cupL.x + cupL.w * 0.35;
+
+    ctx.save();
+    // 从筷子水下的点到水面
+    ctx.beginPath();
+    ctx.moveTo(chopUnderX, chopUnderY);
+    ctx.lineTo(waterHitXL, waterTopYL);
+    ctx.strokeStyle = 'rgba(255, 213, 79, 0.85)';
+    ctx.lineWidth = 2 * S;
+    ctx.stroke();
+
+    // 从水面到眼睛
+    ctx.beginPath();
+    ctx.moveTo(waterHitXL, waterTopYL);
+    ctx.lineTo(eyeL.x, eyeL.y);
+    ctx.strokeStyle = 'rgba(255, 213, 79, 0.85)';
+    ctx.lineWidth = 2 * S;
+    ctx.stroke();
+
+    // 水面交点
+    ctx.beginPath();
+    ctx.arc(waterHitXL, waterTopYL, 4 * S, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255, 213, 79, 1)';
+    ctx.fill();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1.5 * S;
+    ctx.stroke();
+
+    // 标注"折射点"
+    ctx.font = 'bold ' + Math.round(10 * S) + 'px system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(255, 213, 79, 0.95)';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText('折射点', waterHitXL, waterTopYL - 8 * S);
+    ctx.restore();
+  }
+}
+
+/* ============================================================
+   绘制：标签
+============================================================ */
+function drawLabels() {
+  // 左侧标题
+  ctx.font = 'bold ' + Math.round(15 * S) + 'px system-ui, sans-serif';
+  ctx.fillStyle = 'rgba(168, 200, 232, 0.9)';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillText('实验一：筷子', scene.left.cup.x + scene.left.cup.w / 2, scene.left.cup.y - 60 * S);
+
+  ctx.fillText('实验二：硬币', scene.right.cup.x + scene.right.cup.w / 2, scene.right.cup.y - 60 * S);
+
+  // 提示文字
+  ctx.font = 'bold ' + Math.round(12 * S) + 'px system-ui, sans-serif';
+  ctx.fillStyle = 'rgba(168, 200, 232, 0.7)';
+  ctx.fillText('看到水下筷子"断"了吗？', scene.left.cup.x + scene.left.cup.w / 2, scene.groundY + 24 * S);
+  ctx.fillText('硬币是不是"现身"了？', scene.right.cup.x + scene.right.cup.w / 2, scene.groundY + 24 * S);
+}
+
+/* ============================================================
+   工具
+============================================================ */
+function roundRect(x, y, w, h, r) {
+  const rr = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.lineTo(x + w - rr, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+  ctx.lineTo(x + w, y + h - rr);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+  ctx.lineTo(x + rr, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+  ctx.lineTo(x, y + rr);
+  ctx.quadraticCurveTo(x, y, x + rr, y);
+  ctx.closePath();
+}
+
+/* ============================================================
+   渲染
+============================================================ */
+function render() {
+  ctx.clearRect(0, 0, W, H);
+
+  drawBackground();
+  drawTable();
+
+  // 先画光路（在杯子下面）
+  drawLightRays();
+
+  // 左侧杯子
+  drawCup(scene.left.cup, state.waterLevel);
+  // 筷子（在杯子之上，这样能看到水下的部分）
+  drawChopstick();
+
+  // 右侧杯子
+  drawCup(scene.right.cup, state.waterLevel);
+  // 硬币
+  drawCoin();
+
+  // 眼睛图标
+  drawEye(scene.left.eye);
+  drawEye(scene.right.eye);
+
+  // 标签
+  drawLabels();
+}
+
+/* ============================================================
+   交互
+============================================================ */
+waterSlider.addEventListener('input', function (e) {
+  initAudio();
+  state.targetWaterLevel = +e.target.value / 100;
+  if (state.targetWaterLevel > 0.5 && state.waterLevel < 0.5) {
+    sfxPour();
+  }
+});
+
+btnRays.addEventListener('click', function () {
+  initAudio();
+  sfxClick();
+  state.showRays = !state.showRays;
+  btnRays.classList.toggle('active', state.showRays);
+  if (state.showRays) {
+    btnRays.textContent = '🔦 隐藏光路';
+    sfxMagic();
+  } else {
+    btnRays.textContent = '🔦 显示光路';
+  }
+});
+
+btnReset.addEventListener('click', function () {
+  initAudio();
+  sfxClick();
+  state.waterLevel = 0;
+  state.targetWaterLevel = 0;
+  state.showRays = false;
+  state.bubbles = [];
+  state.ripples = [];
+  waterSlider.value = 0;
+  waterValEl.textContent = '0%';
+  btnRays.classList.remove('active');
+  btnRays.textContent = '🔦 显示光路';
+  statusEl.textContent = '💧 拖动水位滑杆，观察筷子和硬币发生了什么';
+  statusEl.className = 'status';
+});
+
+canvas.addEventListener('dblclick', function (e) { e.preventDefault(); });
+
+/* ============================================================
+   启动
+============================================================ */
+resize();
+updateUI();
+
+window.addEventListener('resize', function () {
+  resize();
+  render();
+});
+
+if (window.ResizeObserver) {
+  new ResizeObserver(function () {
+    const cw = canvas.clientWidth, ch = canvas.clientHeight;
+    if (cw > 0 && ch > 0 && (Math.abs(cw - W) > 1 || Math.abs(ch - H) > 1)) {
+      resize();
+      render();
+    }
+  }).observe(canvas);
+}
+
+render();
+requestAnimationFrame(function () {
+  resize();
+  updateUI();
+  render();
+});
+
+gsap.ticker.add(function (t, dt) {
+  const d = Math.min(dt || 16, 50) / 1000;
+  update(d);
+  render();
+});
+</script>
+</body>
+</html>

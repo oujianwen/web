@@ -1,0 +1,993 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>种子的一生 —— 水 · 阳光 · 空气</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    height: 100%; overflow: hidden; background: #0e1220;
+    touch-action: none;
+    font-family: system-ui, -apple-system, sans-serif;
+  }
+  canvas { display: block; }
+
+  .panel {
+    position: fixed;
+    bottom: 18px; left: 50%;
+    transform: translateX(-50%);
+    background: rgba(12, 18, 34, 0.78);
+    padding: 16px 26px;
+    border-radius: 20px;
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    color: #fff;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 340px;
+    max-width: 92vw;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.4);
+  }
+  .panel .row {
+    display: grid;
+    grid-template-columns: 78px 1fr 46px;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+  }
+  .panel .row > span:first-child {
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .panel input[type="range"] {
+    width: 100%;
+    height: 6px;
+    accent-color: #7fdd6e;
+    cursor: pointer;
+  }
+  .panel .value {
+    text-align: right;
+    color: #ffd54f;
+    font-weight: bold;
+    font-variant-numeric: tabular-nums;
+  }
+  .panel button {
+    margin-top: 6px;
+    padding: 9px 16px;
+    border: none;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #5eb3ff, #7fdd6e);
+    color: #0b1020;
+    font-weight: bold;
+    font-size: 13px;
+    cursor: pointer;
+    letter-spacing: 0.5px;
+    transition: transform 0.12s;
+  }
+  .panel button:hover {
+    transform: translateY(-1px);
+  }
+  .panel button:active {
+    transform: translateY(1px);
+  }
+
+  .hint {
+    position: fixed;
+    top: 18px; left: 50%;
+    transform: translateX(-50%);
+    background: rgba(12, 18, 34, 0.72);
+    padding: 10px 22px;
+    border-radius: 30px;
+    color: #fff;
+    font-size: 14px;
+    font-weight: 600;
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    z-index: 10;
+    white-space: nowrap;
+    transition: all 0.3s;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div class="hint" id="hint">🌱 一颗小种子在土里睡着了……</div>
+
+<div class="panel">
+  <div class="row">
+    <span>💧 水</span>
+    <input type="range" id="water" min="0" max="100" value="10">
+    <span class="value" id="wv">10</span>
+  </div>
+  <div class="row">
+    <span>☀️ 阳光</span>
+    <input type="range" id="sun" min="0" max="100" value="15">
+    <span class="value" id="sv">15</span>
+  </div>
+  <div class="row">
+    <span>🌬️ 空气</span>
+    <input type="range" id="air" min="0" max="100" value="15">
+    <span class="value" id="av">15</span>
+  </div>
+  <button id="reset">🌱 重新种一颗种子</button>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+<script>
+/* ============================================================
+   种子的一生 —— 水 · 阳光 · 空气
+   ------------------------------------------------------------
+   教材依据：
+   第五章第一节「生命科学」—— 植物的部位与功能；生长条件；
+                             种子与繁殖；种子内部构造
+   第六章「种子的一生」—— 播种种植、生长条件、种子产生
+   第六章「阳光的实验」—— 控制变量，一次只改一个
+   第一章「迷思概念」—— 种子要什么才能发芽
+
+   核心概念：
+   ① 种子发芽需要水、空气、适合的温度（阳光）
+   ② 三样缺一不可，太多太少都不行
+   ③ 种子先长根，再长出芽、茎、叶
+   ④ 长大后会开花、结果，果实里又有新的种子
+   ⑤ 条件不好，叶子会发黄、枯萎
+   ============================================================ */
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+const hintEl = document.getElementById('hint');
+const waterSlider = document.getElementById('water');
+const sunSlider = document.getElementById('sun');
+const airSlider = document.getElementById('air');
+const wvEl = document.getElementById('wv');
+const svEl = document.getElementById('sv');
+const avEl = document.getElementById('av');
+const resetBtn = document.getElementById('reset');
+
+let W, H, DPR, S = 1;
+let time = 0;
+let SOIL_Y = 0;
+
+/* ---------- 环境 ---------- */
+const env = { water: 0.10, sun: 0.15, air: 0.15 };
+const INIT_ENV = { water: 0.10, sun: 0.15, air: 0.15 };
+
+/* ---------- 植物 ---------- */
+const plant = {
+  progress: 0,     // 0 ~ 1 生长总进度
+  health: 1,       // 0 ~ 1 健康度
+  wilt: 0,         // 0 ~ 1 萎蔫
+  sway: 0,         // 摇摆相位
+  lastStage: ''
+};
+
+let waterDrops = [];
+let windLines = [];
+let sparkles = [];
+
+/* ============================================================
+   尺寸
+============================================================ */
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width = W * DPR;
+  canvas.height = H * DPR;
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+  S = Math.max(0.6, Math.min(1.15, H / 800));
+  SOIL_Y = H * 0.62;
+}
+
+/* ============================================================
+   生长条件：计算"适宜度"
+   用高斯曲线，中间最合适，两端都惩罚
+============================================================ */
+function gaussian(x, mu, sigma) {
+  return Math.exp(-Math.pow(x - mu, 2) / (2 * sigma * sigma));
+}
+
+function computeSuitability() {
+  const water = gaussian(env.water, 0.50, 0.26);
+  const sun   = gaussian(env.sun,   0.60, 0.28);
+  const air   = gaussian(env.air,   0.50, 0.28);
+  return { water, sun, air, overall: water * sun * air };
+}
+
+/* ============================================================
+   更新
+============================================================ */
+function update(dt) {
+  time += dt;
+
+  const suit = computeSuitability();
+
+  // ---------- 生长 ----------
+  if (plant.progress < 1) {
+    plant.progress = Math.min(1, plant.progress + suit.overall * 0.075 * dt);
+  }
+
+  // ---------- 健康度 ----------
+  let targetHealth;
+  if (suit.overall >= 0.55) targetHealth = 1;
+  else targetHealth = suit.overall / 0.55;
+  plant.health += (targetHealth - plant.health) * Math.min(1, dt * 0.8);
+
+  // ---------- 萎蔫 ----------
+  if (suit.overall < 0.25 && plant.progress > 0.05) {
+    plant.wilt = Math.min(1, plant.wilt + dt * 0.45);
+  } else if (suit.overall > 0.5) {
+    plant.wilt = Math.max(0, plant.wilt - dt * 0.3);
+  }
+
+  // ---------- 摇摆 ----------
+  const windStrength = env.air;
+  plant.sway += dt * (1.2 + windStrength * 1.6);
+
+  // ---------- 水滴粒子（水多时） ----------
+  if (env.water > 0.65 && Math.random() < (env.water - 0.65) * 6 * dt) {
+    waterDrops.push({
+      x: Math.random() * W,
+      y: -10,
+      vy: 220 + Math.random() * 140,
+      len: (8 + Math.random() * 8) * S,
+      life: 1
+    });
+  }
+  for (const d of waterDrops) {
+    d.y += d.vy * dt;
+    if (d.y > SOIL_Y) d.dead = true;
+  }
+  waterDrops = waterDrops.filter(d => !d.dead);
+
+  // ---------- 风线（空气流通时） ----------
+  if (env.air > 0.55 && Math.random() < (env.air - 0.55) * 4 * dt) {
+    windLines.push({
+      x: -60,
+      y: 80 + Math.random() * (SOIL_Y - 120),
+      vx: 80 + Math.random() * 120,
+      len: 30 + Math.random() * 50,
+      life: 1
+    });
+  }
+  for (const w of windLines) {
+    w.x += w.vx * dt;
+    w.life -= dt * 0.6;
+    if (w.x > W + 100) w.dead = true;
+  }
+  windLines = windLines.filter(w => !w.dead);
+
+  // ---------- 闪光粒子（条件刚好，生长中） ----------
+  if (suit.overall > 0.7 && plant.progress < 1 && Math.random() < 0.5) {
+    const p = getPlantTopPoint();
+    sparkles.push({
+      x: p.x + (Math.random() - 0.5) * 40 * S,
+      y: p.y + (Math.random() - 0.5) * 40 * S,
+      vx: (Math.random() - 0.5) * 30,
+      vy: -30 - Math.random() * 40,
+      life: 1,
+      size: 2.5 + Math.random() * 3
+    });
+  }
+  for (const s of sparkles) {
+    s.x += s.vx * dt;
+    s.y += s.vy * dt;
+    s.life -= dt * 1.4;
+  }
+  sparkles = sparkles.filter(s => s.life > 0);
+
+  // ---------- 顶部提示 ----------
+  updateHint(suit);
+}
+
+/* ============================================================
+   顶部提示
+============================================================ */
+function updateHint(suit) {
+  let text = '';
+
+  if (plant.progress >= 1) {
+    text = '🌸 它长大了！花朵里会结出新的种子';
+  } else if (plant.progress > 0.9) {
+    text = '🍎 果实慢慢成熟了，里面有新的种子';
+  } else if (plant.progress > 0.75) {
+    text = '🌼 开花了！它已经长成一棵小植物';
+  } else if (plant.progress > 0.5) {
+    text = '🌿 叶子一片一片长出来';
+  } else if (plant.progress > 0.25) {
+    text = '🌱 小嫩芽钻出土，向着阳光生长';
+  } else if (plant.progress > 0.05) {
+    text = '🌰 种子吸水了，先长出根……';
+  } else if (env.water < 0.25) {
+    text = '💧 土太干了，小种子需要水';
+  } else if (env.sun < 0.25) {
+    text = '☀️ 阳光不够，种子长得慢';
+  } else if (env.air < 0.25) {
+    text = '🌬️ 空气不流通，种子醒不过来';
+  } else {
+    text = '🌰 小种子正在等待合适条件……';
+  }
+
+  if (plant.health < 0.4 && plant.progress > 0.1 && plant.progress < 1) {
+    if (env.water > 0.82) text = '🌧️ 水太多了，根会泡坏';
+    else if (env.sun > 0.88) text = '🔥 阳光太强，叶子会晒伤';
+    else if (env.sun < 0.22) text = '🍂 阳光太少，叶子发黄了';
+    else if (env.water < 0.18) text = '🥀 太干了，植物蔫了';
+    else text = '😟 条件不太对，植物长不好';
+  }
+
+  if (text !== plant.lastStage) {
+    plant.lastStage = text;
+    hintEl.textContent = text;
+  }
+}
+
+/* ============================================================
+   植物绘制
+============================================================ */
+function stageProgress(start, end) {
+  return Math.max(0, Math.min(1, (plant.progress - start) / (end - start)));
+}
+
+function getPlantBase() {
+  return { x: W / 2, y: SOIL_Y + 42 * S };
+}
+
+function getPlantTopPoint() {
+  const base = getPlantBase();
+  const maxH = (SOIL_Y - 90 * S) - base.y;
+  const stemP = stageProgress(0.15, 1.0);
+  return { x: base.x, y: base.y + maxH * stemP };
+}
+
+/* ---------- 土壤 ---------- */
+function drawSoil() {
+  const dry = 1 - env.water;
+  const g = ctx.createLinearGradient(0, SOIL_Y - 10, 0, H);
+  g.addColorStop(0, `hsl(${lerp(28, 32, dry)}, ${lerp(30, 45, dry)}%, ${lerp(38, 45, dry)}%)`);
+  g.addColorStop(1, `hsl(${lerp(22, 26, dry)}, ${lerp(28, 40, dry)}%, ${lerp(22, 28, dry)}%)`);
+  ctx.fillStyle = g;
+  ctx.fillRect(0, SOIL_Y, W, H - SOIL_Y);
+
+  // 土壤线
+  ctx.strokeStyle = `hsl(${lerp(35, 45, dry)}, ${lerp(35, 45, dry)}%, ${lerp(42, 50, dry)}%)`;
+  ctx.lineWidth = 3 * S;
+  ctx.beginPath();
+  ctx.moveTo(0, SOIL_Y);
+  for (let x = 0; x <= W; x += 12) {
+    const y = SOIL_Y + Math.sin(x * 0.12) * 1.5 * S;
+    x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+
+  // 土壤颗粒
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
+  const seedCount = 60;
+  for (let i = 0; i < seedCount; i++) {
+    const seedX = ((i * 137.5) % W);
+    const seedY = SOIL_Y + 12 + ((i * 73) % (H - SOIL_Y));
+    const r = 1 + ((i * 31) % 3) * 0.6;
+    ctx.beginPath();
+    ctx.arc(seedX, seedY, r * S, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+/* ---------- 太阳 ---------- */
+function drawSun() {
+  const p = env.sun;
+  const x = W * 0.82;
+  const y = H * 0.16;
+  const r = (36 + p * 26) * S;
+  const alpha = 0.25 + p * 0.75;
+
+  // 光晕
+  const glowR = r * (2 + p * 2.5);
+  const gg = ctx.createRadialGradient(x, y, r * 0.5, x, y, glowR);
+  gg.addColorStop(0, `rgba(255, 245, 180, ${0.4 * alpha})`);
+  gg.addColorStop(0.4, `rgba(255, 220, 100, ${0.18 * alpha})`);
+  gg.addColorStop(1, 'rgba(255, 200, 50, 0)');
+  ctx.fillStyle = gg;
+  ctx.beginPath();
+  ctx.arc(x, y, glowR, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 光芒
+  if (p > 0.2) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(time * 0.15);
+    ctx.strokeStyle = `rgba(255, 225, 110, ${0.5 * alpha})`;
+    ctx.lineWidth = 2.6 * S;
+    ctx.lineCap = 'round';
+    for (let i = 0; i < 10; i++) {
+      const a = (Math.PI * 2 / 10) * i;
+      const r1 = r * 1.25;
+      const r2 = r * 1.55 + Math.sin(time * 2.5 + i) * 4 * S;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(a) * r1, Math.sin(a) * r1);
+      ctx.lineTo(Math.cos(a) * r2, Math.sin(a) * r2);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // 太阳本体
+  const sg = ctx.createRadialGradient(x - r * 0.3, y - r * 0.3, r * 0.1, x, y, r);
+  sg.addColorStop(0, '#fffde7');
+  sg.addColorStop(0.6, '#ffd54f');
+  sg.addColorStop(1, '#f59f00');
+  ctx.globalAlpha = 0.4 + p * 0.6;
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fillStyle = sg;
+  ctx.fill();
+  ctx.globalAlpha = 1;
+
+  // 高光
+  if (p > 0.15) {
+    ctx.beginPath();
+    ctx.arc(x - r * 0.28, y - r * 0.28, r * 0.22, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(255, 255, 255, ${0.5 + p * 0.4})`;
+    ctx.fill();
+  }
+}
+
+/* ---------- 天空 ---------- */
+function drawSky() {
+  const p = env.sun;
+  const g = ctx.createLinearGradient(0, 0, 0, SOIL_Y);
+  g.addColorStop(0, `rgb(${lerp(15, 88, p)}, ${lerp(20, 180, p)}, ${lerp(50, 240, p)})`);
+  g.addColorStop(1, `rgb(${lerp(30, 175, p)}, ${lerp(40, 220, p)}, ${lerp(70, 250, p)})`);
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, SOIL_Y);
+}
+
+/* ---------- 种子（0 ~ 0.1） ---------- */
+function drawSeed() {
+  const seedP = 1 - stageProgress(0.05, 0.18);
+  if (seedP <= 0) return;
+
+  const base = getPlantBase();
+
+  ctx.save();
+  ctx.globalAlpha = seedP;
+  ctx.translate(base.x, base.y);
+  ctx.rotate(0.4);
+
+  // 种子外壳
+  const sg = ctx.createRadialGradient(-4 * S, -4 * S, 1 * S, 0, 0, 16 * S);
+  sg.addColorStop(0, '#d4a574');
+  sg.addColorStop(0.7, '#a06840');
+  sg.addColorStop(1, '#6b4423');
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 14 * S, 10 * S, 0, 0, Math.PI * 2);
+  ctx.fillStyle = sg;
+  ctx.fill();
+
+  // 种脐
+  ctx.beginPath();
+  ctx.arc(9 * S, 0, 2.2 * S, 0, Math.PI * 2);
+  ctx.fillStyle = '#3a2515';
+  ctx.fill();
+
+  ctx.restore();
+}
+
+/* ---------- 根（0.05 ~ 0.30） ---------- */
+function drawRoots() {
+  const rootP = stageProgress(0.05, 0.30);
+  if (rootP <= 0) return;
+
+  const base = getPlantBase();
+  const maxLen = 90 * S;
+  const len = maxLen * rootP;
+
+  ctx.save();
+  ctx.strokeStyle = `hsl(${lerp(30, 35, plant.health)}, ${lerp(35, 50, plant.health)}%, ${lerp(35, 48, plant.health)}%)`;
+  ctx.lineWidth = 3.2 * S;
+  ctx.lineCap = 'round';
+
+  // 主根
+  ctx.beginPath();
+  ctx.moveTo(base.x, base.y);
+  const midX = base.x + 4 * S * Math.sin(rootP * 2.5);
+  const endX = base.x - 3 * S * Math.sin(rootP * 3);
+  ctx.quadraticCurveTo(midX, base.y + len * 0.5, endX, base.y + len);
+  ctx.stroke();
+
+  // 侧根
+  if (rootP > 0.25) {
+    const sideP = (rootP - 0.25) / 0.75;
+    const branches = [
+      { t: 0.28, dir: -1, len: 22 },
+      { t: 0.48, dir:  1, len: 26 },
+      { t: 0.68, dir: -1, len: 20 },
+      { t: 0.85, dir:  1, len: 22 }
+    ];
+    ctx.lineWidth = 2 * S;
+    for (const b of branches) {
+      const ry = base.y + len * b.t;
+      const rx = base.x + (b.dir * 2 * S * Math.sin(rootP * 4));
+      ctx.beginPath();
+      ctx.moveTo(rx, ry);
+      ctx.quadraticCurveTo(
+        rx + b.dir * b.len * S * sideP * 0.6,
+        ry + 8 * S * sideP,
+        rx + b.dir * b.len * S * sideP,
+        ry + 14 * S * sideP
+      );
+      ctx.stroke();
+    }
+  }
+
+  ctx.restore();
+}
+
+/* ---------- 茎 ---------- */
+function drawStem() {
+  const stemP = stageProgress(0.18, 1.0);
+  if (stemP <= 0) return;
+
+  const base = getPlantBase();
+  const maxH = (SOIL_Y - 90 * S) - base.y;
+  const topY = base.y + maxH * stemP;
+
+  // 摇摆偏移
+  const swayAmt = Math.sin(plant.sway) * 6 * S * (0.3 + env.air * 1.2);
+  const swayAmt2 = Math.sin(plant.sway * 0.8) * 4 * S * (0.2 + env.air * 1.0);
+
+  // 枯萎弯曲
+  const wiltBend = plant.wilt * 30 * S;
+
+  ctx.save();
+  ctx.strokeStyle = `hsl(${lerp(30, 118, plant.health)}, ${lerp(30, 55, plant.health)}%, ${lerp(30, 42, plant.health)}%)`;
+  ctx.lineWidth = (5 + stemP * 4) * S;
+  ctx.lineCap = 'round';
+
+  ctx.beginPath();
+  ctx.moveTo(base.x, base.y);
+  const midY = base.y + (topY - base.y) * 0.5;
+  const ctrlX = base.x + swayAmt * 0.5 + wiltBend * 0.5;
+  const endX = base.x + swayAmt + wiltBend;
+  ctx.quadraticCurveTo(ctrlX, midY, endX, topY);
+  ctx.stroke();
+
+  // 茎的高光
+  ctx.strokeStyle = `hsla(${lerp(30, 118, plant.health)}, 70%, 65%, 0.35)`;
+  ctx.lineWidth = 1.8 * S;
+  ctx.beginPath();
+  ctx.moveTo(base.x - 1 * S, base.y);
+  ctx.quadraticCurveTo(ctrlX - 1 * S, midY, endX - 1 * S, topY);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+/* 计算茎上某点坐标（用于放叶子） */
+function stemPoint(t) {
+  const base = getPlantBase();
+  const stemP = stageProgress(0.18, 1.0);
+  const maxH = (SOIL_Y - 90 * S) - base.y;
+  const topY = base.y + maxH * stemP;
+
+  const swayAmt = Math.sin(plant.sway) * 6 * S * (0.3 + env.air * 1.2);
+  const wiltBend = plant.wilt * 30 * S;
+
+  // 二次贝塞尔曲线上的点
+  const p0 = { x: base.x, y: base.y };
+  const p1 = { x: base.x + swayAmt * 0.5 + wiltBend * 0.5, y: base.y + (topY - base.y) * 0.5 };
+  const p2 = { x: base.x + swayAmt + wiltBend, y: topY };
+
+  const u = 1 - t;
+  return {
+    x: u * u * p0.x + 2 * u * t * p1.x + t * t * p2.x,
+    y: u * u * p0.y + 2 * u * t * p1.y + t * t * p2.y
+  };
+}
+
+/* ---------- 叶子 ---------- */
+function drawLeaf(center, angle, size, health) {
+  ctx.save();
+  ctx.translate(center.x, center.y);
+  ctx.rotate(angle);
+
+  const leafColor = getLeafColor(health);
+
+  // 叶子形状（两段弧组成的椭圆叶）
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.quadraticCurveTo(size * 0.55, -size * 0.55, size, 0);
+  ctx.quadraticCurveTo(size * 0.55, size * 0.55, 0, 0);
+  ctx.closePath();
+
+  const g = ctx.createLinearGradient(0, 0, size, 0);
+  g.addColorStop(0, leafColor.dark);
+  g.addColorStop(1, leafColor.light);
+  ctx.fillStyle = g;
+  ctx.fill();
+
+  // 叶脉
+  ctx.strokeStyle = leafColor.vein;
+  ctx.lineWidth = 1.4 * S;
+  ctx.beginPath();
+  ctx.moveTo(2 * S, 0);
+  ctx.lineTo(size * 0.92, 0);
+  ctx.stroke();
+
+  // 小叶脉
+  ctx.lineWidth = 0.9 * S;
+  for (let i = 1; i <= 3; i++) {
+    const t = i / 4;
+    const px = size * t;
+    ctx.beginPath();
+    ctx.moveTo(px, 0);
+    ctx.lineTo(px + size * 0.12, -size * 0.18);
+    ctx.moveTo(px, 0);
+    ctx.lineTo(px + size * 0.12, size * 0.18);
+    ctx.stroke();
+  }
+
+  ctx.restore();
+}
+
+function getLeafColor(health) {
+  if (health > 0.65) {
+    return { dark: '#3d8b3d', light: '#5fb85f', vein: '#2a5f2a' };
+  } else if (health > 0.35) {
+    const t = (health - 0.35) / 0.3;
+    return {
+      dark: `hsl(${lerp(60, 90, t)}, 55%, 38%)`,
+      light: `hsl(${lerp(65, 100, t)}, 60%, 50%)`,
+      vein: `hsl(${lerp(55, 80, t)}, 50%, 30%)`
+    };
+  } else {
+    return { dark: '#8b6a30', light: '#b89540', vein: '#5f4520' };
+  }
+}
+
+function drawLeaves() {
+  const leafDefs = [
+    { appear: 0.32, t: 0.35, size: 32, angle: -1.0 },
+    { appear: 0.42, t: 0.45, size: 36, angle:  1.0 },
+    { appear: 0.52, t: 0.58, size: 40, angle: -1.1 },
+    { appear: 0.62, t: 0.70, size: 42, angle:  1.1 },
+    { appear: 0.72, t: 0.82, size: 36, angle: -0.9 },
+    { appear: 0.82, t: 0.92, size: 30, angle:  0.9 }
+  ];
+
+  for (const def of leafDefs) {
+    const p = stageProgress(def.appear, def.appear + 0.15);
+    if (p <= 0) continue;
+
+    // 生长 + 摇摆
+    const growEase = p < 1 ? 1 - Math.pow(1 - p, 3) : 1;
+    const sway = Math.sin(plant.sway + def.t * 2) * 0.08 * (0.3 + env.air);
+
+    // 枯萎下垂
+    const wilt = plant.wilt * (def.angle > 0 ? 0.6 : -0.6);
+
+    const pt = stemPoint(def.t);
+    const size = def.size * S * growEase;
+    drawLeaf(pt, def.angle + sway + wilt, size, plant.health);
+  }
+}
+
+/* ---------- 花 ---------- */
+function drawFlower() {
+  const flowerP = stageProgress(0.72, 0.85);
+  if (flowerP <= 0) return;
+
+  const top = stemPoint(1.0);
+  const sway = Math.sin(plant.sway * 1.3) * 3 * S;
+  const cx = top.x + sway;
+  const cy = top.y - 6 * S;
+
+  // 花茎
+  ctx.beginPath();
+  ctx.moveTo(top.x, top.y);
+  ctx.lineTo(cx, cy);
+  ctx.strokeStyle = '#4a8b3a';
+  ctx.lineWidth = 4 * S;
+  ctx.lineCap = 'round';
+  ctx.stroke();
+
+  const size = 22 * S * flowerP;
+  const petalCount = 6;
+
+  // 花瓣
+  for (let i = 0; i < petalCount; i++) {
+    const a = (Math.PI * 2 / petalCount) * i - Math.PI / 2;
+    const px = cx + Math.cos(a) * size * 0.6;
+    const py = cy + Math.sin(a) * size * 0.6;
+
+    ctx.save();
+    ctx.translate(px, py);
+    ctx.rotate(a + Math.PI / 2);
+
+    ctx.beginPath();
+    ctx.ellipse(0, 0, size * 0.55, size * 0.38, 0, 0, Math.PI * 2);
+    const pg = ctx.createRadialGradient(0, -size * 0.2, size * 0.1, 0, 0, size * 0.6);
+    pg.addColorStop(0, '#ffd1dc');
+    pg.addColorStop(0.6, '#ff8fa3');
+    pg.addColorStop(1, '#e85570');
+    ctx.fillStyle = pg;
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  // 花心
+  ctx.beginPath();
+  ctx.arc(cx, cy, size * 0.42, 0, Math.PI * 2);
+  const cg = ctx.createRadialGradient(cx - size * 0.15, cy - size * 0.15, 1, cx, cy, size * 0.5);
+  cg.addColorStop(0, '#fff3b0');
+  cg.addColorStop(0.7, '#ffd54f');
+  cg.addColorStop(1, '#f59f00');
+  ctx.fillStyle = cg;
+  ctx.fill();
+
+  // 花心小点
+  ctx.fillStyle = '#a06820';
+  for (let i = 0; i < 7; i++) {
+    const a = (Math.PI * 2 / 7) * i;
+    const r = size * 0.24;
+    ctx.beginPath();
+    ctx.arc(cx + Math.cos(a) * r, cy + Math.sin(a) * r, size * 0.05, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+/* ---------- 果实 ---------- */
+function drawFruit() {
+  const fruitP = stageProgress(0.88, 1.0);
+  if (fruitP <= 0) return;
+
+  const top = stemPoint(1.0);
+  const sway = Math.sin(plant.sway * 1.3) * 3 * S;
+  const cx = top.x + sway - 18 * S;
+  const cy = top.y - 2 * S;
+
+  const size = 16 * S * fruitP;
+
+  // 果实挂着的蒂
+  ctx.beginPath();
+  ctx.moveTo(top.x + sway, top.y);
+  ctx.quadraticCurveTo(cx + 4 * S, cy - size * 0.4, cx, cy - size * 0.5);
+  ctx.strokeStyle = '#4a8b3a';
+  ctx.lineWidth = 3 * S;
+  ctx.lineCap = 'round';
+  ctx.stroke();
+
+  // 果实本体
+  const fg = ctx.createRadialGradient(cx - size * 0.35, cy - size * 0.35, size * 0.1, cx, cy, size);
+  fg.addColorStop(0, '#ff8f8f');
+  fg.addColorStop(0.5, '#e84c4c');
+  fg.addColorStop(1, '#a02020');
+  ctx.beginPath();
+  ctx.arc(cx, cy, size, 0, Math.PI * 2);
+  ctx.fillStyle = fg;
+  ctx.fill();
+
+  // 高光
+  ctx.beginPath();
+  ctx.arc(cx - size * 0.35, cy - size * 0.35, size * 0.22, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.65)';
+  ctx.fill();
+
+  // 果实上的种子小点
+  if (fruitP > 0.7) {
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+    for (let i = 0; i < 3; i++) {
+      const a = -0.5 + i * 0.5;
+      ctx.beginPath();
+      ctx.arc(cx + Math.cos(a) * size * 0.5, cy + Math.sin(a) * size * 0.5, 1.6 * S, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+}
+
+/* ---------- 粒子与效果 ---------- */
+function drawWaterDrops() {
+  ctx.save();
+  ctx.strokeStyle = 'rgba(140, 200, 255, 0.75)';
+  ctx.lineWidth = 2.2 * S;
+  ctx.lineCap = 'round';
+  for (const d of waterDrops) {
+    ctx.beginPath();
+    ctx.moveTo(d.x, d.y);
+    ctx.lineTo(d.x - 2, d.y - d.len);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawWindLines() {
+  ctx.save();
+  for (const w of windLines) {
+    ctx.globalAlpha = w.life * 0.4;
+    ctx.strokeStyle = 'rgba(200, 230, 255, 0.9)';
+    ctx.lineWidth = 1.8 * S;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(w.x, w.y);
+    ctx.lineTo(w.x + w.len, w.y + 4 * S);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawSparkles() {
+  for (const s of sparkles) {
+    ctx.save();
+    ctx.globalAlpha = s.life;
+    ctx.translate(s.x, s.y);
+    drawStar(0, 0, s.size, s.size * 0.4, 4);
+    ctx.fillStyle = '#ffec80';
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+function drawStar(cx, cy, outer, inner, points) {
+  ctx.beginPath();
+  for (let i = 0; i < points * 2; i++) {
+    const r = i % 2 === 0 ? outer : inner;
+    const a = (Math.PI / points) * i - Math.PI / 2;
+    const x = cx + Math.cos(a) * r;
+    const y = cy + Math.sin(a) * r;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+}
+
+/* ---------- 进度条 ---------- */
+function drawProgressBar() {
+  const barW = Math.min(280 * S, W * 0.6);
+  const barH = 10 * S;
+  const bx = W / 2 - barW / 2;
+  const by = H - 88 * S;
+
+  // 底
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+  roundRect(bx, by, barW, barH, barH / 2);
+  ctx.fill();
+
+  // 进度
+  if (plant.progress > 0) {
+    const g = ctx.createLinearGradient(bx, 0, bx + barW, 0);
+    g.addColorStop(0, '#7fdd6e');
+    g.addColorStop(1, '#5eb3ff');
+    ctx.fillStyle = g;
+    roundRect(bx, by, barW * plant.progress, barH, barH / 2);
+    ctx.fill();
+
+    // 小圆点跟随
+    const dotX = bx + barW * plant.progress;
+    ctx.beginPath();
+    ctx.arc(dotX, by + barH / 2, barH * 0.75, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
+  }
+}
+
+function roundRect(x, y, w, h, r) {
+  if (w < r * 2) r = w / 2;
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+/* ============================================================
+   工具
+============================================================ */
+function lerp(a, b, t) { return a + (b - a) * t; }
+
+/* ============================================================
+   渲染
+============================================================ */
+function render() {
+  ctx.clearRect(0, 0, W, H);
+
+  drawSky();
+  drawSun();
+  drawWindLines();
+  drawWaterDrops();
+
+  drawSoil();
+
+  // 植物部分：从地下往地上画
+  drawSeed();
+  drawRoots();
+  drawStem();
+  drawLeaves();
+  drawFlower();
+  drawFruit();
+
+  drawSparkles();
+  drawProgressBar();
+}
+
+/* ============================================================
+   主循环
+============================================================ */
+gsap.ticker.add((t, deltaTime) => {
+  const dt = Math.min(deltaTime, 50) / 1000;
+  update(dt);
+  render();
+});
+
+/* ============================================================
+   交互
+============================================================ */
+function bindSlider(slider, valueEl, key) {
+  slider.addEventListener('input', e => {
+    const v = +e.target.value / 100;
+    env[key] = v;
+    valueEl.textContent = Math.round(v * 100);
+  });
+}
+bindSlider(waterSlider, wvEl, 'water');
+bindSlider(sunSlider,   svEl, 'sun');
+bindSlider(airSlider,   avEl, 'air');
+
+resetBtn.addEventListener('click', () => {
+  // 用 GSAP 让生长进度和健康度平滑回到 0
+  gsap.to(plant, {
+    progress: 0, health: 1, wilt: 0,
+    duration: 0.8, ease: 'power2.inOut'
+  });
+  gsap.to(env, {
+    water: INIT_ENV.water, sun: INIT_ENV.sun, air: INIT_ENV.air,
+    duration: 0.5, ease: 'power2.out',
+    onUpdate: () => {
+      waterSlider.value = Math.round(env.water * 100);
+      sunSlider.value = Math.round(env.sun * 100);
+      airSlider.value = Math.round(env.air * 100);
+      wvEl.textContent = Math.round(env.water * 100);
+      svEl.textContent = Math.round(env.sun * 100);
+      avEl.textContent = Math.round(env.air * 100);
+    }
+  });
+
+  // 清空粒子
+  waterDrops = [];
+  windLines = [];
+  sparkles = [];
+
+  hintEl.textContent = '🌱 一颗小种子在土里睡着了……';
+  plant.lastStage = '🌱 一颗小种子在土里睡着了……';
+});
+
+canvas.addEventListener('dblclick', e => e.preventDefault());
+
+/* ============================================================
+   启动
+============================================================ */
+resize();
+window.addEventListener('resize', resize);
+
+// 初始化显示
+wvEl.textContent = Math.round(env.water * 100);
+svEl.textContent = Math.round(env.sun * 100);
+avEl.textContent = Math.round(env.air * 100);
+
+render();
+</script>
+</body>
+</html>

@@ -1,0 +1,1555 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>神奇的滑轮 —— 怎样拉起大石头</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    height: 100%; width: 100%; overflow: hidden; background: #0a1018;
+    touch-action: none;
+    font-family: system-ui, -apple-system, sans-serif;
+    color: #fff;
+  }
+  canvas {
+    display: block;
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+  }
+
+  .status {
+    position: fixed;
+    top: 20px; left: 50%;
+    transform: translateX(-50%);
+    padding: 12px 26px;
+    background: rgba(16, 22, 38, 0.88);
+    border-radius: 30px;
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    font-size: 15px;
+    font-weight: 700;
+    z-index: 10;
+    white-space: nowrap;
+    max-width: 92vw;
+    text-align: center;
+    transition: all 0.3s;
+  }
+
+  .readout {
+    position: fixed;
+    top: 20px; right: 20px;
+    padding: 14px 18px;
+    background: rgba(16, 22, 38, 0.85);
+    border-radius: 16px;
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    font-size: 13px;
+    z-index: 10;
+    line-height: 1.9;
+    min-width: 190px;
+  }
+  .readout .row {
+    display: flex;
+    justify-content: space-between;
+    gap: 14px;
+  }
+  .readout .lbl { color: #8898b0; }
+  .readout .num {
+    color: #ffd54f;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+  }
+  .readout .num.easy { color: #7fdd6e; }
+  .readout .num.hard { color: #ff9eb5; }
+
+  .panel {
+    position: fixed;
+    bottom: 18px; left: 50%;
+    transform: translateX(-50%);
+    width: min(640px, 94vw);
+    background: rgba(16, 22, 38, 0.9);
+    padding: 16px 22px;
+    border-radius: 20px;
+    backdrop-filter: blur(14px);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  }
+  .panel .row {
+    display: grid;
+    grid-template-columns: 90px 1fr 60px;
+    align-items: center;
+    gap: 12px;
+    font-size: 13px;
+  }
+  .panel .lbl {
+    font-weight: 700;
+    font-size: 14px;
+    white-space: nowrap;
+  }
+  .panel input[type="range"] {
+    width: 100%;
+    height: 6px;
+    accent-color: #5eb3ff;
+    cursor: pointer;
+  }
+  .panel .val {
+    text-align: right;
+    color: #ffd54f;
+    font-weight: 800;
+    font-size: 13px;
+  }
+  .panel .pulley-btns {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 8px;
+  }
+  .panel .pulley-btn {
+    padding: 10px 8px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    background: rgba(255, 255, 255, 0.06);
+    color: #fff;
+    font-weight: 800;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.15s;
+    text-align: center;
+    white-space: nowrap;
+  }
+  .panel .pulley-btn.active {
+    background: linear-gradient(135deg, #5eb3ff, #7fdd6e);
+    color: #061020;
+    border-color: transparent;
+    box-shadow: 0 4px 12px rgba(94, 179, 255, 0.4);
+  }
+  .panel .pulley-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .panel .actions {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 10px;
+    margin-top: 4px;
+  }
+  .panel .actions button {
+    padding: 13px 18px;
+    border: none;
+    border-radius: 14px;
+    font-weight: 800;
+    font-size: 15px;
+    cursor: pointer;
+    letter-spacing: 0.5px;
+    transition: transform 0.12s, box-shadow 0.2s;
+  }
+  .panel .actions button:active { transform: translateY(1px); }
+  .panel .btn-pull {
+    background: linear-gradient(135deg, #5eb3ff, #7fdd6e);
+    color: #061020;
+    box-shadow: 0 4px 14px rgba(94, 179, 255, 0.35);
+  }
+  .panel .btn-pull:hover:not(:disabled) {
+    box-shadow: 0 6px 20px rgba(94, 179, 255, 0.5);
+  }
+  .panel .btn-pull:disabled {
+    background: rgba(120, 130, 150, 0.3);
+    color: rgba(255, 255, 255, 0.35);
+    cursor: not-allowed;
+    box-shadow: none;
+  }
+  .panel .btn-reset {
+    background: rgba(255, 255, 255, 0.12);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+  }
+  .panel .btn-reset:hover {
+    background: rgba(255, 255, 255, 0.22);
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div class="status" id="status">🐘 大象想把大石头吊到平台上，来帮帮它</div>
+
+<div class="readout">
+  <div class="row"><span class="lbl">石头重量</span><span class="num" id="weightVal">6</span></div>
+  <div class="row"><span class="lbl">需要拉力</span><span class="num" id="forceVal">6</span></div>
+  <div class="row"><span class="lbl">绳长倍数</span><span class="num" id="ropeVal">1×</span></div>
+  <div class="row"><span class="lbl">已吊起</span><span class="num" id="liftVal">0%</span></div>
+</div>
+
+<div class="panel">
+  <div class="row">
+    <span class="lbl">⚖️ 石头重量</span>
+    <input type="range" id="weight" min="2" max="12" value="6" step="1">
+    <span class="val" id="weightSliderVal">6</span>
+  </div>
+  <div class="row">
+    <span class="lbl">🎡 滑轮数量</span>
+    <div class="pulley-btns">
+      <button class="pulley-btn active" data-pulleys="1">1 个</button>
+      <button class="pulley-btn" data-pulleys="2">2 个</button>
+      <button class="pulley-btn" data-pulleys="3">3 个</button>
+    </div>
+  </div>
+  <div class="actions">
+    <button class="btn-pull" id="btnPull">💪 拉绳子</button>
+    <button class="btn-reset" id="btnReset">🔄 重置</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+<script>
+/* ============================================================
+   神奇的滑轮 —— 怎样拉起大石头
+   ------------------------------------------------------------
+   教材依据：
+   第五章第三节「简易机械」—— 轮子、滑轮
+   第七章「如何将重物运至阁楼」—— 用滑轮运重物
+   第七章 STEM —— 工程设计与精进
+
+   核心概念：
+   ① 定滑轮：不省力，但能改变用力方向（往下拉，东西往上走）
+   ② 动滑轮：省一半力，但绳子要多拉一倍长
+   ③ 动滑轮越多越省力：n 个动滑轮组 → 拉力 = 重量 / n
+   ④ 代价：省力的同时，要多拉更长的绳子
+   ⑤ 没有"又省力又省距离"的机械
+   ============================================================ */
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+const statusEl = document.getElementById('status');
+const weightSlider = document.getElementById('weight');
+const weightSliderVal = document.getElementById('weightSliderVal');
+const weightValEl = document.getElementById('weightVal');
+const forceValEl = document.getElementById('forceVal');
+const ropeValEl = document.getElementById('ropeVal');
+const liftValEl = document.getElementById('liftVal');
+const btnPull = document.getElementById('btnPull');
+const btnReset = document.getElementById('btnReset');
+const pulleyBtns = document.querySelectorAll('.pulley-btn');
+
+let W = 800, H = 600, DPR = 1, S = 1;
+let time = 0;
+
+/* ---------- 状态 ---------- */
+const state = {
+  weight: 6,           // 石头重量
+  pulleyCount: 1,      // 1 = 定滑轮，2 = 1定1动，3 = 1定2动
+  liftProgress: 0,     // 0 ~ 1，已吊起进度
+  pulling: false,
+  ropeOffset: 0,       // 绳子被拉动的累计长度（视觉用）
+  ropePhase: 0,        // 绳子波动相位
+  shake: 0,
+  eleStartY: 0,        // 起始位置
+  eleEndY: 0,          // 目标位置
+  effortProgress: 0,   // 用力进度（拉绳时的能量积累）
+  elephantEffort: 0    // 大象用力程度
+};
+
+/* ---------- 场景布局 ---------- */
+const scene = {
+  groundY: 0,
+  platformY: 0,
+  beamY: 0,
+  beamX1: 0, beamX2: 0,
+  elephantX: 0, elephantY: 0,
+  ropePullX: 0, ropePullY: 0
+};
+
+/* ---------- 滑轮组（每次布局时重建） ---------- */
+let pulleys = [];    // { id, x, y, r, type: 'fixed' | 'moving' }
+
+/* ---------- 石头 ---------- */
+const stone = {
+  x: 0, y: 0,
+  w: 0, h: 0,
+  rotation: 0,
+  wobble: 0,
+  onGround: true
+};
+
+/* ---------- 大象 ---------- */
+const elephant = {
+  x: 0, y: 0,
+  scale: 1,
+  trunkPhase: 0,
+  earPhase: 0,
+  blink: 0,
+  struggling: 0
+};
+
+/* ---------- 交互 ---------- */
+let activePointer = null;
+let draggingRope = false;
+let ropeGrabY = 0;
+
+/* ---------- 效果 ---------- */
+let sparks = [];
+let clouds = [];
+let birds = [];
+let dust = [];
+
+/* ============================================================
+   尺寸
+============================================================ */
+function resize() {
+  let w = window.innerWidth || document.documentElement.clientWidth || 800;
+  let h = window.innerHeight || document.documentElement.clientHeight || 600;
+  if (w < 200) w = 800;
+  if (h < 200) h = 600;
+
+  W = w;
+  H = h;
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+
+  canvas.width = Math.floor(W * DPR);
+  canvas.height = Math.floor(H * DPR);
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+  S = Math.max(0.55, Math.min(1.15, H / 800));
+
+  layoutScene();
+  initClouds();
+  initBirds();
+  buildPulleys();
+
+  // 石头尺寸
+  stone.w = (26 + state.weight * 4) * S;
+  stone.h = (22 + state.weight * 3) * S;
+
+  updateReadout();
+}
+
+function layoutScene() {
+  scene.groundY = H * 0.78;
+  scene.platformY = H * 0.28;
+  scene.beamY = H * 0.14;
+  scene.beamX1 = W * 0.14;
+  scene.beamX2 = W * 0.56;
+
+  scene.elephantX = W * 0.82;
+  scene.elephantY = scene.groundY;
+  scene.ropePullX = scene.elephantX - 60 * S;
+  scene.ropePullY = H * 0.42;
+
+  // 石头在横梁中段的正下方
+  stone.x = (scene.beamX1 + scene.beamX2) / 2;
+  stone.y = scene.groundY - stone.h / 2;
+  stone.onGround = true;
+
+  state.eleStartY = scene.groundY - stone.h / 2;
+  state.eleEndY = scene.platformY + stone.h / 2;
+}
+
+/* ============================================================
+   构建滑轮组
+============================================================ */
+function buildPulleys() {
+  pulleys = [];
+  const r = 18 * S;
+
+  // 顶部横梁两端各一个定滑轮
+  pulleys.push({
+    id: 'beamL',
+    x: scene.beamX1,
+    y: scene.beamY,
+    r: r,
+    type: 'fixed'
+  });
+  pulleys.push({
+    id: 'beamR',
+    x: scene.beamX2,
+    y: scene.beamY,
+    r: r,
+    type: 'fixed'
+  });
+
+  // 当滑轮数 >= 2，加一个动滑轮（挂在石头上方）
+  if (state.pulleyCount >= 2) {
+    pulleys.push({
+      id: 'moving1',
+      x: (scene.beamX1 + scene.beamX2) / 2,
+      y: scene.platformY - 40 * S,  // 会随石头移动
+      r: r * 1.1,
+      type: 'moving'
+    });
+  }
+
+  // 当滑轮数 >= 3，再加一个动滑轮（位于中间偏左）
+  if (state.pulleyCount >= 3) {
+    pulleys.push({
+      id: 'moving2',
+      x: scene.beamX1 + (scene.beamX2 - scene.beamX1) * 0.35,
+      y: scene.platformY - 40 * S,
+      r: r * 1.05,
+      type: 'moving'
+    });
+  }
+}
+
+/* ============================================================
+   云 / 小鸟
+============================================================ */
+function initClouds() {
+  clouds = [];
+  for (let i = 0; i < 5; i++) {
+    const n = 4 + Math.floor(Math.random() * 3);
+    const puffs = [];
+    for (let j = 0; j < n; j++) {
+      puffs.push({
+        dx: (j - n / 2) * 30 * S + (Math.random() - 0.5) * 16 * S,
+        dy: (Math.random() - 0.5) * 12 * S,
+        r: (18 + Math.random() * 16) * S
+      });
+    }
+    clouds.push({
+      x: Math.random() * W,
+      y: 30 * S + Math.random() * (H * 0.18),
+      scale: 0.5 + Math.random() * 0.7,
+      speed: 8 + Math.random() * 14,
+      puffs: puffs
+    });
+  }
+}
+
+function initBirds() {
+  birds = [];
+  for (let i = 0; i < 3; i++) {
+    birds.push({
+      x: Math.random() * W,
+      y: 60 * S + Math.random() * 60 * S,
+      speed: 20 + Math.random() * 25,
+      phase: Math.random() * Math.PI * 2
+    });
+  }
+}
+
+/* ============================================================
+   音效
+============================================================ */
+let audioCtx = null;
+function initAudio() {
+  if (!audioCtx) {
+    try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
+  }
+}
+function beep(freq, dur, vol, type, delay) {
+  vol = vol || 0.07;
+  type = type || 'sine';
+  delay = delay || 0;
+  if (!audioCtx) return;
+  const t0 = audioCtx.currentTime + delay;
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(freq, t0);
+  o.connect(g);
+  g.connect(audioCtx.destination);
+  g.gain.setValueAtTime(vol, t0);
+  g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+  o.start(t0);
+  o.stop(t0 + dur);
+}
+function sfxClick() { beep(520, 0.06, 0.05, 'triangle'); }
+function sfxRope() { beep(380, 0.05, 0.04, 'triangle'); }
+function sfxWin() {
+  beep(523, 0.12, 0.09);
+  beep(659, 0.12, 0.09, 'sine', 0.10);
+  beep(784, 0.14, 0.09, 'sine', 0.20);
+  beep(1046, 0.28, 0.10, 'sine', 0.34);
+}
+function sfxDrop() {
+  beep(180, 0.14, 0.08, 'triangle');
+  beep(120, 0.18, 0.07, 'triangle', 0.10);
+}
+
+/* ============================================================
+   物理
+============================================================ */
+function getForce() {
+  // 拉力 = 重量 / 动滑轮数量
+  // 1 个 = 定滑轮，不省力
+  // 2 个 = 1定1动，省一半
+  // 3 个 = 1定2动，省到 1/3
+  if (state.pulleyCount === 1) return state.weight;
+  if (state.pulleyCount === 2) return state.weight / 2;
+  return state.weight / 3;
+}
+
+function getRopeMultiple() {
+  // 需要的绳长倍数
+  if (state.pulleyCount === 1) return 1;
+  if (state.pulleyCount === 2) return 2;
+  return 3;
+}
+
+/* 大象最多能拉动的力量（其实是大象的最大输出力） */
+const ELEPHANT_MAX_POWER = 5;
+
+function canLift() {
+  return getForce() <= ELEPHANT_MAX_POWER + 0.001;
+}
+
+/* ============================================================
+   更新
+============================================================ */
+function update(dt) {
+  time += dt;
+
+  const targetForce = getForce();
+  const liftable = canLift();
+
+  // 石头摇晃
+  stone.wobble += dt * 3;
+
+  // 绳子波动
+  state.ropePhase += dt * 4;
+  state.shake *= Math.exp(-dt * 4);
+
+  // 大象挣扎程度：能拉但吃力
+  const effortRatio = targetForce / ELEPHANT_MAX_POWER;
+  state.elephantEffort = targetForce / ELEPHANT_MAX_POWER;
+
+  // 如果按下拉绳按钮
+  if (state.pulling) {
+    // 能不能拉动
+    if (liftable) {
+      const speed = (0.4 - effortRatio * 0.2) * (1 - state.liftProgress);
+      state.liftProgress = Math.min(1, state.liftProgress + speed * dt);
+      state.ropeOffset += getRopeMultiple() * speed * dt * 60 * S;
+
+      // 到顶了
+      if (state.liftProgress >= 1 && !state.done) {
+        state.done = true;
+        state.pulling = false;
+        sfxWin();
+        spawnWinSparks();
+        statusEl.textContent = '🎉 吊上去啦！' + state.pulleyCount + ' 个滑轮把力气省了 ' + getRopeMultiple() + ' 倍';
+        statusEl.style.color = '#7fdd6e';
+      }
+    } else {
+      // 拉不动，石头轻微晃动
+      state.shake = 0.5;
+      state.liftProgress = Math.max(0, state.liftProgress - dt * 0.1);
+    }
+  } else {
+    // 松手后如果没吊满，会往下滑一点
+    if (state.liftProgress > 0 && state.liftProgress < 1) {
+      state.liftProgress = Math.max(0, state.liftProgress - dt * 0.35);
+    }
+  }
+
+  // 石头位置
+  const baseY = state.eleStartY;
+  const topY = state.eleEndY;
+  stone.y = baseY + (topY - baseY) * state.liftProgress;
+  stone.onGround = state.liftProgress < 0.02;
+
+  // 动滑轮跟随石头
+  for (const p of pulleys) {
+    if (p.type === 'moving') {
+      p.y = stone.y - 50 * S;
+    }
+  }
+
+  // 大象的呼吸/耳朵
+  elephant.trunkPhase += dt * 2;
+  elephant.earPhase += dt * 1.6;
+  if (Math.random() < 0.005) elephant.blink = 1;
+  elephant.blink = Math.max(0, elephant.blink - dt * 3);
+
+  // 粒子
+  for (const s of sparks) {
+    s.x += s.vx * dt;
+    s.y += s.vy * dt;
+    s.vy += 260 * dt;
+    s.vx *= 0.96;
+    s.life -= dt * 1.3;
+  }
+  sparks = sparks.filter(s => s.life > 0);
+
+  for (const d of dust) {
+    d.x += d.vx * dt;
+    d.y += d.vy * dt;
+    d.vy -= 30 * dt;
+    d.life -= dt * 1.4;
+    d.size *= 0.98;
+  }
+  dust = dust.filter(d => d.life > 0);
+
+  // 云
+  for (const c of clouds) {
+    c.x += c.speed * dt;
+    if (c.x - 200 * S > W) {
+      c.x = -200 * S;
+      c.y = 30 * S + Math.random() * (H * 0.18);
+    }
+  }
+
+  // 小鸟
+  for (const b of birds) {
+    b.x += b.speed * dt;
+    b.phase += dt * 5;
+    if (b.x - 30 * S > W) {
+      b.x = -30 * S;
+      b.y = 60 * S + Math.random() * 60 * S;
+    }
+  }
+
+  updateReadout();
+}
+
+function updateReadout() {
+  weightValEl.textContent = state.weight;
+  const f = getForce();
+  forceValEl.textContent = f.toFixed(1);
+  forceValEl.className = 'num ' + (canLift() ? (f <= 3 ? 'easy' : '') : 'hard');
+  ropeValEl.textContent = getRopeMultiple() + '×';
+  liftValEl.textContent = Math.round(state.liftProgress * 100) + '%';
+
+  // 同步按钮状态
+  btnPull.disabled = !canLift() || state.liftProgress >= 1;
+  if (!canLift()) {
+    btnPull.textContent = '😰 拉不动';
+  } else if (state.liftProgress >= 1) {
+    btnPull.textContent = '✅ 已完成';
+  } else {
+    btnPull.textContent = '💪 拉绳子';
+  }
+
+  // 实时提示
+  if (!canLift()) {
+    statusEl.textContent = '😰 石头太重了！试试加一个动滑轮，或者减轻石头';
+    statusEl.style.color = '#ff9eb5';
+  } else if (state.liftProgress >= 1) {
+    statusEl.textContent = '🎉 吊上去啦！' + state.pulleyCount + ' 个滑轮把力气省了 ' + getRopeMultiple() + ' 倍';
+    statusEl.style.color = '#7fdd6e';
+  } else if (state.pulling) {
+    statusEl.textContent = '💪 正在拉…… 再坚持一下';
+    statusEl.style.color = '#ffd54f';
+  } else if (state.liftProgress > 0) {
+    statusEl.textContent = '🪢 石头吊在半空中，松手就会滑下去哦';
+    statusEl.style.color = '#ffd54f';
+  } else {
+    statusEl.textContent = '🐘 大象想把大石头吊到平台上，来帮帮它';
+    statusEl.style.color = '#ffffff';
+  }
+}
+
+function spawnWinSparks() {
+  const x = stone.x;
+  const y = stone.y;
+  for (let i = 0; i < 30; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const v = 100 + Math.random() * 200;
+    sparks.push({
+      x: x, y: y,
+      vx: Math.cos(a) * v,
+      vy: Math.sin(a) * v - 80,
+      life: 1,
+      size: 3 + Math.random() * 4,
+      color: ['#ffe066', '#7fdd6e', '#a8e6ff'][i % 3]
+    });
+  }
+}
+
+/* ============================================================
+   绘制：背景
+============================================================ */
+function drawSky() {
+  const g = ctx.createLinearGradient(0, 0, 0, scene.groundY);
+  g.addColorStop(0, '#6FBEE0');
+  g.addColorStop(0.55, '#A8DDF0');
+  g.addColorStop(1, '#DFF3E4');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, scene.groundY);
+}
+
+function drawSun() {
+  const sx = W * 0.88;
+  const sy = H * 0.12;
+  const r = 38 * S;
+
+  const glow = ctx.createRadialGradient(sx, sy, r * 0.5, sx, sy, r * 4);
+  glow.addColorStop(0, 'rgba(255, 245, 180, 0.7)');
+  glow.addColorStop(0.4, 'rgba(255, 240, 160, 0.22)');
+  glow.addColorStop(1, 'rgba(255, 240, 160, 0)');
+  ctx.fillStyle = glow;
+  ctx.beginPath();
+  ctx.arc(sx, sy, r * 4, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.arc(sx, sy, r, 0, Math.PI * 2);
+  ctx.fillStyle = '#FFF7C4';
+  ctx.fill();
+}
+
+function drawClouds() {
+  for (const c of clouds) {
+    ctx.save();
+    ctx.translate(c.x, c.y);
+    ctx.scale(c.scale, c.scale);
+    ctx.beginPath();
+    for (const p of c.puffs) {
+      ctx.moveTo(p.dx + p.r, p.dy);
+      ctx.arc(p.dx, p.dy, p.r, 0, Math.PI * 2);
+    }
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+function drawBirds() {
+  ctx.strokeStyle = 'rgba(60, 80, 100, 0.6)';
+  ctx.lineWidth = 1.8 * S;
+  ctx.lineCap = 'round';
+  for (const b of birds) {
+    ctx.save();
+    ctx.translate(b.x, b.y);
+    const flap = Math.sin(b.phase) * 4 * S;
+    ctx.beginPath();
+    ctx.moveTo(-10 * S, 0);
+    ctx.quadraticCurveTo(-5 * S, -4 * S + flap * 0.4, 0, 0);
+    ctx.quadraticCurveTo(5 * S, -4 * S + flap * 0.4, 10 * S, 0);
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+function drawGround() {
+  const g = ctx.createLinearGradient(0, scene.groundY - 20 * S, 0, H);
+  g.addColorStop(0, '#7BD17F');
+  g.addColorStop(0.5, '#5BB85F');
+  g.addColorStop(1, '#3A7A40');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, scene.groundY, W, H - scene.groundY);
+
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
+  ctx.lineWidth = 2 * S;
+  ctx.beginPath();
+  ctx.moveTo(0, scene.groundY);
+  ctx.lineTo(W, scene.groundY);
+  ctx.stroke();
+}
+
+/* ============================================================
+   绘制：高架平台
+============================================================ */
+function drawPlatform() {
+  const py = scene.platformY;
+
+  // 平台阴影
+  ctx.save();
+  ctx.globalAlpha = 0.25;
+  ctx.beginPath();
+  ctx.rect(scene.beamX1 - 30 * S, py + 30 * S, scene.beamX2 - scene.beamX1 + 60 * S, 20 * S);
+  ctx.fillStyle = '#000';
+  ctx.fill();
+  ctx.restore();
+
+  // 平台板
+  const px1 = scene.beamX1 - 30 * S;
+  const px2 = scene.beamX2 + 30 * S;
+  const pt = py;
+  const pb = py + 22 * S;
+
+  ctx.beginPath();
+  roundRect(px1, pt, px2 - px1, pb - pt, 6 * S);
+  const pg = ctx.createLinearGradient(0, pt, 0, pb);
+  pg.addColorStop(0, '#c8a878');
+  pg.addColorStop(1, '#8a6840');
+  ctx.fillStyle = pg;
+  ctx.fill();
+  ctx.strokeStyle = '#5a3a18';
+  ctx.lineWidth = 2 * S;
+  ctx.stroke();
+
+  // 平台支撑柱
+  const colX1 = scene.beamX1 - 10 * S;
+  const colX2 = scene.beamX2 + 10 * S;
+  const colY2 = scene.groundY;
+  const colW = 12 * S;
+
+  for (const cx of [colX1, colX2]) {
+    ctx.fillStyle = '#a88858';
+    ctx.fillRect(cx - colW / 2, pb, colW, colY2 - pb);
+    ctx.strokeStyle = '#5a3a18';
+    ctx.lineWidth = 1.5 * S;
+    ctx.strokeRect(cx - colW / 2, pb, colW, colY2 - pb);
+
+    // 横撑
+    for (let i = 1; i <= 3; i++) {
+      const y = pb + (colY2 - pb) * (i / 4);
+      ctx.beginPath();
+      ctx.moveTo(cx - colW / 2, y);
+      ctx.lineTo(cx + colW / 2, y);
+      ctx.strokeStyle = 'rgba(90, 58, 24, 0.5)';
+      ctx.lineWidth = 1.2 * S;
+      ctx.stroke();
+    }
+  }
+}
+
+/* ============================================================
+   绘制：横梁
+============================================================ */
+function drawBeam() {
+  const by = scene.beamY;
+  const bx1 = scene.beamX1 - 20 * S;
+  const bx2 = scene.beamX2 + 20 * S;
+  const bh = 16 * S;
+
+  // 梁
+  ctx.beginPath();
+  roundRect(bx1, by - bh / 2, bx2 - bx1, bh, 4 * S);
+  const bg = ctx.createLinearGradient(0, by - bh / 2, 0, by + bh / 2);
+  bg.addColorStop(0, '#b8a878');
+  bg.addColorStop(0.5, '#8a7850');
+  bg.addColorStop(1, '#5a4828');
+  ctx.fillStyle = bg;
+  ctx.fill();
+  ctx.strokeStyle = '#3a2a18';
+  ctx.lineWidth = 2 * S;
+  ctx.stroke();
+
+  // 梁的纹理
+  ctx.strokeStyle = 'rgba(60, 40, 20, 0.35)';
+  ctx.lineWidth = 1 * S;
+  for (let i = 0; i < 6; i++) {
+    const x = bx1 + (bx2 - bx1) * (i / 6);
+    ctx.beginPath();
+    ctx.moveTo(x, by - bh / 2 + 3 * S);
+    ctx.lineTo(x, by + bh / 2 - 3 * S);
+    ctx.stroke();
+  }
+}
+
+/* ============================================================
+   绘制：滑轮
+============================================================ */
+function drawPulley(p) {
+  const r = p.r;
+
+  // 挂架
+  ctx.beginPath();
+  ctx.moveTo(p.x, p.y - r);
+  ctx.lineTo(p.x, p.y - r * 1.8);
+  ctx.strokeStyle = '#5a3a18';
+  ctx.lineWidth = 3 * S;
+  ctx.lineCap = 'round';
+  ctx.stroke();
+
+  // 小挂环
+  ctx.beginPath();
+  ctx.arc(p.x, p.y - r * 1.8, 3 * S, 0, Math.PI * 2);
+  ctx.fillStyle = '#3a2a18';
+  ctx.fill();
+
+  // 滑轮外壳
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+  const pg = ctx.createRadialGradient(p.x - r * 0.3, p.y - r * 0.3, r * 0.1, p.x, p.y, r);
+  if (p.type === 'fixed') {
+    pg.addColorStop(0, '#c8d0d8');
+    pg.addColorStop(0.6, '#8a94a0');
+    pg.addColorStop(1, '#4a5468');
+  } else {
+    pg.addColorStop(0, '#ffd9a8');
+    pg.addColorStop(0.6, '#e8a866');
+    pg.addColorStop(1, '#8b5a2a');
+  }
+  ctx.fillStyle = pg;
+  ctx.fill();
+
+  ctx.strokeStyle = '#3a2a18';
+  ctx.lineWidth = 2 * S;
+  ctx.stroke();
+
+  // 中心轴
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, r * 0.28, 0, Math.PI * 2);
+  ctx.fillStyle = '#3a2a18';
+  ctx.fill();
+
+  // 中心高光
+  ctx.beginPath();
+  ctx.arc(p.x - r * 0.1, p.y - r * 0.1, r * 0.12, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+  ctx.fill();
+
+  // 边缘槽（视觉上像凹槽）
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, r * 0.85, 0, Math.PI * 2);
+  ctx.strokeStyle = 'rgba(0, 0, 0, 0.25)';
+  ctx.lineWidth = 1.5 * S;
+  ctx.stroke();
+}
+
+/* ============================================================
+   绘制：绳子
+============================================================ */
+function drawRope() {
+  const beamL = pulleys.find(p => p.id === 'beamL');
+  const beamR = pulleys.find(p => p.id === 'beamR');
+
+  ctx.save();
+  ctx.strokeStyle = '#d8b878';
+  ctx.lineWidth = 3 * S;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  // ---- 1 个滑轮：简单的绳从石头经过横梁右端，被大象拉 ----
+  if (state.pulleyCount === 1) {
+    // 石头 → 横梁右端
+    ctx.beginPath();
+    ctx.moveTo(stone.x, stone.y - stone.h / 2);
+    ctx.lineTo(beamR.x, beamR.y + beamR.r);
+    ctx.stroke();
+
+    // 横梁右端 → 绕过 → 大象方向
+    ctx.beginPath();
+    ctx.arc(beamR.x, beamR.y, beamR.r, Math.PI * 0.5, Math.PI * 1.5, false);
+    ctx.stroke();
+
+    // 横梁右端左侧 → 大象
+    const endY = scene.ropePullY + state.ropeOffset * 0.3;
+    ctx.beginPath();
+    ctx.moveTo(beamR.x - beamR.r, beamR.y);
+    ctx.lineTo(scene.ropePullX, endY);
+    ctx.stroke();
+  }
+  // ---- 2 个滑轮：1 定 1 动 ----
+  else if (state.pulleyCount === 2) {
+    const moving = pulleys.find(p => p.id === 'moving1');
+
+    // 石头 → 动滑轮
+    ctx.beginPath();
+    ctx.moveTo(stone.x, stone.y - stone.h / 2);
+    ctx.lineTo(moving.x, moving.y + moving.r);
+    ctx.stroke();
+
+    // 动滑轮 → 横梁左端
+    ctx.beginPath();
+    ctx.arc(moving.x, moving.y, moving.r, Math.PI * 0.5, Math.PI * 1.5, false);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(moving.x - moving.r, moving.y);
+    ctx.lineTo(beamL.x, beamL.y + beamL.r);
+    ctx.stroke();
+
+    // 横梁左端 → 绕到右端
+    ctx.beginPath();
+    ctx.arc(beamL.x, beamL.y, beamL.r, Math.PI * 0.5, Math.PI * 1.5, true);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(beamL.x, beamL.y - beamL.r);
+    ctx.lineTo(beamR.x, beamR.y - beamR.r);
+    ctx.stroke();
+
+    // 横梁右端 → 大象
+    ctx.beginPath();
+    ctx.arc(beamR.x, beamR.y, beamR.r, Math.PI * 1.5, Math.PI * 0.5, true);
+    ctx.stroke();
+
+    const endY = scene.ropePullY + state.ropeOffset * 0.3;
+    ctx.beginPath();
+    ctx.moveTo(beamR.x + beamR.r, beamR.y);
+    ctx.lineTo(scene.ropePullX, endY);
+    ctx.stroke();
+  }
+  // ---- 3 个滑轮：1 定 2 动 ----
+  else {
+    const moving1 = pulleys.find(p => p.id === 'moving1');
+    const moving2 = pulleys.find(p => p.id === 'moving2');
+
+    // 石头 → 动滑轮1
+    ctx.beginPath();
+    ctx.moveTo(stone.x, stone.y - stone.h / 2);
+    ctx.lineTo(moving1.x, moving1.y + moving1.r);
+    ctx.stroke();
+
+    // 绕过动滑轮1 → 动滑轮2
+    ctx.beginPath();
+    ctx.arc(moving1.x, moving1.y, moving1.r, Math.PI * 0.5, Math.PI * 1.5, false);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(moving1.x - moving1.r, moving1.y);
+    ctx.lineTo(moving2.x + moving2.r, moving2.y + moving2.r * 0.4);
+    ctx.stroke();
+
+    // 绕过动滑轮2 → 横梁左端
+    ctx.beginPath();
+    ctx.arc(moving2.x, moving2.y, moving2.r, Math.PI * 0.6, Math.PI * 1.4, false);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(moving2.x - moving2.r * 0.8, moving2.y - moving2.r * 0.6);
+    ctx.lineTo(beamL.x, beamL.y + beamL.r);
+    ctx.stroke();
+
+    // 横梁左端 → 横梁右端
+    ctx.beginPath();
+    ctx.arc(beamL.x, beamL.y, beamL.r, Math.PI * 0.5, Math.PI * 1.5, true);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(beamL.x, beamL.y - beamL.r);
+    ctx.lineTo(beamR.x, beamR.y - beamR.r);
+    ctx.stroke();
+
+    // 横梁右端 → 大象
+    ctx.beginPath();
+    ctx.arc(beamR.x, beamR.y, beamR.r, Math.PI * 1.5, Math.PI * 0.5, true);
+    ctx.stroke();
+
+    const endY = scene.ropePullY + state.ropeOffset * 0.3;
+    ctx.beginPath();
+    ctx.moveTo(beamR.x + beamR.r, beamR.y);
+    ctx.lineTo(scene.ropePullX, endY);
+    ctx.stroke();
+  }
+
+  // 绳子高光
+  ctx.strokeStyle = 'rgba(255, 230, 180, 0.4)';
+  ctx.lineWidth = 1 * S;
+  // 简化：只在高亮一小段
+  ctx.restore();
+
+  // 拉动端的绳结（可拖拽点）
+  drawPullHandle();
+}
+
+function drawPullHandle() {
+  const x = scene.ropePullX;
+  const y = scene.ropePullY + state.ropeOffset * 0.3;
+
+  // 绳结
+  ctx.beginPath();
+  ctx.arc(x, y, 9 * S, 0, Math.PI * 2);
+  const g = ctx.createRadialGradient(x - 3 * S, y - 3 * S, 1, x, y, 9 * S);
+  g.addColorStop(0, '#ffd9a8');
+  g.addColorStop(1, '#8a5a2a');
+  ctx.fillStyle = g;
+  ctx.fill();
+  ctx.strokeStyle = '#3a2a18';
+  ctx.lineWidth = 1.8 * S;
+  ctx.stroke();
+
+  // 提示环（脉动）
+  if (state.liftProgress < 1 && canLift()) {
+    const pulse = 1 + Math.sin(time * 3) * 0.2;
+    ctx.beginPath();
+    ctx.arc(x, y, 16 * S * pulse, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(255, 240, 140, ' + (0.35 + Math.sin(time * 3) * 0.2) + ')';
+    ctx.lineWidth = 2 * S;
+    ctx.setLineDash([4 * S, 4 * S]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+}
+
+/* ============================================================
+   绘制：石头
+============================================================ */
+function drawStone() {
+  const x = stone.x;
+  const y = stone.y;
+  const w = stone.w;
+  const h = stone.h;
+
+  // 影子（在地面上时才有）
+  if (stone.onGround) {
+    ctx.beginPath();
+    ctx.ellipse(x, scene.groundY + 4 * S, w * 0.7, h * 0.15, 0, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
+    ctx.fill();
+  }
+
+  ctx.save();
+  ctx.translate(x, y);
+
+  // 石头本体（不规则多边形）
+  const g = ctx.createRadialGradient(-w * 0.3, -h * 0.3, w * 0.1, 0, 0, w * 0.9);
+  g.addColorStop(0, '#b8c0cc');
+  g.addColorStop(0.5, '#8a929e');
+  g.addColorStop(1, '#4a525e');
+
+  ctx.beginPath();
+  const points = [
+    [-w * 0.55, -h * 0.1],
+    [-w * 0.45, -h * 0.55],
+    [-w * 0.05, -h * 0.7],
+    [w * 0.4, -h * 0.55],
+    [w * 0.62, -h * 0.1],
+    [w * 0.55, h * 0.5],
+    [w * 0.05, h * 0.7],
+    [-w * 0.5, h * 0.55],
+    [-w * 0.62, h * 0.15]
+  ];
+  for (let i = 0; i < points.length; i++) {
+    const pt = points[i];
+    if (i === 0) ctx.moveTo(pt[0], pt[1]);
+    else ctx.lineTo(pt[0], pt[1]);
+  }
+  ctx.closePath();
+  ctx.fillStyle = g;
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(30, 40, 50, 0.7)';
+  ctx.lineWidth = 2 * S;
+  ctx.stroke();
+
+  // 石头上的纹理
+  ctx.strokeStyle = 'rgba(60, 70, 80, 0.4)';
+  ctx.lineWidth = 1.5 * S;
+  ctx.beginPath();
+  ctx.moveTo(-w * 0.3, -h * 0.2);
+  ctx.lineTo(-w * 0.15, h * 0.15);
+  ctx.lineTo(w * 0.1, h * 0.3);
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(w * 0.2, -h * 0.3);
+  ctx.lineTo(w * 0.35, h * 0.1);
+  ctx.stroke();
+
+  // 高光
+  ctx.beginPath();
+  ctx.ellipse(-w * 0.3, -h * 0.35, w * 0.12, h * 0.18, -0.3, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
+  ctx.fill();
+
+  // 吊环（石头顶部的小铁环）
+  ctx.beginPath();
+  ctx.arc(0, -h * 0.7 - 4 * S, 5 * S, 0, Math.PI * 2);
+  ctx.fillStyle = '#4a5468';
+  ctx.fill();
+  ctx.strokeStyle = '#2a3038';
+  ctx.lineWidth = 1.5 * S;
+  ctx.stroke();
+
+  // 石头上的重量标签
+  ctx.font = 'bold ' + Math.round(13 * S) + 'px system-ui, sans-serif';
+  ctx.fillStyle = '#fff';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('×' + state.weight, 0, 4 * S);
+
+  ctx.restore();
+}
+
+/* ============================================================
+   绘制：大象
+============================================================ */
+function drawElephant() {
+  const x = scene.elephantX;
+  const y = scene.elephantY;
+  const scale = elephant.scale;
+
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(scale, scale);
+
+  // 影子
+  ctx.beginPath();
+  ctx.ellipse(0, 4 * S, 46 * S, 8 * S, 0, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
+  ctx.fill();
+
+  // 挣扎摇晃（拉不动时）
+  const struggle = state.pulling && !canLift() ? Math.sin(time * 30) * 3 * S : 0;
+
+  ctx.translate(struggle, 0);
+
+  // 身体
+  ctx.beginPath();
+  ctx.ellipse(-10 * S, -36 * S, 36 * S, 30 * S, 0, 0, Math.PI * 2);
+  const bg = ctx.createRadialGradient(-20 * S, -46 * S, 5 * S, -10 * S, -36 * S, 40 * S);
+  bg.addColorStop(0, '#A8B4C0');
+  bg.addColorStop(0.6, '#8898A8');
+  bg.addColorStop(1, '#5A6878');
+  ctx.fillStyle = bg;
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(50, 60, 70, 0.6)';
+  ctx.lineWidth = 2 * S;
+  ctx.stroke();
+
+  // 腿
+  ctx.fillStyle = '#7888A0';
+  for (const lx of [-28, -8, 8, 24]) {
+    ctx.beginPath();
+    roundRect(lx * S - 7 * S, -14 * S, 14 * S, 16 * S, 4 * S);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(50, 60, 70, 0.5)';
+    ctx.lineWidth = 1.5 * S;
+    ctx.stroke();
+  }
+
+  // 耳朵
+  const earSwing = Math.sin(elephant.earPhase) * 0.1;
+  ctx.save();
+  ctx.translate(18 * S, -44 * S);
+  ctx.rotate(earSwing);
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 20 * S, 26 * S, 0.3, 0, Math.PI * 2);
+  ctx.fillStyle = '#98A8B8';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(50, 60, 70, 0.5)';
+  ctx.lineWidth = 1.5 * S;
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 12 * S, 16 * S, 0.3, 0, Math.PI * 2);
+  ctx.fillStyle = '#B0C0D0';
+  ctx.fill();
+  ctx.restore();
+
+  // 头
+  ctx.beginPath();
+  ctx.arc(28 * S, -46 * S, 22 * S, 0, Math.PI * 2);
+  const hg = ctx.createRadialGradient(20 * S, -54 * S, 3 * S, 28 * S, -46 * S, 24 * S);
+  hg.addColorStop(0, '#B8C4D0');
+  hg.addColorStop(1, '#7888A0');
+  ctx.fillStyle = hg;
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(50, 60, 70, 0.6)';
+  ctx.lineWidth = 2 * S;
+  ctx.stroke();
+
+  // 眼睛
+  if (elephant.blink > 0.3) {
+    // 眨眼
+    ctx.beginPath();
+    ctx.moveTo(30 * S, -50 * S);
+    ctx.lineTo(38 * S, -50 * S);
+    ctx.strokeStyle = '#2A3038';
+    ctx.lineWidth = 2 * S;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+  } else {
+    ctx.beginPath();
+    ctx.arc(34 * S, -50 * S, 3 * S, 0, Math.PI * 2);
+    ctx.fillStyle = '#2A3038';
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(34.5 * S, -51 * S, 1.2 * S, 0, Math.PI * 2);
+    ctx.fillStyle = '#fff';
+    ctx.fill();
+  }
+
+  // 鼻子（伸出来拉绳）
+  const trunkEndX = -10 * S;
+  const trunkEndY = -30 * S;
+  ctx.beginPath();
+  ctx.moveTo(38 * S, -40 * S);
+  ctx.quadraticCurveTo(
+    42 * S, -20 * S,
+    trunkEndX + 60 * S, trunkEndY
+  );
+  ctx.strokeStyle = '#8898A8';
+  ctx.lineWidth = 11 * S;
+  ctx.lineCap = 'round';
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(38 * S, -40 * S);
+  ctx.quadraticCurveTo(
+    42 * S, -20 * S,
+    trunkEndX + 60 * S, trunkEndY
+  );
+  ctx.strokeStyle = '#A8B4C0';
+  ctx.lineWidth = 6 * S;
+  ctx.stroke();
+
+  // 耳朵上的汗滴（拉不动时）
+  if (state.pulling && !canLift()) {
+    ctx.beginPath();
+    ctx.ellipse(40 * S, -60 * S, 2 * S, 3.5 * S, 0, 0, Math.PI * 2);
+    ctx.fillStyle = '#A0D0FF';
+    ctx.fill();
+  }
+
+  ctx.restore();
+
+  // 发力特效（能拉动时）
+  if (state.pulling && canLift()) {
+    // 脚边扬尘
+    if (Math.random() < 0.4) {
+      dust.push({
+        x: x + (Math.random() - 0.5) * 60 * S,
+        y: y - 4 * S,
+        vx: (Math.random() - 0.5) * 40,
+        vy: -20 - Math.random() * 30,
+        size: (3 + Math.random() * 3) * S,
+        life: 1
+      });
+    }
+  }
+}
+
+/* ============================================================
+   绘制：粒子
+============================================================ */
+function drawSparks() {
+  for (const s of sparks) {
+    ctx.save();
+    ctx.globalAlpha = s.life;
+    ctx.translate(s.x, s.y);
+    drawStar(0, 0, s.size, s.size * 0.42, 5);
+    ctx.fillStyle = s.color;
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+function drawDust() {
+  for (const d of dust) {
+    ctx.save();
+    ctx.globalAlpha = d.life * 0.6;
+    ctx.beginPath();
+    ctx.arc(d.x, d.y, d.size, 0, Math.PI * 2);
+    ctx.fillStyle = '#d8c8a8';
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+function drawStar(cx, cy, outer, inner, points) {
+  ctx.beginPath();
+  for (let i = 0; i < points * 2; i++) {
+    const r = i % 2 === 0 ? outer : inner;
+    const a = (Math.PI / points) * i - Math.PI / 2;
+    const x = cx + Math.cos(a) * r;
+    const y = cy + Math.sin(a) * r;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+}
+
+/* ============================================================
+   工具
+============================================================ */
+function roundRect(x, y, w, h, r) {
+  const rr = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.lineTo(x + w - rr, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+  ctx.lineTo(x + w, y + h - rr);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+  ctx.lineTo(x + rr, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+  ctx.lineTo(x, y + rr);
+  ctx.quadraticCurveTo(x, y, x + rr, y);
+  ctx.closePath();
+}
+
+/* ============================================================
+   渲染
+============================================================ */
+function render() {
+  ctx.clearRect(0, 0, W, H);
+
+  drawSky();
+  drawSun();
+  drawClouds();
+  drawBirds();
+  drawGround();
+  drawPlatform();
+  drawBeam();
+
+  // 画绳子（在滑轮和石头之前）
+  drawRope();
+
+  // 滑轮
+  for (const p of pulleys) {
+    drawPulley(p);
+  }
+
+  // 石头
+  drawStone();
+
+  // 大象
+  drawElephant();
+
+  // 粒子
+  drawDust();
+  drawSparks();
+}
+
+/* ============================================================
+   交互
+============================================================ */
+function getPos(e) {
+  const rect = canvas.getBoundingClientRect();
+  return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+}
+
+function onDown(e) {
+  initAudio();
+  if (activePointer !== null) return;
+  activePointer = e.pointerId;
+  const p = getPos(e);
+
+  // 判断是否抓住了绳头
+  const hx = scene.ropePullX;
+  const hy = scene.ropePullY + state.ropeOffset * 0.3;
+  if (Math.hypot(p.x - hx, p.y - hy) < 40 * S) {
+    if (!canLift()) return;
+    draggingRope = true;
+    state.pulling = true;
+    ropeGrabY = p.y;
+    sfxRope();
+  }
+}
+
+function onMove(e) {
+  if (activePointer !== e.pointerId) return;
+  if (!draggingRope) return;
+  const p = getPos(e);
+  // 拖动的距离决定拉力强度
+  const dy = p.y - ropeGrabY;
+  if (dy > 8 * S) {
+    // 往下拖，持续拉动
+    state.pulling = true;
+    ropeGrabY = p.y - 8 * S;
+  }
+}
+
+function onUp(e) {
+  if (activePointer !== e.pointerId) return;
+  activePointer = null;
+  draggingRope = false;
+  state.pulling = false;
+}
+
+canvas.addEventListener('pointerdown', onDown);
+canvas.addEventListener('pointermove', onMove);
+canvas.addEventListener('pointerup', onUp);
+canvas.addEventListener('pointercancel', onUp);
+canvas.addEventListener('dblclick', function (e) { e.preventDefault(); });
+
+/* ============================================================
+   按钮
+============================================================ */
+btnPull.addEventListener('pointerdown', function (e) {
+  e.preventDefault();
+  initAudio();
+  if (!canLift()) return;
+  state.pulling = true;
+});
+
+btnPull.addEventListener('pointerup', function () {
+  state.pulling = false;
+});
+btnPull.addEventListener('pointerleave', function () {
+  state.pulling = false;
+});
+btnPull.addEventListener('pointercancel', function () {
+  state.pulling = false;
+});
+
+btnReset.addEventListener('click', function () {
+  initAudio();
+  sfxClick();
+  state.liftProgress = 0;
+  state.pulling = false;
+  state.done = false;
+  state.ropeOffset = 0;
+  stone.y = state.eleStartY;
+  stone.onGround = true;
+  for (const p of pulleys) {
+    if (p.type === 'moving') p.y = scene.platformY - 40 * S;
+  }
+  updateReadout();
+});
+
+pulleyBtns.forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    initAudio();
+    sfxClick();
+
+    pulleyBtns.forEach(function (b) { b.classList.remove('active'); });
+    btn.classList.add('active');
+
+    state.pulleyCount = +btn.dataset.pulleys;
+    state.liftProgress = 0;
+    state.pulling = false;
+    state.done = false;
+    state.ropeOffset = 0;
+
+    buildPulleys();
+    stone.y = state.eleStartY;
+    stone.onGround = true;
+
+    updateReadout();
+  });
+});
+
+weightSlider.addEventListener('input', function (e) {
+  initAudio();
+  state.weight = +e.target.value;
+  weightSliderVal.textContent = state.weight;
+
+  // 石头大小会变
+  stone.w = (26 + state.weight * 4) * S;
+  stone.h = (22 + state.weight * 3) * S;
+
+  // 复位
+  state.liftProgress = 0;
+  state.pulling = false;
+  state.done = false;
+  state.ropeOffset = 0;
+  stone.y = state.eleStartY;
+  stone.onGround = true;
+
+  updateReadout();
+});
+
+/* ============================================================
+   启动
+============================================================ */
+resize();
+updateReadout();
+
+window.addEventListener('resize', function () {
+  resize();
+  render();
+});
+
+if (window.ResizeObserver) {
+  new ResizeObserver(function () {
+    const cw = canvas.clientWidth;
+    const ch = canvas.clientHeight;
+    if (cw > 0 && ch > 0 && (Math.abs(cw - W) > 1 || Math.abs(ch - H) > 1)) {
+      resize();
+      render();
+    }
+  }).observe(canvas);
+}
+
+render();
+requestAnimationFrame(function () {
+  resize();
+  render();
+});
+
+gsap.ticker.add(function (t, deltaTime) {
+  const dt = Math.min(deltaTime || 16, 50) / 1000;
+  update(dt);
+  render();
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,1034 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>岩石一家人 —— 石头 · 沙子 · 泥土</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    height: 100%; width: 100%; overflow: hidden; background: #0a1018;
+    touch-action: none;
+    font-family: system-ui, -apple-system, sans-serif;
+    color: #fff;
+  }
+  canvas { display: block; position: absolute; inset: 0; }
+
+  .status {
+    position: fixed;
+    top: 16px; left: 50%;
+    transform: translateX(-50%);
+    padding: 14px 30px;
+    background: rgba(16, 22, 38, 0.92);
+    border-radius: 30px;
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    font-size: 16px; font-weight: 700;
+    z-index: 10; white-space: nowrap; max-width: 94vw;
+    text-align: center; transition: all 0.3s;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+  }
+  .status.flash {
+    background: rgba(40, 120, 60, 0.95);
+    border-color: rgba(127, 221, 110, 0.6);
+    color: #e8ffe0;
+    box-shadow: 0 8px 30px rgba(80, 200, 100, 0.4);
+  }
+
+  .panel {
+    position: fixed;
+    bottom: 14px; left: 50%;
+    transform: translateX(-50%);
+    width: min(700px, 94vw);
+    background: rgba(16, 22, 38, 0.94);
+    padding: 14px 22px;
+    border-radius: 20px;
+    backdrop-filter: blur(14px);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    z-index: 10;
+    display: flex; flex-direction: column; gap: 10px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+  }
+  .panel .btns {
+    display: grid;
+    grid-template-columns: 1.3fr 1.3fr 1fr;
+    gap: 10px;
+  }
+  .panel button {
+    padding: 14px 14px;
+    border-radius: 14px;
+    border: none;
+    font-weight: 800; font-size: 15px;
+    cursor: pointer; transition: transform 0.12s, box-shadow 0.2s;
+    white-space: nowrap;
+    letter-spacing: 0.5px;
+  }
+  .panel button:active:not(:disabled) { transform: translateY(1px); }
+  .panel button:disabled {
+    background: rgba(120, 130, 150, 0.3);
+    color: rgba(255, 255, 255, 0.4);
+    cursor: not-allowed;
+    box-shadow: none;
+  }
+  .panel .btn-weath {
+    background: linear-gradient(135deg, #a08050, #ffb055);
+    color: #1a0a00;
+    box-shadow: 0 4px 16px rgba(255, 160, 60, 0.4);
+  }
+  .panel .btn-weath:hover:not(:disabled) {
+    box-shadow: 0 6px 22px rgba(255, 160, 60, 0.55);
+  }
+  .panel .btn-water {
+    background: linear-gradient(135deg, #5eb3ff, #7fdd6e);
+    color: #061020;
+    box-shadow: 0 4px 16px rgba(94, 179, 255, 0.4);
+  }
+  .panel .btn-water:hover:not(:disabled) {
+    box-shadow: 0 6px 22px rgba(94, 179, 255, 0.55);
+  }
+  .panel .btn-reset {
+    background: rgba(255, 255, 255, 0.14);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.22);
+  }
+  .panel .btn-reset:hover { background: rgba(255, 255, 255, 0.24); }
+
+  .flow {
+    text-align: center;
+    font-size: 13px;
+    color: #a8c0e0;
+    letter-spacing: 1px;
+    font-weight: 700;
+    line-height: 1.6;
+  }
+  .flow .arrow {
+    color: #ffd54f;
+    font-size: 16px;
+    margin: 0 4px;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div class="status" id="status">🔍 看看石头、沙子、泥土有什么不一样</div>
+
+<div class="panel">
+  <div class="flow">
+    🌳 石头 <span class="arrow">→ 风化 →</span> 沙子 <span class="arrow">→ 混入腐叶 →</span> 泥土
+  </div>
+  <div class="btns">
+    <button class="btn-weath" id="btnWeath">🌬️ 风吹雨打（风化）</button>
+    <button class="btn-water" id="btnWater">💧 下场雨</button>
+    <button class="btn-reset" id="btnReset">🔄 重置</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+<script>
+/* ============================================================
+   岩石一家人 —— 石头 · 沙子 · 泥土
+   ------------------------------------------------------------
+   教材依据：
+   第五章第二节「石、沙、土」—— 成分、种类与特征、消蚀变化
+   第五章第二节「岩石消蚀变化」—— 风化作用
+
+   核心概念：
+   ① 石头、沙子、泥土看起来完全不同
+   ② 它们其实是"一家人"——都是岩石变来的
+   ③ 岩石经风吹雨打慢慢碎裂，先变小石块，再变成沙粒
+   ④ 沙子和腐烂的叶子、小生物混在一起，就变成了泥土
+   ⑤ 沙子和泥土最大的不同：沙子渗水快，泥土蓄水好
+   ============================================================ */
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+const statusEl = document.getElementById('status');
+const btnWeath = document.getElementById('btnWeath');
+const btnWater = document.getElementById('btnWater');
+const btnReset = document.getElementById('btnReset');
+
+let W = 800, H = 600, DPR = 1, S = 1;
+let time = 0;
+
+/* ---------- 状态 ---------- */
+const state = {
+  weathering: 0,       // 0~1 风化进度
+  watering: 0,         // 0~1 下雨进度
+  windPhase: 0,        // 风线相位
+  rainDrops: [],
+  windLines: [],
+  fragments: [],       // 石头碎屑
+  waterFill: { sand: 0, soil: 0 },  // 沙和土里的水
+  lastStage: 0
+};
+
+/* ---------- 三个容器（从左到右：石头、沙子、泥土） ---------- */
+const containers = [
+  { id: 'rock',  label: '石头',  color: '#7a7a85', x: 0, y: 0, w: 0, h: 0 },
+  { id: 'sand',  label: '沙子',  color: '#e8c88a', x: 0, y: 0, w: 0, h: 0 },
+  { id: 'soil',  label: '泥土',  color: '#5a3e28', x: 0, y: 0, w: 0, h: 0 }
+];
+
+/* ---------- 石头 ---------- */
+let rocks = [];     // 大石块 { x, y, r, points[], alive, dying }
+
+/* ---------- 沙粒 ---------- */
+let sandParticles = [];  // { x, y, r, color, vy }
+
+/* ---------- 泥土 ---------- */
+let soilParticles = [];  // { x, y, r, color }
+let leafBits = [];       // 腐叶 { x, y, r, rot, color }
+
+/* ============================================================
+   尺寸与布局
+============================================================ */
+function resize() {
+  let w = window.innerWidth || document.documentElement.clientWidth || 800;
+  let h = window.innerHeight || document.documentElement.clientHeight || 600;
+  if (w < 200) w = 800;
+  if (h < 200) h = 600;
+
+  W = w; H = h;
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width = Math.floor(W * DPR);
+  canvas.height = Math.floor(H * DPR);
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+  S = Math.max(0.55, Math.min(1.15, H / 800));
+
+  layoutScene();
+  buildEverything();
+}
+
+function layoutScene() {
+  const totalW = Math.min(W * 0.88, 740 * S);
+  const gap = 28 * S;
+  const cw = (totalW - gap * 2) / 3;
+  const ch = Math.min(H * 0.44, 340 * S);
+  const startX = W * 0.5 - totalW / 2;
+  const cy = H * 0.40;
+
+  for (let i = 0; i < 3; i++) {
+    const c = containers[i];
+    c.w = cw;
+    c.h = ch;
+    c.x = startX + i * (cw + gap);
+    c.y = cy - ch / 2;
+  }
+}
+
+function buildEverything() {
+  // ---- 石头容器 ----
+  rocks = [];
+  const rc = containers[0];
+  // 4块大石头摆在不同位置
+  const rockDefs = [
+    { u: 0.28, v: 0.75, r: 42 },
+    { u: 0.68, v: 0.72, r: 50 },
+    { u: 0.45, v: 0.55, r: 36 },
+    { u: 0.75, v: 0.48, r: 28 }
+  ];
+  for (const def of rockDefs) {
+    rocks.push({
+      x: rc.x + rc.w * def.u,
+      y: rc.y + rc.h * def.v,
+      r: def.r * S,
+      rot: Math.random() * Math.PI * 2,
+      points: buildRockShape(),
+      alive: true,
+      scale: 1
+    });
+  }
+  state.fragments = [];
+
+  // ---- 沙子容器 ----
+  sandParticles = [];
+  const sc = containers[1];
+  for (let i = 0; i < 320; i++) {
+    sandParticles.push({
+      x: sc.x + 6 * S + Math.random() * (sc.w - 12 * S),
+      y: sc.y + sc.h * 0.52 + Math.random() * (sc.h * 0.45),
+      r: (1 + Math.random() * 1.8) * S,
+      color: ['#f0d498', '#e8c88a', '#d8b070', '#c8a050', '#ffdda8'][Math.floor(Math.random() * 5)],
+      shimmer: Math.random() * Math.PI * 2
+    });
+  }
+
+  // ---- 泥土容器 ----
+  soilParticles = [];
+  leafBits = [];
+  const slc = containers[2];
+  for (let i = 0; i < 240; i++) {
+    soilParticles.push({
+      x: slc.x + 6 * S + Math.random() * (slc.w - 12 * S),
+      y: slc.y + slc.h * 0.40 + Math.random() * (slc.h * 0.55),
+      r: (1.5 + Math.random() * 2.4) * S,
+      color: ['#4a3220', '#5a3e28', '#3a2515', '#6a4830', '#3e2a18'][Math.floor(Math.random() * 5)],
+      rot: Math.random() * Math.PI * 2
+    });
+  }
+  for (let i = 0; i < 10; i++) {
+    leafBits.push({
+      x: slc.x + 12 * S + Math.random() * (slc.w - 24 * S),
+      y: slc.y + slc.h * 0.35 + Math.random() * (slc.h * 0.5),
+      r: (4 + Math.random() * 4) * S,
+      rot: Math.random() * Math.PI * 2,
+      color: ['#7a4a20', '#8a5a30', '#6a4020', '#a06830'][Math.floor(Math.random() * 4)]
+    });
+  }
+
+  state.waterFill.sand = 0;
+  state.waterFill.soil = 0;
+}
+
+function buildRockShape() {
+  const pts = [];
+  const n = 8;
+  for (let i = 0; i < n; i++) {
+    const a = (Math.PI * 2 / n) * i + (Math.random() - 0.5) * 0.4;
+    const r = 0.85 + Math.random() * 0.3;
+    pts.push({ a, r });
+  }
+  return pts;
+}
+
+/* ============================================================
+   音效
+============================================================ */
+let audioCtx = null;
+function initAudio() {
+  if (!audioCtx) {
+    try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
+  }
+}
+function beep(freq, dur, vol, type, delay) {
+  vol = vol == null ? 0.06 : vol;
+  type = type || 'sine';
+  delay = delay || 0;
+  if (!audioCtx) return;
+  const t0 = audioCtx.currentTime + delay;
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(freq, t0);
+  o.connect(g);
+  g.connect(audioCtx.destination);
+  g.gain.setValueAtTime(vol, t0);
+  g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+  o.start(t0);
+  o.stop(t0 + dur);
+}
+function sfxWind() {
+  // 风声：低频白噪音感觉
+  for (let i = 0; i < 6; i++) {
+    beep(120 + Math.random() * 80, 0.15, 0.04, 'sawtooth', i * 0.08);
+  }
+}
+function sfxRock() {
+  beep(120, 0.10, 0.08, 'square');
+  beep(80, 0.20, 0.06, 'square', 0.12);
+}
+function sfxRain() {
+  for (let i = 0; i < 8; i++) {
+    beep(400 + Math.random() * 400, 0.04, 0.03, 'sine', i * 0.06);
+  }
+}
+function sfxWin() {
+  beep(523, 0.12, 0.09);
+  beep(659, 0.12, 0.09, 'sine', 0.10);
+  beep(784, 0.16, 0.09, 'sine', 0.20);
+  beep(1046, 0.26, 0.10, 'sine', 0.34);
+}
+
+/* ============================================================
+   更新
+============================================================ */
+function update(dt) {
+  time += dt;
+  state.windPhase += dt * 8;
+
+  // ---- 风化进程 ----
+  if (state.weathering > 0 && state.weathering < 1) {
+    state.weathering = Math.min(1, state.weathering + dt * 0.22);
+  }
+
+  // 风化越深，石头越小
+  for (const rock of rocks) {
+    if (!rock.alive) continue;
+    if (state.weathering < 0.4) {
+      rock.scale = 1 - state.weathering * 0.4;
+    } else if (state.weathering < 0.8) {
+      rock.scale = 0.84 - (state.weathering - 0.4) * 0.9;
+    } else {
+      // 最后阶段：石头碎裂
+      if (state.weathering >= 0.8 && rock.alive) {
+        rock.alive = false;
+        // 生成碎屑
+        for (let i = 0; i < 40; i++) {
+          const a = Math.random() * Math.PI * 2;
+          const sp = 60 + Math.random() * 140;
+          state.fragments.push({
+            x: rock.x + (Math.random() - 0.5) * rock.r,
+            y: rock.y + (Math.random() - 0.5) * rock.r,
+            vx: Math.cos(a) * sp,
+            vy: Math.sin(a) * sp - 80,
+            r: (1.5 + Math.random() * 2.5) * S,
+            color: ['#f0d498', '#e8c88a', '#d8b070', '#c8a050'][i % 4],
+            life: 1,
+            resting: false
+          });
+        }
+        sfxRock();
+      }
+    }
+  }
+
+  // 碎屑物理：飞出去→落地
+  for (const f of state.fragments) {
+    if (f.resting) continue;
+    f.vy += 400 * dt;
+    f.x += f.vx * dt;
+    f.y += f.vy * dt;
+
+    // 落地：在石头容器的"地面线"上停下
+    const groundY = containers[0].y + containers[0].h - 8 * S;
+    if (f.y > groundY) {
+      f.y = groundY;
+      f.vy *= -0.35;
+      f.vx *= 0.6;
+      if (Math.abs(f.vy) < 30) {
+        f.resting = true;
+        f.vy = 0;
+        f.vx = 0;
+      }
+    }
+  }
+
+  // ---- 下雨进程 ----
+  if (state.watering > 0 && state.watering < 1) {
+    state.watering = Math.min(1, state.watering + dt * 0.3);
+  }
+
+  // 雨滴下落
+  for (const d of state.rainDrops) {
+    d.y += d.vy * dt;
+    d.vy += 200 * dt;
+    if (d.y > d.targetY) {
+      d.dead = true;
+      // 渗水：沙快、土慢
+      if (d.tank === 'sand') {
+        state.waterFill.sand = Math.min(1, state.waterFill.sand + 0.02);
+      } else if (d.tank === 'soil') {
+        state.waterFill.soil = Math.min(1, state.waterFill.soil + 0.012);
+      }
+    }
+  }
+  state.rainDrops = state.rainDrops.filter(d => !d.dead);
+
+  // 风线
+  for (const w of state.windLines) {
+    w.x += w.vx * dt;
+    w.life -= dt * 0.8;
+  }
+  state.windLines = state.windLines.filter(w => w.life > 0);
+
+  // 风化时不断生成风线
+  if (state.weathering > 0 && state.weathering < 1 && Math.random() < 0.5) {
+    const rc = containers[0];
+    state.windLines.push({
+      x: rc.x - 40 * S,
+      y: rc.y + 30 * S + Math.random() * rc.h * 0.6,
+      vx: (300 + Math.random() * 200) * S,
+      len: (40 + Math.random() * 60) * S,
+      life: 1
+    });
+  }
+
+  // 下雨时不断生成雨滴
+  if (state.watering > 0 && state.watering < 1 && Math.random() < 0.7) {
+    for (const c of [containers[1], containers[2]]) {
+      state.rainDrops.push({
+        x: c.x + 20 * S + Math.random() * (c.w - 40 * S),
+        y: c.y - 40 * S,
+        vy: 100 + Math.random() * 100,
+        targetY: c.y + c.h * (c.id === 'sand' ? 0.7 : 0.5),
+        tank: c.id
+      });
+    }
+  }
+
+  updateStatus();
+}
+
+function updateStatus() {
+  // 分阶段提示
+  let stage = 0;
+  if (state.weathering > 0 && state.weathering < 0.4) stage = 1;
+  else if (state.weathering >= 0.4 && state.weathering < 0.8) stage = 2;
+  else if (state.weathering >= 0.8) stage = 3;
+  if (state.watering >= 1) stage = 4;
+
+  if (stage !== state.lastStage) {
+    state.lastStage = stage;
+    if (stage === 0) {
+      statusEl.textContent = '🔍 看看石头、沙子、泥土有什么不一样';
+      statusEl.className = 'status';
+    } else if (stage === 1) {
+      statusEl.textContent = '🌬️ 风吹雨打，石头表面开始出现裂纹……';
+      statusEl.className = 'status';
+    } else if (stage === 2) {
+      statusEl.textContent = '🌬️ 石头在慢慢变小、裂开……';
+      statusEl.className = 'status';
+    } else if (stage === 3) {
+      statusEl.textContent = '🎉 看！大石头碎成了小沙粒——它们是一家人';
+      statusEl.className = 'status flash';
+      sfxWin();
+    } else if (stage === 4) {
+      statusEl.textContent = '💧 沙子里的水流走了，泥土里的水被留住——所以泥土能种植物';
+      statusEl.className = 'status flash';
+      sfxWin();
+    }
+  }
+}
+
+/* ============================================================
+   绘制：背景
+============================================================ */
+function drawBackground() {
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#1a2438');
+  g.addColorStop(0.55, '#0d1422');
+  g.addColorStop(1, '#050810');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+}
+
+/* ============================================================
+   绘制：容器
+============================================================ */
+function drawContainer(c) {
+  // 阴影
+  ctx.save();
+  ctx.shadowBlur = 20 * S;
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.7)';
+  ctx.beginPath();
+  roundRect(c.x, c.y, c.w, c.h, 14 * S);
+  ctx.fillStyle = 'rgba(20, 30, 50, 0.5)';
+  ctx.fill();
+  ctx.restore();
+
+  // 内部裁剪区域
+  ctx.save();
+  ctx.beginPath();
+  roundRect(c.x, c.y, c.w, c.h, 14 * S);
+  ctx.clip();
+
+  // 内部背景
+  const bg = ctx.createLinearGradient(0, c.y, 0, c.y + c.h);
+  bg.addColorStop(0, 'rgba(50, 65, 90, 0.45)');
+  bg.addColorStop(1, 'rgba(25, 40, 65, 0.65)');
+  ctx.fillStyle = bg;
+  ctx.fillRect(c.x, c.y, c.w, c.h);
+
+  // 每个容器不同的内容
+  if (c.id === 'rock') drawRockContent(c);
+  else if (c.id === 'sand') drawSandContent(c);
+  else drawSoilContent(c);
+
+  ctx.restore();
+
+  // 边框
+  ctx.beginPath();
+  roundRect(c.x, c.y, c.w, c.h, 14 * S);
+  ctx.strokeStyle = 'rgba(200, 225, 245, 0.75)';
+  ctx.lineWidth = 3 * S;
+  ctx.stroke();
+
+  // 高光
+  ctx.beginPath();
+  ctx.moveTo(c.x + 12 * S, c.y + c.h * 0.15);
+  ctx.lineTo(c.x + 12 * S, c.y + c.h * 0.55);
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
+  ctx.lineWidth = 3 * S;
+  ctx.lineCap = 'round';
+  ctx.stroke();
+
+  // 顶部标签
+  ctx.font = 'bold ' + Math.round(18 * S) + 'px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'bottom';
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+  ctx.fillText(c.label, c.x + c.w / 2, c.y - 14 * S);
+}
+
+/* ---------- 石头容器内容 ---------- */
+function drawRockContent(c) {
+  // 底部"地面"渐变
+  const groundY = c.y + c.h - 4 * S;
+  const groundGrad = ctx.createLinearGradient(0, groundY - 60 * S, 0, groundY);
+  groundGrad.addColorStop(0, 'rgba(80, 85, 100, 0)');
+  groundGrad.addColorStop(1, 'rgba(80, 85, 100, 0.35)');
+  ctx.fillStyle = groundGrad;
+  ctx.fillRect(c.x, groundY - 60 * S, c.w, 60 * S);
+
+  // 画每一块石头
+  for (const rock of rocks) {
+    if (!rock.alive) continue;
+    const r = rock.r * rock.scale;
+
+    ctx.save();
+    ctx.translate(rock.x, rock.y);
+    ctx.rotate(rock.rot);
+
+    // 阴影
+    ctx.beginPath();
+    ctx.arc(4 * S, 5 * S, r, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+    ctx.fill();
+
+    // 石头主体
+    ctx.beginPath();
+    for (let i = 0; i < rock.points.length; i++) {
+      const pt = rock.points[i];
+      const px = Math.cos(pt.a) * r * pt.r;
+      const py = Math.sin(pt.a) * r * pt.r;
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+
+    const g = ctx.createRadialGradient(-r * 0.3, -r * 0.3, r * 0.1, 0, 0, r);
+    g.addColorStop(0, '#b8b8c0');
+    g.addColorStop(0.5, '#7a7a85');
+    g.addColorStop(1, '#3a3a45');
+    ctx.fillStyle = g;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(30, 35, 45, 0.75)';
+    ctx.lineWidth = 2 * S;
+    ctx.stroke();
+
+    // 高光
+    ctx.beginPath();
+    ctx.ellipse(-r * 0.3, -r * 0.35, r * 0.22, r * 0.3, -0.4, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+    ctx.fill();
+
+    // 风化裂纹（随着风化进度越来越深）
+    if (state.weathering > 0.05) {
+      ctx.strokeStyle = 'rgba(20, 20, 30, ' + Math.min(1, state.weathering * 1.8) + ')';
+      ctx.lineWidth = (1.5 + state.weathering * 1.5) * S;
+      ctx.lineCap = 'round';
+
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.6, -r * 0.2);
+      ctx.lineTo(-r * 0.1, -r * 0.05);
+      ctx.lineTo(r * 0.15, r * 0.3);
+      ctx.stroke();
+
+      if (state.weathering > 0.3) {
+        ctx.beginPath();
+        ctx.moveTo(-r * 0.1, -r * 0.05);
+        ctx.lineTo(r * 0.5, -r * 0.25);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(r * 0.15, r * 0.3);
+        ctx.lineTo(-r * 0.35, r * 0.55);
+        ctx.stroke();
+      }
+      if (state.weathering > 0.6) {
+        ctx.beginPath();
+        ctx.moveTo(-r * 0.1, -r * 0.05);
+        ctx.lineTo(-r * 0.55, r * 0.4);
+        ctx.moveTo(r * 0.15, r * 0.3);
+        ctx.lineTo(r * 0.45, r * 0.55);
+        ctx.stroke();
+      }
+    }
+
+    ctx.restore();
+  }
+
+  // 碎屑（飞溅的沙粒）
+  for (const f of state.fragments) {
+    ctx.beginPath();
+    ctx.arc(f.x, f.y, f.r, 0, Math.PI * 2);
+    ctx.fillStyle = f.color;
+    ctx.fill();
+    // 高光
+    ctx.beginPath();
+    ctx.arc(f.x - f.r * 0.3, f.y - f.r * 0.3, f.r * 0.4, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+    ctx.fill();
+  }
+
+  // 风化完全后的"沙堆"（容器底部堆积一层沙）
+  if (state.weathering >= 0.95) {
+    const groundY = c.y + c.h - 6 * S;
+    ctx.beginPath();
+    ctx.moveTo(c.x + 4 * S, groundY);
+    ctx.lineTo(c.x + 4 * S, groundY - 22 * S);
+    for (let x = c.x + 4; x <= c.x + c.w - 4; x += 6) {
+      const wave = Math.sin(x * 0.08) * 3 * S;
+      ctx.lineTo(x, groundY - 22 * S + wave);
+    }
+    ctx.lineTo(c.x + c.w - 4 * S, groundY);
+    ctx.closePath();
+    const sandPile = ctx.createLinearGradient(0, groundY - 22 * S, 0, groundY);
+    sandPile.addColorStop(0, '#f0d498');
+    sandPile.addColorStop(1, '#a88040');
+    ctx.fillStyle = sandPile;
+    ctx.fill();
+  }
+
+  // 风线（风化时）
+  for (const w of state.windLines) {
+    ctx.save();
+    ctx.globalAlpha = w.life * 0.7;
+    ctx.strokeStyle = 'rgba(200, 230, 255, 0.9)';
+    ctx.lineWidth = 2.5 * S;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(w.x, w.y);
+    ctx.quadraticCurveTo(w.x + w.len * 0.5, w.y - 6 * S, w.x + w.len, w.y);
+    ctx.stroke();
+    // 前端小尖头
+    ctx.beginPath();
+    ctx.moveTo(w.x + w.len, w.y);
+    ctx.lineTo(w.x + w.len - 8 * S, w.y - 4 * S);
+    ctx.moveTo(w.x + w.len, w.y);
+    ctx.lineTo(w.x + w.len - 8 * S, w.y + 4 * S);
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+/* ---------- 沙子容器内容 ---------- */
+function drawSandContent(c) {
+  // 沙堆形态（波浪形顶部）
+  const pileTop = c.y + c.h * 0.55;
+  const groundY = c.y + c.h;
+
+  ctx.beginPath();
+  ctx.moveTo(c.x, groundY);
+  ctx.lineTo(c.x, pileTop);
+  for (let x = c.x; x <= c.x + c.w; x += 6) {
+    const wave = Math.sin(x * 0.04) * 5 * S + Math.sin(x * 0.11) * 3 * S;
+    ctx.lineTo(x, pileTop + wave);
+  }
+  ctx.lineTo(c.x + c.w, groundY);
+  ctx.closePath();
+
+  const sandGrad = ctx.createLinearGradient(0, pileTop, 0, groundY);
+  sandGrad.addColorStop(0, '#f0d498');
+  sandGrad.addColorStop(0.5, '#e0b878');
+  sandGrad.addColorStop(1, '#a88040');
+  ctx.fillStyle = sandGrad;
+  ctx.fill();
+
+  // 沙粒
+  for (const p of sandParticles) {
+    const shimmer = 0.75 + Math.sin(time * 2 + p.shimmer) * 0.25;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+    ctx.fillStyle = p.color;
+    ctx.globalAlpha = shimmer;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
+  // 加水后：水快速渗下去（用蓝色水痕 + 水位快速下降表示）
+  if (state.watering > 0) {
+    const waterLevel = c.h * 0.7 * (1 - state.waterFill.sand * 0.95);
+    // 上面的水已经渗下去，底部有水痕
+    if (waterLevel > 4 * S) {
+      ctx.fillStyle = 'rgba(120, 200, 240, 0.35)';
+      ctx.fillRect(c.x, c.y + c.h - waterLevel, c.w, waterLevel);
+    }
+    // 底部湿润的沙色变深
+    if (state.waterFill.sand > 0.3) {
+      ctx.fillStyle = 'rgba(80, 60, 30, ' + (state.waterFill.sand * 0.35) + ')';
+      ctx.fillRect(c.x, pileTop, c.w, c.h - (pileTop - c.y));
+    }
+  }
+
+  // 顶部标签（在水面之上）
+  if (state.watering > 0 && state.waterFill.sand < 0.95) {
+    ctx.font = 'bold ' + Math.round(13 * S) + 'px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = 'rgba(94, 179, 255, 0.95)';
+    ctx.fillText('水渗下去啦 ↓', c.x + c.w / 2, c.y + 30 * S);
+  }
+}
+
+/* ---------- 泥土容器内容 ---------- */
+function drawSoilContent(c) {
+  const pileTop = c.y + c.h * 0.42;
+  const groundY = c.y + c.h;
+
+  // 泥土主体
+  ctx.beginPath();
+  ctx.moveTo(c.x, groundY);
+  ctx.lineTo(c.x, pileTop);
+  for (let x = c.x; x <= c.x + c.w; x += 6) {
+    const wave = Math.sin(x * 0.05) * 4 * S + Math.sin(x * 0.13) * 2 * S;
+    ctx.lineTo(x, pileTop + wave);
+  }
+  ctx.lineTo(c.x + c.w, groundY);
+  ctx.closePath();
+
+  const soilGrad = ctx.createLinearGradient(0, pileTop, 0, groundY);
+  soilGrad.addColorStop(0, '#5a3e28');
+  soilGrad.addColorStop(0.5, '#3a2515');
+  soilGrad.addColorStop(1, '#1e0f08');
+  ctx.fillStyle = soilGrad;
+  ctx.fill();
+
+  // 泥土颗粒
+  for (const p of soilParticles) {
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.rotate(p.rot);
+    ctx.beginPath();
+    ctx.arc(0, 0, p.r, 0, Math.PI * 2);
+    ctx.fillStyle = p.color;
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // 腐叶
+  for (const l of leafBits) {
+    ctx.save();
+    ctx.translate(l.x, l.y);
+    ctx.rotate(l.rot);
+    ctx.beginPath();
+    ctx.ellipse(0, 0, l.r, l.r * 0.55, 0, 0, Math.PI * 2);
+    ctx.fillStyle = l.color;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(20, 10, 5, 0.6)';
+    ctx.lineWidth = 1 * S;
+    ctx.stroke();
+    // 叶脉
+    ctx.beginPath();
+    ctx.moveTo(-l.r * 0.8, 0);
+    ctx.lineTo(l.r * 0.8, 0);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // 加水后：水被留住（水层在上方慢慢积累）
+  if (state.watering > 0 && state.waterFill.soil > 0.05) {
+    const waterLevel = c.h * 0.5 * state.waterFill.soil;
+    if (waterLevel > 3 * S) {
+      const waterTop = c.y + c.h - waterLevel;
+      const wg = ctx.createLinearGradient(0, waterTop, 0, c.y + c.h);
+      wg.addColorStop(0, 'rgba(120, 200, 240, 0.4)');
+      wg.addColorStop(1, 'rgba(60, 140, 200, 0.55)');
+      ctx.fillStyle = wg;
+      ctx.fillRect(c.x, waterTop, c.w, waterLevel);
+    }
+    // 泥土整体变深（被浸湿）
+    if (state.waterFill.soil > 0.3) {
+      ctx.fillStyle = 'rgba(20, 10, 5, ' + (state.waterFill.soil * 0.35) + ')';
+      ctx.fillRect(c.x, pileTop, c.w, c.h - (pileTop - c.y));
+    }
+    // 水面波纹
+    if (state.waterFill.soil > 0.5) {
+      const waterTop = c.y + c.h - c.h * 0.5 * state.waterFill.soil;
+      ctx.strokeStyle = 'rgba(200, 240, 255, 0.9)';
+      ctx.lineWidth = 2 * S;
+      ctx.beginPath();
+      for (let x = c.x + 4; x <= c.x + c.w - 4; x += 6) {
+        const y = waterTop + Math.sin(x * 0.08 + time * 3) * 2 * S;
+        if (x === c.x + 4) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+
+      // 提示文字
+      ctx.font = 'bold ' + Math.round(13 * S) + 'px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = 'rgba(94, 179, 255, 0.95)';
+      ctx.fillText('水留住啦 ↑', c.x + c.w / 2, waterTop - 16 * S);
+    }
+  }
+}
+
+/* ============================================================
+   绘制：雨滴（全局）
+============================================================ */
+function drawRain() {
+  for (const d of state.rainDrops) {
+    ctx.beginPath();
+    ctx.ellipse(d.x, d.y, 2 * S, 6 * S, 0, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(160, 220, 255, 0.85)';
+    ctx.fill();
+  }
+}
+
+/* ============================================================
+   绘制：容器下方的标注箭头
+============================================================ */
+function drawFlowArrows() {
+  const y = containers[0].y + containers[0].h + 40 * S;
+
+  for (let i = 0; i < 2; i++) {
+    const left = containers[i];
+    const right = containers[i + 1];
+    const x1 = left.x + left.w;
+    const x2 = right.x;
+
+    // 箭头
+    ctx.strokeStyle = 'rgba(255, 213, 79, 0.7)';
+    ctx.lineWidth = 2.5 * S;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x1 + 4 * S, y);
+    ctx.lineTo(x2 - 4 * S, y);
+    ctx.stroke();
+
+    // 箭头尖
+    ctx.beginPath();
+    ctx.moveTo(x2 - 4 * S, y);
+    ctx.lineTo(x2 - 14 * S, y - 6 * S);
+    ctx.lineTo(x2 - 14 * S, y + 6 * S);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(255, 213, 79, 0.9)';
+    ctx.fill();
+
+    // 中间文字
+    const midX = (x1 + x2) / 2;
+    const text = i === 0 ? '风化' : '混入腐叶';
+    ctx.font = 'bold ' + Math.round(12 * S) + 'px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const tw = ctx.measureText(text).width;
+    const padX = 8 * S;
+    ctx.fillStyle = 'rgba(16, 22, 38, 0.95)';
+    roundRect(midX - tw / 2 - padX, y - 12 * S, tw + padX * 2, 24 * S, 12 * S);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 213, 79, 0.5)';
+    ctx.lineWidth = 1.2 * S;
+    roundRect(midX - tw / 2 - padX, y - 12 * S, tw + padX * 2, 24 * S, 12 * S);
+    ctx.stroke();
+    ctx.fillStyle = '#ffd54f';
+    ctx.fillText(text, midX, y + 1);
+  }
+}
+
+/* ============================================================
+   工具
+============================================================ */
+function roundRect(x, y, w, h, r) {
+  const rr = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.lineTo(x + w - rr, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+  ctx.lineTo(x + w, y + h - rr);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+  ctx.lineTo(x + rr, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+  ctx.lineTo(x, y + rr);
+  ctx.quadraticCurveTo(x, y, x + rr, y);
+  ctx.closePath();
+}
+
+/* ============================================================
+   渲染
+============================================================ */
+function render() {
+  ctx.clearRect(0, 0, W, H);
+
+  drawBackground();
+
+  for (const c of containers) {
+    drawContainer(c);
+  }
+
+  drawFlowArrows();
+  drawRain();
+}
+
+/* ============================================================
+   按钮
+============================================================ */
+btnWeath.addEventListener('click', function () {
+  initAudio();
+  sfxWind();
+  state.weathering = 0.01;
+  btnWeath.disabled = true;
+  btnWeath.textContent = '🌬️ 风化中……';
+  state.lastStage = -1;
+});
+
+btnWater.addEventListener('click', function () {
+  initAudio();
+  sfxRain();
+  state.watering = 0.01;
+  btnWater.disabled = true;
+  btnWater.textContent = '💧 下雨中……';
+  state.lastStage = -1;
+});
+
+btnReset.addEventListener('click', function () {
+  initAudio();
+  state.weathering = 0;
+  state.watering = 0;
+  state.rainDrops = [];
+  state.windLines = [];
+  state.fragments = [];
+  state.waterFill.sand = 0;
+  state.waterFill.soil = 0;
+  state.lastStage = -1;
+  buildEverything();
+  btnWeath.disabled = false;
+  btnWeath.textContent = '🌬️ 风吹雨打（风化）';
+  btnWater.disabled = false;
+  btnWater.textContent = '💧 下场雨';
+  statusEl.textContent = '🔍 看看石头、沙子、泥土有什么不一样';
+  statusEl.className = 'status';
+});
+
+canvas.addEventListener('dblclick', function (e) { e.preventDefault(); });
+
+/* ============================================================
+   启动
+============================================================ */
+resize();
+
+window.addEventListener('resize', function () {
+  resize();
+  render();
+});
+
+if (window.ResizeObserver) {
+  new ResizeObserver(function () {
+    const cw = canvas.clientWidth, ch = canvas.clientHeight;
+    if (cw > 0 && ch > 0 && (Math.abs(cw - W) > 1 || Math.abs(ch - H) > 1)) {
+      resize();
+      render();
+    }
+  }).observe(canvas);
+}
+
+render();
+requestAnimationFrame(function () {
+  resize();
+  render();
+});
+
+gsap.ticker.add(function (t, dt) {
+  const d = Math.min(dt || 16, 50) / 1000;
+  update(d);
+  render();
+});
+</script>
+</body>
+</html>

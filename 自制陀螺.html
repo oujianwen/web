@@ -1,0 +1,920 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>自制陀螺 —— 转得稳又久</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    height: 100%; overflow: hidden; background: #0a0e18;
+    touch-action: none;
+    font-family: system-ui, -apple-system, sans-serif;
+    color: #fff;
+  }
+  canvas { display: block; }
+
+  .panel {
+    position: fixed;
+    bottom: 18px; left: 50%;
+    transform: translateX(-50%);
+    width: min(480px, 94vw);
+    background: rgba(16, 22, 38, 0.82);
+    padding: 18px 24px;
+    border-radius: 20px;
+    backdrop-filter: blur(14px);
+    border: 1px solid rgba(255, 255, 255, 0.13);
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+  }
+  .panel .row {
+    display: grid;
+    grid-template-columns: 78px 1fr 70px;
+    align-items: center;
+    gap: 12px;
+    font-size: 13px;
+  }
+  .panel .row > .lbl {
+    font-weight: 600;
+    white-space: nowrap;
+    font-size: 14px;
+  }
+  .panel input[type="range"] {
+    width: 100%;
+    height: 6px;
+    accent-color: #ffb055;
+    cursor: pointer;
+  }
+  .panel .val {
+    text-align: right;
+    color: #ffd54f;
+    font-weight: bold;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+  }
+  .panel button {
+    margin-top: 4px;
+    padding: 12px 20px;
+    border: none;
+    border-radius: 14px;
+    background: linear-gradient(135deg, #ffb055, #ff6b6b);
+    color: #1a0f00;
+    font-weight: 800;
+    font-size: 15px;
+    letter-spacing: 1.5px;
+    cursor: pointer;
+    transition: transform 0.12s, box-shadow 0.2s;
+    box-shadow: 0 4px 14px rgba(255, 140, 60, 0.3);
+  }
+  .panel button:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px rgba(255, 140, 60, 0.45);
+  }
+  .panel button:active:not(:disabled) {
+    transform: translateY(1px);
+  }
+  .panel button:disabled {
+    background: rgba(120, 130, 150, 0.3);
+    color: rgba(255, 255, 255, 0.35);
+    cursor: not-allowed;
+    box-shadow: none;
+  }
+
+  .stats {
+    display: flex;
+    justify-content: space-around;
+    padding: 10px 0 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    font-size: 14px;
+  }
+  .stats .item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .stats .item .num {
+    font-weight: 800;
+    font-size: 20px;
+    color: #7fdd6e;
+    font-variant-numeric: tabular-nums;
+  }
+  .stats .item .num.best {
+    color: #ffd54f;
+  }
+  .stats .item .unit {
+    font-size: 12px;
+    color: #8898b0;
+  }
+
+  .result-tip {
+    position: fixed;
+    top: 22px; left: 50%;
+    transform: translateX(-50%);
+    padding: 12px 26px;
+    background: rgba(16, 22, 38, 0.82);
+    border-radius: 30px;
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.13);
+    color: #fff;
+    font-size: 15px;
+    font-weight: 600;
+    z-index: 10;
+    white-space: nowrap;
+    opacity: 0;
+    transition: opacity 0.3s;
+    pointer-events: none;
+  }
+  .result-tip.show {
+    opacity: 1;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div class="result-tip" id="resultTip">🎉 转得真久！</div>
+
+<div class="panel">
+  <div class="row">
+    <span class="lbl">🎯 力臂</span>
+    <input type="range" id="arm" min="0" max="100" value="50">
+    <span class="val" id="armv">中</span>
+  </div>
+  <div class="row">
+    <span class="lbl">⚖️ 重心</span>
+    <input type="range" id="cog" min="0" max="100" value="50">
+    <span class="val" id="cogv">中</span>
+  </div>
+  <button id="spinBtn">🌀 开始旋转</button>
+  <div class="stats">
+    <div class="item">
+      <span>上次</span>
+      <span class="num" id="lastVal">--</span>
+      <span class="unit">秒</span>
+    </div>
+    <div class="item">
+      <span>最好</span>
+      <span class="num best" id="bestVal">--</span>
+      <span class="unit">秒</span>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+<script>
+/* ============================================================
+   自制陀螺 —— 转得稳又久
+   ------------------------------------------------------------
+   教材依据：
+   第六章「转啊转！」—— 自制陀螺如何转得稳又久？
+   第七章 STEM 活动 —— 设计、制作、精进
+   第五章「简易机械」—— 轮轴、重心
+
+   核心概念：
+   ① 重心越低，陀螺越稳，转得越久
+   ② 力臂（圆盘半径）越长，转动惯量越大，也越稳
+   ③ 两个因素叠加时效果最好
+   ④ 通过反复试验，找出最佳组合
+
+   注意：变量名不能用 top，因为 window.top 是浏览器内置对象
+   ============================================================ */
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+const armSlider = document.getElementById('arm');
+const cogSlider = document.getElementById('cog');
+const armVal = document.getElementById('armv');
+const cogVal = document.getElementById('cogv');
+const spinBtn = document.getElementById('spinBtn');
+const lastVal = document.getElementById('lastVal');
+const bestVal = document.getElementById('bestVal');
+const resultTip = document.getElementById('resultTip');
+
+let W, H, DPR, S = 1;
+let time = 0;
+
+/* ---------- 陀螺状态（原 top，现改为 gyro） ---------- */
+const gyro = {
+  armNorm: 0.5,      // 0 短 ~ 1 长
+  cogNorm: 0.5,      // 0 低 ~ 1 高
+  state: 'idle',     // idle | spinning | falling | fallen
+  elapsed: 0,
+  total: 0,
+  rotation: 0,
+  omega: 0,
+  wobbleAmt: 0,
+  wobblePhase: 0,
+  tilt: 0,
+  tiltVel: 0,
+  result: null,
+  best: 0
+};
+
+/* ---------- 视觉效果 ---------- */
+let sparks = [];
+let rings = [];
+
+/* ============================================================
+   尺寸
+============================================================ */
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width = W * DPR;
+  canvas.height = H * DPR;
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+  S = Math.max(0.6, Math.min(1.15, H / 800));
+}
+
+/* ============================================================
+   物理：根据力臂和重心计算旋转时长
+   ============================================================ */
+function computeSpinDuration() {
+  const cogBonus = (1 - gyro.cogNorm) * 6.0;
+  const armFactor = 0.55 + 0.45 * gyro.armNorm;
+  const base = 2.0;
+  const noise = 0.92 + Math.random() * 0.16;
+  return (base + cogBonus) * armFactor * noise;
+}
+
+/* ============================================================
+   状态切换
+============================================================ */
+function startSpin() {
+  if (gyro.state === 'spinning' || gyro.state === 'falling') return;
+
+  gyro.state = 'spinning';
+  gyro.elapsed = 0;
+  gyro.total = computeSpinDuration();
+  gyro.rotation = 0;
+  gyro.wobbleAmt = 0;
+  gyro.wobblePhase = 0;
+  gyro.tilt = 0;
+  gyro.tiltVel = 0;
+
+  sfxSpin();
+  updateUI();
+
+  const p = getDiskCenter();
+  spawnSparks(p.x, p.y, 10, 0.7);
+}
+
+function endSpin() {
+  gyro.state = 'fallen';
+  gyro.result = gyro.total;
+  if (gyro.result > gyro.best) gyro.best = gyro.result;
+  updateUI();
+  sfxEnd();
+
+  const base = getBasePoint();
+  spawnSparks(base.x, base.y, 14, 1.1);
+
+  let text = '';
+  if (gyro.total >= 7.5) text = '🎉 太厉害了，转得好久！';
+  else if (gyro.total >= 5.5) text = '👏 转得不错哦！';
+  else if (gyro.total >= 3.5) text = '😊 转起来啦！';
+  else text = '😅 很快就倒了，试试调节重心';
+
+  resultTip.textContent = text;
+  resultTip.classList.add('show');
+  clearTimeout(endSpin._timer);
+  endSpin._timer = setTimeout(() => {
+    resultTip.classList.remove('show');
+  }, 2200);
+}
+
+/* ============================================================
+   主更新
+============================================================ */
+function update(dt) {
+  time += dt;
+
+  if (gyro.state === 'spinning') {
+    gyro.elapsed += dt;
+    const p = Math.min(1, gyro.elapsed / gyro.total);
+
+    const baseOmega = 26;
+    gyro.omega = baseOmega * Math.pow(1 - p, 1.35);
+    gyro.rotation += gyro.omega * dt;
+
+    if (p > 0.42) {
+      const t = (p - 0.42) / 0.58;
+      gyro.wobbleAmt = t * t;
+      gyro.wobblePhase += dt * (3 + t * 9);
+    } else {
+      gyro.wobbleAmt = 0;
+    }
+
+    if (p < 0.85 && Math.random() < 0.28) {
+      const center = getDiskCenter();
+      const rx = getDiskRX() * 0.9;
+      const a = Math.random() * Math.PI * 2;
+      spawnSparks(
+        center.x + Math.cos(a) * rx * 0.7,
+        center.y + Math.sin(a) * rx * 0.22,
+        2, 0.55
+      );
+    }
+
+    if (p >= 1) {
+      gyro.state = 'falling';
+      gyro.tiltVel = 1.4 + Math.random() * 0.6;
+    }
+  }
+  else if (gyro.state === 'falling') {
+    gyro.tiltVel += dt * 5.5;
+    gyro.tilt += gyro.tiltVel * dt;
+    if (gyro.tilt >= Math.PI / 2) {
+      gyro.tilt = Math.PI / 2;
+      endSpin();
+    }
+  }
+
+  for (const s of sparks) {
+    s.x += s.vx * dt;
+    s.y += s.vy * dt;
+    s.vy += 220 * dt;
+    s.vx *= 0.97;
+    s.life -= dt * 1.3;
+    s.rot += s.rotSpeed * dt;
+  }
+  sparks = sparks.filter(s => s.life > 0);
+
+  for (const r of rings) {
+    r.r += (r.maxR - r.r) * Math.min(1, dt * 6);
+    r.life -= dt * 1.8;
+  }
+  rings = rings.filter(r => r.life > 0);
+}
+
+/* ============================================================
+   几何
+============================================================ */
+function getDiskCenter() {
+  return { x: W / 2, y: H * 0.38 };
+}
+
+function getBasePoint() {
+  const c = getDiskCenter();
+  return { x: c.x, y: c.y + 90 * S };
+}
+
+function getDiskRX() {
+  return (42 + gyro.armNorm * 68) * S;
+}
+
+function getCogY() {
+  const c = getDiskCenter();
+  return c.y - 78 * S + gyro.cogNorm * 130 * S;
+}
+
+/* ============================================================
+   粒子生成
+============================================================ */
+function spawnSparks(x, y, count, scale) {
+  for (let i = 0; i < count; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const v = (60 + Math.random() * 130) * scale;
+    sparks.push({
+      x, y,
+      vx: Math.cos(a) * v,
+      vy: Math.sin(a) * v - 40,
+      life: 1,
+      size: (2.5 + Math.random() * 3.5) * scale,
+      rot: Math.random() * Math.PI * 2,
+      rotSpeed: (Math.random() - 0.5) * 12,
+      color: ['#fff7c4', '#ffd54f', '#ffb055', '#ffec80'][Math.floor(Math.random() * 4)]
+    });
+  }
+}
+
+function spawnRing(x, y, maxR) {
+  rings.push({
+    x, y,
+    r: 8 * S,
+    maxR: maxR * S,
+    life: 1
+  });
+}
+
+/* ============================================================
+   绘制：背景
+============================================================ */
+function drawBackground() {
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#141b2e');
+  g.addColorStop(0.6, '#0d1322');
+  g.addColorStop(1, '#070a14');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+
+  const base = getBasePoint();
+  const tableY = base.y + 20 * S;
+
+  const tg = ctx.createLinearGradient(0, tableY, 0, H);
+  tg.addColorStop(0, 'rgba(50, 65, 100, 0.35)');
+  tg.addColorStop(1, 'rgba(20, 28, 48, 0.7)');
+  ctx.fillStyle = tg;
+  ctx.fillRect(0, tableY, W, H - tableY);
+
+  ctx.strokeStyle = 'rgba(120, 170, 255, 0.20)';
+  ctx.lineWidth = 2 * S;
+  ctx.beginPath();
+  ctx.moveTo(0, tableY);
+  ctx.lineTo(W, tableY);
+  ctx.stroke();
+
+  const stage = ctx.createRadialGradient(
+    W / 2, H * 0.38, 20,
+    W / 2, H * 0.38, Math.max(W, H) * 0.55
+  );
+  stage.addColorStop(0, 'rgba(120, 180, 255, 0.10)');
+  stage.addColorStop(1, 'rgba(120, 180, 255, 0)');
+  ctx.fillStyle = stage;
+  ctx.fillRect(0, 0, W, H);
+}
+
+/* ============================================================
+   绘制：陀螺
+============================================================ */
+function drawGyro() {
+  const c = getDiskCenter();
+  const base = getBasePoint();
+  const rx = getDiskRX();
+  const ry = rx * 0.30;
+
+  // ---- 阴影 ----
+  ctx.save();
+  ctx.globalAlpha = 0.35 - gyro.tilt * 0.15;
+  ctx.beginPath();
+  ctx.ellipse(
+    base.x + gyro.tilt * 20 * S,
+    base.y + 12 * S,
+    rx * 0.9,
+    rx * 0.22,
+    0, 0, Math.PI * 2
+  );
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+  ctx.fill();
+  ctx.restore();
+
+  // ---- 整体变换 ----
+  ctx.save();
+  ctx.translate(base.x, base.y);
+
+  if (gyro.tilt > 0) {
+    ctx.rotate(gyro.tilt);
+  }
+
+  let sway = 0;
+  let swayY = 0;
+  if (gyro.wobbleAmt > 0) {
+    sway = Math.sin(gyro.wobblePhase) * 7 * S * gyro.wobbleAmt;
+    swayY = Math.cos(gyro.wobblePhase * 0.8) * 2 * S * gyro.wobbleAmt;
+  }
+  ctx.translate(sway, swayY);
+  ctx.translate(-base.x, -base.y);
+
+  // ---- 轴 ----
+  const axisTop = c.y - 100 * S;
+  const axisBottom = base.y;
+
+  ctx.strokeStyle = 'rgba(20, 26, 44, 0.9)';
+  ctx.lineWidth = 9 * S;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(c.x + 2 * S, axisTop + 2 * S);
+  ctx.lineTo(c.x + 2 * S, axisBottom + 2 * S);
+  ctx.stroke();
+
+  const axisGrad = ctx.createLinearGradient(c.x - 4 * S, 0, c.x + 4 * S, 0);
+  axisGrad.addColorStop(0, '#4a5568');
+  axisGrad.addColorStop(0.4, '#d4dae8');
+  axisGrad.addColorStop(0.6, '#e8eef8');
+  axisGrad.addColorStop(1, '#5a6580');
+  ctx.strokeStyle = axisGrad;
+  ctx.lineWidth = 6 * S;
+  ctx.beginPath();
+  ctx.moveTo(c.x, axisTop);
+  ctx.lineTo(c.x, axisBottom);
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(c.x - 5 * S, axisBottom - 8 * S);
+  ctx.lineTo(c.x + 5 * S, axisBottom - 8 * S);
+  ctx.lineTo(c.x, axisBottom + 6 * S);
+  ctx.closePath();
+  const tipGrad = ctx.createLinearGradient(0, axisBottom - 8 * S, 0, axisBottom + 6 * S);
+  tipGrad.addColorStop(0, '#b8c0d4');
+  tipGrad.addColorStop(1, '#3a4258');
+  ctx.fillStyle = tipGrad;
+  ctx.fill();
+
+  // ---- 圆盘 ----
+  drawDisk(c.x, c.y, rx, ry);
+
+  // ---- 配重块 ----
+  drawCog(c.x, getCogY());
+
+  // ---- 轴顶端小帽 ----
+  ctx.beginPath();
+  ctx.arc(c.x, axisTop, 5 * S, 0, Math.PI * 2);
+  ctx.fillStyle = '#a8b4c8';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+  ctx.lineWidth = 1.4 * S;
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+function drawDisk(cx, cy, rx, ry) {
+  ctx.beginPath();
+  ctx.ellipse(cx + 3 * S, cy + 5 * S, rx, ry, 0, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+  ctx.fill();
+
+  const g = ctx.createRadialGradient(
+    cx - rx * 0.3, cy - ry * 0.6, rx * 0.08,
+    cx, cy, rx
+  );
+  g.addColorStop(0, '#ffd9a8');
+  g.addColorStop(0.55, '#e8a866');
+  g.addColorStop(1, '#8b5a2a');
+
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+  ctx.fillStyle = g;
+  ctx.fill();
+
+  ctx.strokeStyle = '#5a3a18';
+  ctx.lineWidth = 3 * S;
+  ctx.stroke();
+
+  ctx.strokeStyle = 'rgba(90, 58, 24, 0.4)';
+  ctx.lineWidth = 1.4 * S;
+  for (let i = 1; i <= 2; i++) {
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, rx * (0.35 + i * 0.22), ry * (0.35 + i * 0.22), 0, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  const count = 8;
+  for (let i = 0; i < count; i++) {
+    const a = gyro.rotation + (Math.PI * 2 / count) * i;
+    const px = cx + Math.cos(a) * rx * 0.82;
+    const py = cy + Math.sin(a) * ry * 0.82;
+
+    ctx.beginPath();
+    ctx.arc(px, py, 2.4 * S, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(90, 50, 20, 0.75)';
+    ctx.fill();
+  }
+
+  if (gyro.state === 'spinning' && gyro.omega > 3) {
+    const speedAlpha = Math.min(0.55, gyro.omega / 30);
+    ctx.save();
+    ctx.globalAlpha = speedAlpha;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, rx * 0.95, ry * 0.95, 0, 0, Math.PI * 2);
+    ctx.strokeStyle = '#fff0c8';
+    ctx.lineWidth = 3 * S;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, rx * 0.12, ry * 0.12, 0, 0, Math.PI * 2);
+  ctx.fillStyle = '#3a2a18';
+  ctx.fill();
+}
+
+function drawCog(cx, cy) {
+  const r = 14 * S;
+
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, r, r * 0.85, 0, 0, Math.PI * 2);
+
+  const g = ctx.createRadialGradient(cx - r * 0.35, cy - r * 0.35, r * 0.1, cx, cy, r);
+  g.addColorStop(0, '#f0c090');
+  g.addColorStop(0.55, '#c68a4a');
+  g.addColorStop(1, '#7a5018');
+  ctx.fillStyle = g;
+  ctx.fill();
+
+  ctx.strokeStyle = '#5a3a18';
+  ctx.lineWidth = 2 * S;
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.arc(cx - r * 0.35, cy - r * 0.35, r * 0.28, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.arc(cx, cy, r * 0.2, 0, Math.PI * 2);
+  ctx.fillStyle = '#3a2515';
+  ctx.fill();
+}
+
+/* ============================================================
+   绘制：粒子与光环
+============================================================ */
+function drawSparks() {
+  for (const s of sparks) {
+    ctx.save();
+    ctx.translate(s.x, s.y);
+    ctx.rotate(s.rot);
+    ctx.globalAlpha = s.life;
+    drawStar(0, 0, s.size, s.size * 0.42, 5);
+    ctx.fillStyle = s.color;
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+function drawStar(cx, cy, outer, inner, points) {
+  ctx.beginPath();
+  for (let i = 0; i < points * 2; i++) {
+    const r = i % 2 === 0 ? outer : inner;
+    const a = (Math.PI / points) * i - Math.PI / 2;
+    const x = cx + Math.cos(a) * r;
+    const y = cy + Math.sin(a) * r;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+}
+
+function drawRings() {
+  for (const r of rings) {
+    ctx.save();
+    ctx.globalAlpha = r.life * 0.7;
+    ctx.beginPath();
+    ctx.ellipse(r.x, r.y, r.r, r.r * 0.35, 0, 0, Math.PI * 2);
+    ctx.strokeStyle = '#fff0c8';
+    ctx.lineWidth = 2.5 * S;
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+/* ============================================================
+   绘制：计时器
+============================================================ */
+function drawTimer() {
+  if (gyro.state !== 'spinning' && gyro.state !== 'falling') return;
+
+  const c = getDiskCenter();
+  const y = c.y - 150 * S;
+
+  ctx.save();
+  ctx.font = `bold ${32 * S}px system-ui, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const text = gyro.elapsed.toFixed(1);
+  const tw = ctx.measureText(text).width;
+  const padX = 26 * S;
+  const bh = 54 * S;
+  const bw = tw + padX * 2;
+
+  ctx.fillStyle = 'rgba(16, 22, 38, 0.78)';
+  roundRect(c.x - bw / 2, y - bh / 2, bw, bh, bh / 2);
+  ctx.fill();
+
+  ctx.strokeStyle = 'rgba(255, 213, 79, 0.35)';
+  ctx.lineWidth = 2 * S;
+  roundRect(c.x - bw / 2, y - bh / 2, bw, bh, bh / 2);
+  ctx.stroke();
+
+  ctx.fillStyle = '#ffd54f';
+  ctx.fillText(text, c.x, y + 2);
+
+  ctx.font = `bold ${12 * S}px system-ui, sans-serif`;
+  ctx.fillStyle = '#8898b0';
+  ctx.fillText('秒', c.x + tw / 2 + 16 * S, y + 8);
+
+  ctx.restore();
+}
+
+function roundRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+/* ============================================================
+   绘制：左下角重心示意图
+============================================================ */
+function drawHintDiagram() {
+  const x = 30 * S;
+  const y = 30 * S;
+  const w = 96 * S;
+  const h = 110 * S;
+
+  ctx.save();
+  ctx.fillStyle = 'rgba(16, 22, 38, 0.6)';
+  roundRect(x, y, w, h, 12 * S);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.10)';
+  ctx.lineWidth = 1;
+  roundRect(x, y, w, h, 12 * S);
+  ctx.stroke();
+
+  ctx.font = `bold ${10 * S}px system-ui, sans-serif`;
+  ctx.fillStyle = '#8898b0';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillText('重心', x + 10 * S, y + 9 * S);
+
+  const cx = x + w / 2;
+  const cy = y + h * 0.62;
+  const diskW = 40 * S;
+  const diskH = 10 * S;
+
+  ctx.strokeStyle = '#8a96a8';
+  ctx.lineWidth = 2 * S;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - 28 * S);
+  ctx.lineTo(cx, cy + 26 * S);
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.ellipse(cx, cy - 8 * S, diskW, diskH, 0, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(232, 168, 102, 0.9)';
+  ctx.fill();
+
+  const cogY = cy - 28 * S + gyro.cogNorm * 46 * S;
+  ctx.beginPath();
+  ctx.arc(cx, cogY, 4.5 * S, 0, Math.PI * 2);
+  ctx.fillStyle = '#ff6b6b';
+  ctx.fill();
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 1.2 * S;
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(cx - 22 * S, cy + 26 * S);
+  ctx.lineTo(cx + 22 * S, cy + 26 * S);
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+  ctx.lineWidth = 1.5 * S;
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+/* ============================================================
+   渲染
+============================================================ */
+function render() {
+  ctx.clearRect(0, 0, W, H);
+
+  drawBackground();
+  drawGyro();
+  drawRings();
+  drawSparks();
+  drawTimer();
+  drawHintDiagram();
+}
+
+/* ============================================================
+   音效
+============================================================ */
+let audioCtx = null;
+function initAudio() {
+  if (!audioCtx) {
+    try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
+  }
+}
+function beep(freq, dur, vol = 0.07, type = 'sine', delay = 0) {
+  if (!audioCtx) return;
+  const t0 = audioCtx.currentTime + delay;
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(freq, t0);
+  o.connect(g);
+  g.connect(audioCtx.destination);
+  g.gain.setValueAtTime(vol, t0);
+  g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+  o.start(t0);
+  o.stop(t0 + dur);
+}
+function sfxSpin() {
+  beep(520, 0.10, 0.08, 'sine');
+  beep(680, 0.14, 0.07, 'sine', 0.08);
+  beep(880, 0.18, 0.06, 'sine', 0.18);
+}
+function sfxEnd() {
+  beep(660, 0.10, 0.07, 'triangle');
+  beep(440, 0.14, 0.06, 'triangle', 0.10);
+  beep(280, 0.22, 0.05, 'triangle', 0.22);
+}
+
+/* ============================================================
+   UI 更新
+============================================================ */
+function updateUI() {
+  const spinning = (gyro.state === 'spinning' || gyro.state === 'falling');
+  spinBtn.disabled = spinning;
+  armSlider.disabled = spinning;
+  cogSlider.disabled = spinning;
+
+  spinBtn.textContent = spinning ? '🌀 旋转中…' : '🌀 开始旋转';
+
+  if (gyro.result !== null) {
+    lastVal.textContent = gyro.result.toFixed(1);
+  }
+  if (gyro.best > 0) {
+    bestVal.textContent = gyro.best.toFixed(1);
+  }
+}
+
+function cogLabel(v) {
+  if (v < 0.2) return '很低';
+  if (v < 0.4) return '偏低';
+  if (v < 0.6) return '中等';
+  if (v < 0.8) return '偏高';
+  return '很高';
+}
+
+function armLabel(v) {
+  if (v < 0.2) return '很短';
+  if (v < 0.4) return '偏短';
+  if (v < 0.6) return '中等';
+  if (v < 0.8) return '偏长';
+  return '很长';
+}
+
+/* ============================================================
+   事件绑定
+============================================================ */
+armSlider.addEventListener('input', e => {
+  gyro.armNorm = +e.target.value / 100;
+  armVal.textContent = armLabel(gyro.armNorm);
+});
+cogSlider.addEventListener('input', e => {
+  gyro.cogNorm = +e.target.value / 100;
+  cogVal.textContent = cogLabel(gyro.cogNorm);
+});
+
+spinBtn.addEventListener('click', () => {
+  initAudio();
+  startSpin();
+});
+
+canvas.addEventListener('pointerdown', e => {
+  initAudio();
+  const rect = canvas.getBoundingClientRect();
+  const px = e.clientX - rect.left;
+  const py = e.clientY - rect.top;
+  const c = getDiskCenter();
+  const rx = getDiskRX();
+  const ry = rx * 0.30;
+  const dx = (px - c.x) / rx;
+  const dy = (py - c.y) / ry;
+  if (dx * dx + dy * dy < 1.4) {
+    startSpin();
+  }
+});
+
+canvas.addEventListener('dblclick', e => e.preventDefault());
+
+/* ============================================================
+   启动
+============================================================ */
+resize();
+window.addEventListener('resize', () => {
+  resize();
+  render();
+});
+
+armVal.textContent = armLabel(gyro.armNorm);
+cogVal.textContent = cogLabel(gyro.cogNorm);
+updateUI();
+
+render();
+
+gsap.ticker.add((t, deltaTime) => {
+  const dt = Math.min(deltaTime, 50) / 1000;
+  update(dt);
+  render();
+});
+</script>
+</body>
+</html>

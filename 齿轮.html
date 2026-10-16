@@ -1,0 +1,842 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>齿轮转啊转 —— 齿数 · 方向 · 速度</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; background: #0d1020; touch-action: none; }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+<script>
+/* ============================================================
+   齿轮转啊转 —— 齿数 · 方向 · 速度
+   ------------------------------------------------------------
+   教材依据：
+   第五章第三节「简易机械」—— 轮子、齿轮
+   第六章「转啊转！」——「如何带动远处齿轮？」
+   第一章「迷思概念」—— 原始知觉层次 → 齿牙相连 → 相咬 → 系统
+
+   核心概念：
+   ① 两个齿轮咬在一起时，转动方向相反
+   ② 齿数少的转得快，齿数多的转得慢
+   ③ 齿轮必须"咬合"才能带动，离太远就不转
+   ④ 动力从驱动齿轮依次传递，链条上所有齿轮一起转
+   ============================================================ */
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+let W, H, DPR, S = 1;
+let MODULE = 8;
+let time = 0;
+
+/* ---------- 齿轮参数 ---------- */
+const DRIVER_SPEED = 0.9;   // 驱动齿轮角速度（弧度/秒）
+const MESH_TOL = 20;        // 啮合判定容差
+
+/* ---------- 场景状态 ---------- */
+let gears = [];
+let dragging = null;
+let dragOffset = { x: 0, y: 0 };
+let activePointer = null;
+let downPos = null;
+let hintAlpha = 1;
+let hintTimer = 0;
+let sparks = [];
+let meshRipples = [];
+let rotatePulse = 0;   // 转动时背景微微脉动
+let meshSounds = 0;
+
+/* ============================================================
+   齿轮数据
+   ============================================================ */
+function initGears() {
+  gears = [
+    {
+      id: 0,
+      isDriver: true,
+      teeth: 12,
+      color: '#5eb3ff',
+      colorLight: '#b8dcff',
+      colorDark: '#1f6bb3',
+      angle: 0,
+      omega: DRIVER_SPEED,
+      x: 0, y: 0,
+      r: 0, toothH: 0,
+      meshParent: null,
+      meshRatio: 1,
+      draggable: false,
+      scale: 1
+    },
+    {
+      id: 1,
+      isDriver: false,
+      teeth: 20,
+      color: '#7fdd6e',
+      colorLight: '#c4f0b6',
+      colorDark: '#3d8b35',
+      angle: 0,
+      omega: 0,
+      x: 0, y: 0,
+      r: 0, toothH: 0,
+      meshParent: null,
+      meshRatio: 1,
+      draggable: true,
+      scale: 1,
+      homeX: 0, homeY: 0
+    },
+    {
+      id: 2,
+      isDriver: false,
+      teeth: 16,
+      color: '#ffb055',
+      colorLight: '#ffd9a8',
+      colorDark: '#a86010',
+      angle: 0,
+      omega: 0,
+      x: 0, y: 0,
+      r: 0, toothH: 0,
+      meshParent: null,
+      meshRatio: 1,
+      draggable: true,
+      scale: 1,
+      homeX: 0, homeY: 0
+    },
+    {
+      id: 3,
+      isDriver: false,
+      teeth: 10,
+      color: '#c390ff',
+      colorLight: '#e2c8ff',
+      colorDark: '#6a3aa8',
+      angle: 0,
+      omega: 0,
+      x: 0, y: 0,
+      r: 0, toothH: 0,
+      meshParent: null,
+      meshRatio: 1,
+      draggable: true,
+      scale: 1,
+      homeX: 0, homeY: 0
+    }
+  ];
+}
+
+function updateGearSizes() {
+  for (const g of gears) {
+    g.r = MODULE * g.teeth / 2;
+    g.toothH = MODULE * 0.95;
+  }
+}
+
+function layoutGears() {
+  const driver = gears.find(g => g.isDriver);
+  driver.x = W * 0.28;
+  driver.y = H * 0.36;
+
+  const driven = gears.filter(g => !g.isDriver);
+  const count = driven.length;
+  driven.forEach((g, i) => {
+    const slotW = W / count;
+    g.homeX = slotW * (i + 0.5);
+    g.homeY = H * 0.82;
+
+    if (!g.meshParent && g !== dragging) {
+      g.x = g.homeX;
+      g.y = g.homeY;
+    }
+  });
+}
+
+/* ============================================================
+   尺寸
+   ============================================================ */
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width = W * DPR;
+  canvas.height = H * DPR;
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+  S = Math.max(0.55, Math.min(1.1, H / 800));
+  MODULE = 8.5 * S;
+
+  if (gears.length === 0) {
+    initGears();
+  }
+  updateGearSizes();
+  layoutGears();
+}
+
+/* ============================================================
+   齿轮啮合检测
+   ============================================================ */
+function gearsTouch(a, b) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const d = Math.hypot(dx, dy);
+  const target = a.r + b.r;
+  return Math.abs(d - target) < MESH_TOL * S;
+}
+
+/* 两齿轮咬合时，让齿与齿槽对齐一次 */
+function alignMesh(driver, driven) {
+  const dx = driven.x - driver.x;
+  const dy = driven.y - driver.y;
+  const phi = Math.atan2(dy, dx);
+  const step2 = Math.PI * 2 / driven.teeth;
+
+  // 被驱动齿轮的齿槽位于角度 driven.angle + k*step2 处
+  // 目标：让一个齿槽正好朝向驱动齿轮（即 phi + π 方向）
+  const target = phi + Math.PI;
+  const k = Math.round((target - driven.angle) / step2);
+  driven.angle = target - k * step2;
+}
+
+/* ============================================================
+   更新啮合网络（BFS 从驱动齿轮向外传播）
+   ============================================================ */
+function updateMeshes() {
+  const oldParents = gears.map(g => g.meshParent);
+
+  for (const g of gears) {
+    g.meshParent = null;
+    g.omega = 0;
+    g.meshRatio = 1;
+  }
+
+  const driver = gears.find(g => g.isDriver);
+  driver.omega = DRIVER_SPEED;
+
+  const queue = [driver];
+  const visited = new Set([driver]);
+
+  while (queue.length) {
+    const g = queue.shift();
+
+    for (const other of gears) {
+      if (visited.has(other)) continue;
+      if (!gearsTouch(g, other)) continue;
+
+      other.meshParent = g;
+      // 方向反转 + 速度按齿数比
+      other.omega = -g.omega * g.teeth / other.teeth;
+      other.meshRatio = g.teeth / other.teeth;
+
+      // 如果是新建立的啮合
+      const idx = gears.indexOf(other);
+      if (oldParents[idx] !== g) {
+        alignMesh(g, other);
+
+        // 在接触点放一个涟漪
+        const mx = (g.x * other.teeth + other.x * g.teeth) / (g.teeth + other.teeth);
+        const my = (g.y * other.teeth + other.y * g.teeth) / (g.teeth + other.teeth);
+        meshRipples.push({ x: mx, y: my, life: 1, max: 1 });
+
+        // 触点也撒一把小星星
+        spawnSparks(mx, my, 10, 0.6);
+        sfxClack();
+        meshSounds++;
+      }
+
+      visited.add(other);
+      queue.push(other);
+    }
+  }
+}
+
+/* ============================================================
+   粒子
+   ============================================================ */
+function spawnSparks(x, y, count, scale = 1) {
+  for (let i = 0; i < count; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const v = (60 + Math.random() * 120) * scale;
+    sparks.push({
+      x, y,
+      vx: Math.cos(a) * v,
+      vy: Math.sin(a) * v,
+      life: 1,
+      size: (2 + Math.random() * 4) * scale,
+      rot: Math.random() * Math.PI * 2,
+      rotSpeed: (Math.random() - 0.5) * 10,
+      color: ['#fff7c4', '#ffd54f', '#ffec80'][Math.floor(Math.random() * 3)]
+    });
+  }
+}
+
+function drawSparks() {
+  for (const s of sparks) {
+    ctx.save();
+    ctx.translate(s.x, s.y);
+    ctx.rotate(s.rot);
+    ctx.globalAlpha = s.life;
+    drawStar(0, 0, s.size, s.size * 0.42, 5);
+    ctx.fillStyle = s.color;
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+function drawStar(cx, cy, outer, inner, points) {
+  ctx.beginPath();
+  for (let i = 0; i < points * 2; i++) {
+    const r = i % 2 === 0 ? outer : inner;
+    const a = (Math.PI / points) * i - Math.PI / 2;
+    const x = cx + Math.cos(a) * r;
+    const y = cy + Math.sin(a) * r;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+}
+
+/* ============================================================
+   绘制：背景
+   ============================================================ */
+function drawBackground() {
+  // 底色
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#10142a');
+  g.addColorStop(1, '#080a16');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+
+  // 地面：底部托盘
+  const trayY = H * 0.82;
+  const trayGrad = ctx.createLinearGradient(0, trayY - 20, 0, H);
+  trayGrad.addColorStop(0, 'rgba(80, 100, 160, 0.10)');
+  trayGrad.addColorStop(1, 'rgba(40, 55, 100, 0.25)');
+  ctx.fillStyle = trayGrad;
+  ctx.fillRect(0, trayY + 70 * S, W, H - trayY - 70 * S);
+
+  // 托盘边缘
+  ctx.strokeStyle = 'rgba(120, 160, 240, 0.20)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(0, trayY + 70 * S);
+  ctx.lineTo(W, trayY + 70 * S);
+  ctx.stroke();
+
+  // 细微网格
+  ctx.strokeStyle = 'rgba(120, 160, 240, 0.035)';
+  ctx.lineWidth = 1;
+  const step = 60 * S;
+  for (let x = 0; x < W; x += step) {
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, H);
+    ctx.stroke();
+  }
+  for (let y = 0; y < H; y += step) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(W, y);
+    ctx.stroke();
+  }
+
+  // 转动时背景微微脉动
+  if (rotatePulse > 0.01) {
+    ctx.fillStyle = `rgba(120, 180, 255, ${rotatePulse * 0.03})`;
+    ctx.fillRect(0, 0, W, H);
+  }
+}
+
+/* ============================================================
+   绘制：单个齿轮
+   ============================================================ */
+function drawGear(g) {
+  const r = g.r;
+  const teeth = g.teeth;
+  const toothH = g.toothH;
+  const step = Math.PI * 2 / teeth;
+
+  ctx.save();
+  ctx.translate(g.x, g.y);
+  ctx.scale(g.scale, g.scale);
+  ctx.rotate(g.angle);
+
+  // 阴影
+  ctx.save();
+  ctx.globalAlpha = 0.35;
+  ctx.translate(4 * S, 8 * S);
+  ctx.beginPath();
+  ctx.arc(0, 0, r + toothH * 0.6, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(0,0,0,0.7)';
+  ctx.fill();
+  ctx.restore();
+
+  // 齿轮主体（含齿）
+  ctx.beginPath();
+  for (let i = 0; i < teeth; i++) {
+    const a0 = i * step;
+    const a1 = a0 + step * 0.22;
+    const a2 = a0 + step * 0.78;
+    const a3 = a0 + step;
+
+    const x1 = Math.cos(a0) * r;
+    const y1 = Math.sin(a0) * r;
+    const x2 = Math.cos(a1) * (r + toothH);
+    const y2 = Math.sin(a1) * (r + toothH);
+    const x3 = Math.cos(a2) * (r + toothH);
+    const y3 = Math.sin(a2) * (r + toothH);
+    const x4 = Math.cos(a3) * r;
+    const y4 = Math.sin(a3) * r;
+
+    if (i === 0) ctx.moveTo(x1, y1);
+    else ctx.lineTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.lineTo(x3, y3);
+    ctx.lineTo(x4, y4);
+  }
+  ctx.closePath();
+
+  // 主体渐变
+  const grad = ctx.createRadialGradient(-r * 0.35, -r * 0.4, r * 0.1, 0, 0, r + toothH);
+  grad.addColorStop(0, g.colorLight);
+  grad.addColorStop(0.55, g.color);
+  grad.addColorStop(1, g.colorDark);
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // 描边
+  ctx.strokeStyle = g.colorDark;
+  ctx.lineWidth = 2 * S;
+  ctx.stroke();
+
+  // 内圈
+  ctx.beginPath();
+  ctx.arc(0, 0, r * 0.72, 0, Math.PI * 2);
+  const innerGrad = ctx.createRadialGradient(-r * 0.2, -r * 0.2, r * 0.05, 0, 0, r * 0.72);
+  innerGrad.addColorStop(0, g.colorLight);
+  innerGrad.addColorStop(0.7, g.color);
+  innerGrad.addColorStop(1, g.colorDark);
+  ctx.fillStyle = innerGrad;
+  ctx.fill();
+  ctx.strokeStyle = g.colorDark;
+  ctx.lineWidth = 1.5 * S;
+  ctx.stroke();
+
+  // 辐条（4 条）
+  ctx.strokeStyle = g.colorDark;
+  ctx.lineWidth = 4 * S;
+  ctx.lineCap = 'round';
+  const spokeR1 = r * 0.22;
+  const spokeR2 = r * 0.62;
+  for (let i = 0; i < 4; i++) {
+    const a = i * Math.PI / 2;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(a) * spokeR1, Math.sin(a) * spokeR1);
+    ctx.lineTo(Math.cos(a) * spokeR2, Math.sin(a) * spokeR2);
+    ctx.stroke();
+  }
+
+  // 中心轴
+  ctx.beginPath();
+  ctx.arc(0, 0, r * 0.20, 0, Math.PI * 2);
+  ctx.fillStyle = '#1a2035';
+  ctx.fill();
+  ctx.strokeStyle = g.colorLight;
+  ctx.lineWidth = 2 * S;
+  ctx.stroke();
+
+  // 中心高光
+  ctx.beginPath();
+  ctx.arc(-r * 0.05, -r * 0.05, r * 0.07, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+  ctx.fill();
+
+  // 方向标记：一个亮色圆点位于某条半径上
+  ctx.beginPath();
+  ctx.arc(r * 0.48, 0, r * 0.10, 0, Math.PI * 2);
+  ctx.fillStyle = '#ffffff';
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(r * 0.48, 0, r * 0.05, 0, Math.PI * 2);
+  ctx.fillStyle = g.colorDark;
+  ctx.fill();
+
+  ctx.restore();
+
+  // 齿数标签
+  ctx.save();
+  ctx.translate(g.x, g.y - r - toothH - 18 * S);
+  ctx.font = `bold ${13 * S}px system-ui, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const text = `${g.teeth} 齿`;
+  const tw = ctx.measureText(text).width;
+  const padX = 9 * S;
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+  roundRect(-tw / 2 - padX, -12 * S, tw + padX * 2, 24 * S, 12 * S);
+  ctx.fill();
+  ctx.fillStyle = g.colorLight;
+  ctx.fillText(text, 0, 1);
+  ctx.restore();
+
+  // 驱动齿轮的"主动力"标记
+  if (g.isDriver) {
+    ctx.save();
+    ctx.translate(g.x, g.y);
+    const pulse = 1 + Math.sin(time * 3) * 0.08;
+    ctx.beginPath();
+    ctx.arc(0, 0, (r + toothH + 14 * S) * pulse, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(120, 200, 255, 0.55)';
+    ctx.lineWidth = 2 * S;
+    ctx.setLineDash([6 * S, 5 * S]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+  }
+}
+
+/* ============================================================
+   绘制：啮合涟漪
+   ============================================================ */
+function drawMeshRipples() {
+  for (const r of meshRipples) {
+    ctx.save();
+    ctx.globalAlpha = r.life;
+    ctx.beginPath();
+    ctx.arc(r.x, r.y, 20 * S * (1 - r.life), 0, Math.PI * 2);
+    ctx.strokeStyle = '#fff7c4';
+    ctx.lineWidth = 3 * S * r.life;
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+/* ============================================================
+   绘制：提示文字
+   ============================================================ */
+function drawHint() {
+  if (hintAlpha <= 0.01) return;
+
+  const text = '👉 拖动下方齿轮，让它咬住正在转动的蓝色齿轮';
+  ctx.save();
+  ctx.globalAlpha = hintAlpha;
+  ctx.font = `bold ${15 * S}px system-ui, sans-serif`;
+  const tw = ctx.measureText(text).width;
+  const padX = 20 * S;
+  const bh = 44 * S;
+  const bw = tw + padX * 2;
+  const bx = W / 2 - bw / 2;
+  const by = H - bh - 24 * S;
+
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+  roundRect(bx, by, bw, bh, bh / 2);
+  ctx.fill();
+
+  ctx.fillStyle = '#ffffff';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, W / 2, by + bh / 2 + 1);
+  ctx.restore();
+}
+
+/* 左上角的状态提示：显示当前已连接的齿轮 */
+function drawStatus() {
+  const connected = gears.filter(g => g.meshParent).length + 1; // 含驱动齿轮
+  const total = gears.length;
+
+  ctx.save();
+  ctx.translate(20 * S, 20 * S);
+
+  const text = `已连接：${connected} / ${total} 个齿轮`;
+  ctx.font = `bold ${14 * S}px system-ui, sans-serif`;
+  const tw = ctx.measureText(text).width;
+  const padX = 16 * S;
+  const bh = 34 * S;
+  const bw = tw + padX * 2;
+
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+  roundRect(0, 0, bw, bh, bh / 2);
+  ctx.fill();
+
+  ctx.fillStyle = connected >= total ? '#7fdd6e' : '#a8c0e0';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, padX, bh / 2 + 1);
+
+  ctx.restore();
+}
+
+function roundRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+/* ============================================================
+   音效
+   ============================================================ */
+let audioCtx = null;
+function initAudio() {
+  if (!audioCtx) {
+    try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
+  }
+}
+function beep(freq, dur, vol = 0.08, type = 'sine', delay = 0) {
+  if (!audioCtx) return;
+  const t0 = audioCtx.currentTime + delay;
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(freq, t0);
+  o.connect(g);
+  g.connect(audioCtx.destination);
+  g.gain.setValueAtTime(vol, t0);
+  g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+  o.start(t0);
+  o.stop(t0 + dur);
+}
+function sfxGrab()   { beep(620, 0.06, 0.05, 'triangle'); }
+function sfxDrop()   { beep(420, 0.07, 0.05, 'triangle'); }
+function sfxClack()  { beep(880, 0.06, 0.09, 'square'); beep(660, 0.10, 0.06, 'triangle', 0.04); }
+function sfxAllOn()  {
+  beep(523, 0.10, 0.10);
+  beep(659, 0.10, 0.10, 'sine', 0.10);
+  beep(784, 0.14, 0.10, 'sine', 0.20);
+  beep(1046, 0.22, 0.10, 'sine', 0.32);
+}
+
+/* ============================================================
+   交互
+   ============================================================ */
+function getPos(e) {
+  const rect = canvas.getBoundingClientRect();
+  return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+}
+function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+
+function hitGear(p) {
+  // 从后往前检测（后画的优先）
+  for (let i = gears.length - 1; i >= 0; i--) {
+    const g = gears[i];
+    if (!g.draggable) continue;
+    const d = dist(p, g);
+    if (d < g.r + g.toothH + 12 * S) return g;
+  }
+  return null;
+}
+
+function onDown(e) {
+  initAudio();
+  if (activePointer !== null) return;
+  activePointer = e.pointerId;
+  const p = getPos(e);
+  downPos = p;
+
+  const g = hitGear(p);
+  if (g) {
+    dragging = g;
+    dragOffset.x = g.x - p.x;
+    dragOffset.y = g.y - p.y;
+    g.scale = 1.08;
+    g.meshParent = null;   // 拖动时立刻脱开
+    updateMeshes();
+    sfxGrab();
+    hintAlpha = Math.max(0, hintAlpha - 0.5);
+  }
+}
+
+function onMove(e) {
+  if (activePointer !== e.pointerId || !dragging) return;
+  const p = getPos(e);
+  let nx = p.x + dragOffset.x;
+  let ny = p.y + dragOffset.y;
+
+  // 与其它齿轮不重叠（允许轻微齿间重叠）
+  for (const other of gears) {
+    if (other === dragging) continue;
+    const dx = nx - other.x;
+    const dy = ny - other.y;
+    const d = Math.hypot(dx, dy);
+    const minD = dragging.r + other.r + dragging.toothH * 0.4;
+    if (d < minD && d > 1) {
+      const a = Math.atan2(dy, dx);
+      nx = other.x + Math.cos(a) * minD;
+      ny = other.y + Math.sin(a) * minD;
+    }
+  }
+
+  // 边界限制
+  nx = Math.max(dragging.r + 10 * S, Math.min(W - dragging.r - 10 * S, nx));
+  ny = Math.max(dragging.r + 30 * S, Math.min(H - dragging.r - 10 * S, ny));
+
+  dragging.x = nx;
+  dragging.y = ny;
+}
+
+function onUp(e) {
+  if (activePointer !== e.pointerId) return;
+  activePointer = null;
+
+  if (dragging) {
+    const g = dragging;
+    dragging = null;
+    g.scale = 1;
+
+    // 尝试吸附到最近的啮合位置
+    let bestOther = null;
+    let bestDist = Infinity;
+    let bestAngle = 0;
+
+    for (const other of gears) {
+      if (other === g) continue;
+      const dx = g.x - other.x;
+      const dy = g.y - other.y;
+      const d = Math.hypot(dx, dy);
+      const target = g.r + other.r;
+      const err = Math.abs(d - target);
+      if (err < bestDist && err < MESH_TOL * 2.2 * S) {
+        bestDist = err;
+        bestOther = other;
+        bestAngle = Math.atan2(dy, dx);
+      }
+    }
+
+    if (bestOther) {
+      // 吸附
+      const target = g.r + bestOther.r;
+      g.x = bestOther.x + Math.cos(bestAngle) * target;
+      g.y = bestOther.y + Math.sin(bestAngle) * target;
+      sfxDrop();
+      gsap.fromTo(g, { scale: 1.18 }, { scale: 1, duration: 0.35, ease: 'elastic.out(1, 0.45)' });
+    } else {
+      sfxDrop();
+    }
+
+    updateMeshes();
+
+    // 全部连接上就庆祝
+    const allConnected = gears.every(x => x.isDriver || x.meshParent);
+    if (allConnected) {
+      sfxAllOn();
+      for (const x of gears) {
+        spawnSparks(x.x, x.y, 12, 0.9);
+      }
+    }
+  }
+
+  downPos = null;
+}
+
+/* ============================================================
+   更新
+   ============================================================ */
+function update(dt) {
+  time += dt;
+
+  // 更新所有齿轮角度
+  updateMeshes();
+
+  let anyMoving = false;
+  for (const g of gears) {
+    g.angle += g.omega * dt;
+    if (Math.abs(g.omega) > 0.01) anyMoving = true;
+  }
+
+  // 背景脉动随转动强弱
+  rotatePulse += ((anyMoving ? 1 : 0) - rotatePulse) * Math.min(1, dt * 4);
+
+  // 粒子
+  for (const s of sparks) {
+    s.x += s.vx * dt;
+    s.y += s.vy * dt;
+    s.vy += 160 * dt;
+    s.vx *= 0.96;
+    s.vy *= 0.96;
+    s.rot += s.rotSpeed * dt;
+    s.life -= dt * 1.2;
+  }
+  sparks = sparks.filter(s => s.life > 0);
+
+  // 涟漪
+  for (const r of meshRipples) {
+    r.life -= dt * 1.8;
+  }
+  meshRipples = meshRipples.filter(r => r.life > 0);
+
+  // 提示
+  hintTimer += dt;
+  if (hintTimer > 9 && hintAlpha > 0) {
+    hintAlpha = Math.max(0, hintAlpha - dt * 0.6);
+  }
+  if (dragging) hintAlpha = Math.max(0, hintAlpha - dt * 2);
+}
+
+/* ============================================================
+   渲染
+   ============================================================ */
+function render() {
+  ctx.clearRect(0, 0, W, H);
+
+  drawBackground();
+
+  // 按 meshParent 深度排序：先画父级，让"链"自然叠加
+  const sorted = [...gears].sort((a, b) => {
+    const da = depthOf(a);
+    const db = depthOf(b);
+    return da - db;
+  });
+
+  for (const g of sorted) {
+    drawGear(g);
+  }
+
+  drawMeshRipples();
+  drawSparks();
+  drawStatus();
+  drawHint();
+}
+
+function depthOf(g) {
+  let d = 0;
+  let cur = g;
+  while (cur.meshParent) {
+    d++;
+    cur = cur.meshParent;
+    if (d > 10) break;
+  }
+  return d;
+}
+
+/* ============================================================
+   启动
+   ============================================================ */
+resize();
+window.addEventListener('resize', resize);
+
+canvas.addEventListener('pointerdown', onDown);
+canvas.addEventListener('pointermove', onMove);
+canvas.addEventListener('pointerup', onUp);
+canvas.addEventListener('pointercancel', onUp);
+canvas.addEventListener('dblclick', e => e.preventDefault());
+
+render();
+
+gsap.ticker.add((t, deltaTime) => {
+  const dt = Math.min(deltaTime, 50) / 1000;
+  update(dt);
+  render();
+});
+</script>
+</body>
+</html>

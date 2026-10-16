@@ -1,0 +1,1095 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>纸的力量 —— 薄薄一张纸，能撑起多少本书</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    height: 100%; width: 100%; overflow: hidden; background: #0a1018;
+    touch-action: none;
+    font-family: system-ui, -apple-system, sans-serif;
+    color: #fff;
+  }
+  canvas { display: block; position: absolute; inset: 0; }
+
+  .status {
+    position: fixed;
+    top: 16px; left: 50%;
+    transform: translateX(-50%);
+    padding: 14px 28px;
+    background: rgba(16, 22, 38, 0.92);
+    border-radius: 30px;
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    font-size: 16px; font-weight: 700;
+    z-index: 10; white-space: nowrap; max-width: 94vw;
+    text-align: center; transition: all 0.3s;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+  }
+  .status.win {
+    background: rgba(40, 130, 60, 0.95);
+    border-color: rgba(127, 221, 110, 0.7);
+  }
+  .status.fail {
+    background: rgba(140, 40, 60, 0.95);
+    border-color: rgba(255, 120, 150, 0.7);
+  }
+
+  .readout {
+    position: fixed;
+    top: 16px; right: 16px;
+    padding: 14px 18px;
+    background: rgba(16, 22, 38, 0.9);
+    border-radius: 14px;
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    font-size: 13px; z-index: 10;
+    line-height: 1.9; min-width: 200px;
+  }
+  .readout .row {
+    display: flex; justify-content: space-between; gap: 12px;
+  }
+  .readout .lbl { color: #8898b0; }
+  .readout .num {
+    color: #ffd54f; font-weight: 800; font-variant-numeric: tabular-nums;
+  }
+  .readout .num.best { color: #7fdd6e; }
+  .readout .divider {
+    margin: 6px 0; border-top: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .panel {
+    position: fixed;
+    bottom: 14px; left: 50%;
+    transform: translateX(-50%);
+    width: min(760px, 94vw);
+    background: rgba(16, 22, 38, 0.94);
+    padding: 14px 22px;
+    border-radius: 20px;
+    backdrop-filter: blur(14px);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    z-index: 10;
+    display: flex; flex-direction: column; gap: 10px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+  }
+  .panel .row {
+    display: grid;
+    grid-template-columns: 90px 1fr;
+    align-items: center; gap: 12px; font-size: 13px;
+  }
+  .panel .lbl {
+    font-weight: 700; font-size: 14px; white-space: nowrap;
+  }
+  .panel .shape-btns {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr 1fr;
+    gap: 8px;
+  }
+  .panel .shape-btn {
+    padding: 10px 4px 8px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    background: rgba(255, 255, 255, 0.06);
+    color: #fff;
+    font-weight: 800; font-size: 13px;
+    cursor: pointer; transition: all 0.15s;
+    text-align: center; white-space: nowrap;
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+  }
+  .panel .shape-btn.active {
+    background: linear-gradient(135deg, #5eb3ff, #7fdd6e);
+    color: #061020;
+    border-color: transparent;
+    box-shadow: 0 4px 12px rgba(94, 179, 255, 0.45);
+  }
+  .panel .shape-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+  .panel .shape-btn svg {
+    width: 44px;
+    height: 22px;
+  }
+  .panel .btns {
+    display: grid;
+    grid-template-columns: 1.5fr 1fr;
+    gap: 10px;
+    margin-top: 4px;
+  }
+  .panel button.btn-add {
+    padding: 13px 14px;
+    border-radius: 13px;
+    border: none;
+    font-weight: 800; font-size: 15px;
+    cursor: pointer; transition: transform 0.12s, box-shadow 0.2s;
+    letter-spacing: 0.5px;
+    background: linear-gradient(135deg, #ffb055, #ff9eb5);
+    color: #1a0a00;
+    box-shadow: 0 4px 14px rgba(255, 160, 90, 0.4);
+    white-space: nowrap;
+  }
+  .panel button.btn-add:disabled {
+    background: rgba(120, 130, 150, 0.3);
+    color: rgba(255, 255, 255, 0.35);
+    cursor: not-allowed; box-shadow: none;
+  }
+  .panel .btn-reset {
+    padding: 13px 14px;
+    border-radius: 13px;
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    font-weight: 800; font-size: 15px;
+    cursor: pointer; transition: transform 0.12s, box-shadow 0.2s;
+    background: rgba(255, 255, 255, 0.14);
+    color: #fff;
+    white-space: nowrap;
+  }
+  .panel button:active:not(:disabled) { transform: translateY(1px); }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div class="status" id="status">📖 选一种纸的形状，往上面放书试试</div>
+
+<div class="readout">
+  <div class="row"><span class="lbl">当前形状</span><span class="num" id="shapeVal">平纸</span></div>
+  <div class="row"><span class="lbl">已放书</span><span class="num" id="countVal">0 本</span></div>
+  <div class="divider"></div>
+  <div class="row"><span class="lbl">📄 平纸</span><span class="num" id="bestFlat">--</span></div>
+  <div class="row"><span class="lbl">〰️ 瓦楞</span><span class="num" id="bestCorr">--</span></div>
+  <div class="row"><span class="lbl">🔺 三角</span><span class="num" id="bestTri">--</span></div>
+  <div class="row"><span class="lbl">⚪ 圆柱</span><span class="num best" id="bestCyl">--</span></div>
+</div>
+
+<div class="panel">
+  <div class="row">
+    <span class="lbl">📄 纸的形状</span>
+    <div class="shape-btns">
+      <button class="shape-btn active" data-shape="flat">
+        <svg viewBox="0 0 88 44" xmlns="http://www.w3.org/2000/svg">
+          <line x1="4" y1="22" x2="84" y2="22" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+        </svg>
+        <span>平纸</span>
+      </button>
+      <button class="shape-btn" data-shape="corrugated">
+        <svg viewBox="0 0 88 44" xmlns="http://www.w3.org/2000/svg">
+          <path d="M4 30 Q14 10 24 30 T44 30 T64 30 T84 30" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+        </svg>
+        <span>瓦楞</span>
+      </button>
+      <button class="shape-btn" data-shape="triangle">
+        <svg viewBox="0 0 88 44" xmlns="http://www.w3.org/2000/svg">
+          <path d="M4 34 L16 10 L28 34 L40 10 L52 34 L64 10 L76 34" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span>三角</span>
+      </button>
+      <button class="shape-btn" data-shape="cylinder">
+        <svg viewBox="0 0 88 44" xmlns="http://www.w3.org/2000/svg">
+          <ellipse cx="18" cy="12" rx="9" ry="4" fill="none" stroke="currentColor" stroke-width="2.5"/>
+          <line x1="9" y1="12" x2="9" y2="32" stroke="currentColor" stroke-width="2.5"/>
+          <line x1="27" y1="12" x2="27" y2="32" stroke="currentColor" stroke-width="2.5"/>
+          <path d="M9 32 Q18 36 27 32" fill="none" stroke="currentColor" stroke-width="2.5"/>
+          <ellipse cx="46" cy="12" rx="9" ry="4" fill="none" stroke="currentColor" stroke-width="2.5"/>
+          <line x1="37" y1="12" x2="37" y2="32" stroke="currentColor" stroke-width="2.5"/>
+          <line x1="55" y1="12" x2="55" y2="32" stroke="currentColor" stroke-width="2.5"/>
+          <path d="M37 32 Q46 36 55 32" fill="none" stroke="currentColor" stroke-width="2.5"/>
+          <ellipse cx="74" cy="12" rx="9" ry="4" fill="none" stroke="currentColor" stroke-width="2.5"/>
+          <line x1="65" y1="12" x2="65" y2="32" stroke="currentColor" stroke-width="2.5"/>
+          <line x1="83" y1="12" x2="83" y2="32" stroke="currentColor" stroke-width="2.5"/>
+          <path d="M65 32 Q74 36 83 32" fill="none" stroke="currentColor" stroke-width="2.5"/>
+        </svg>
+        <span>圆柱</span>
+      </button>
+    </div>
+  </div>
+  <div class="btns">
+    <button class="btn-add" id="btnAdd">📚 放一本书</button>
+    <button class="btn-reset" id="btnReset">🔄 重新开始</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+<script>
+/* ============================================================
+   纸的力量 —— 薄薄一张纸，能撑起多少本书
+   ============================================================ */
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+const statusEl = document.getElementById('status');
+const shapeValEl = document.getElementById('shapeVal');
+const countValEl = document.getElementById('countVal');
+const bestFlatEl = document.getElementById('bestFlat');
+const bestCorrEl = document.getElementById('bestCorr');
+const bestTriEl = document.getElementById('bestTri');
+const bestCylEl = document.getElementById('bestCyl');
+const btnAdd = document.getElementById('btnAdd');
+const btnReset = document.getElementById('btnReset');
+const shapeBtns = document.querySelectorAll('.shape-btn');
+
+let W = 800, H = 600, DPR = 1, S = 1;
+let time = 0;
+
+/* ---------- 形状参数 ---------- */
+const SHAPES = {
+  flat:       { name: '平纸',   capacity: 2,  baseSag: 1.0,  compress: 1.0 },
+  corrugated: { name: '瓦楞',   capacity: 6,  baseSag: 0.35, compress: 0.6 },
+  triangle:   { name: '三角',   capacity: 10, baseSag: 0.2,  compress: 0.5 },
+  cylinder:   { name: '圆柱',   capacity: 16, baseSag: 0.15, compress: 0.35 }
+};
+
+/* ---------- 状态 ---------- */
+const state = {
+  shape: 'flat',
+  books: [],
+  fallingBook: null,
+  collapseProgress: 0,
+  collapsed: false,
+  pressure: 0,
+  sparks: [],
+  bests: { flat: 0, corrugated: 0, triangle: 0, cylinder: 0 }
+};
+
+/* ---------- 场景 ---------- */
+const scene = {
+  groundY: 0,
+  tableLeft: { x: 0, y: 0, w: 0, h: 0 },
+  tableRight: { x: 0, y: 0, w: 0, h: 0 },
+  paper: { x: 0, y: 0, w: 0, h: 0 }
+};
+
+const BOOK_COLORS = [
+  { main: '#ff6b6b', side: '#c43a3a', page: '#fff5d0' },
+  { main: '#5eb3ff', side: '#2a6ba8', page: '#fff5d0' },
+  { main: '#7fdd6e', side: '#4a9e50', page: '#fff5d0' },
+  { main: '#ffd54f', side: '#c8a020', page: '#fff5d0' },
+  { main: '#c390ff', side: '#7a4aa8', page: '#fff5d0' },
+  { main: '#ff9eb5', side: '#c85a7a', page: '#fff5d0' }
+];
+
+/* ============================================================
+   尺寸
+============================================================ */
+function resize() {
+  let w = window.innerWidth || document.documentElement.clientWidth || 800;
+  let h = window.innerHeight || document.documentElement.clientHeight || 600;
+  if (w < 200) w = 800;
+  if (h < 200) h = 600;
+
+  W = w; H = h;
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width = Math.floor(W * DPR);
+  canvas.height = Math.floor(H * DPR);
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+  S = Math.max(0.55, Math.min(1.15, H / 800));
+
+  layoutScene();
+}
+
+function layoutScene() {
+  scene.groundY = H * 0.80;
+
+  const tableW = Math.min(W * 0.20, 160 * S);
+  const tableH = 40 * S;
+  const gap = Math.min(W * 0.36, 300 * S);
+  const centerX = W * 0.5;
+
+  scene.tableLeft.x = centerX - gap / 2 - tableW;
+  scene.tableLeft.y = scene.groundY - tableH;
+  scene.tableLeft.w = tableW;
+  scene.tableLeft.h = tableH;
+
+  scene.tableRight.x = centerX + gap / 2;
+  scene.tableRight.y = scene.groundY - tableH;
+  scene.tableRight.w = tableW;
+  scene.tableRight.h = tableH;
+
+  // 纸结构的位置（跨在两桌之间）
+  scene.paper.x = centerX - gap / 2;
+  scene.paper.y = scene.groundY - tableH;
+  scene.paper.w = gap;
+  scene.paper.h = 30 * S;
+
+  relayoutBooks();
+}
+
+function relayoutBooks() {
+  const cx = scene.paper.x + scene.paper.w / 2;
+  const baseY = getPaperTopY();
+
+  for (let i = 0; i < state.books.length; i++) {
+    const b = state.books[i];
+    b.x = cx + (i % 2 === 0 ? -3 : 3) * S;
+    b.y = baseY - (b.h / 2) - i * (b.h * 0.92);
+  }
+}
+
+/* 纸结构受压后的顶部高度 */
+function getPaperTopY() {
+  const shapeInfo = SHAPES[state.shape];
+  const pressure = state.collapsed ? 1 : state.pressure;
+  const collapseT = state.collapsed ? state.collapseProgress : 0;
+
+  // 纸结构的自身高度（不同形状不同）
+  let structH = 0;
+  if (state.shape === 'corrugated') structH = 14 * S;
+  else if (state.shape === 'triangle') structH = 38 * S;
+  else if (state.shape === 'cylinder') structH = 46 * S;
+
+  // 受压时被压缩
+  const compressed = structH * shapeInfo.compress * pressure;
+  // 塌陷时完全压扁
+  const collapsed = structH * collapseT;
+
+  return scene.paper.y - (structH - compressed - collapsed);
+}
+
+/* ============================================================
+   音效
+============================================================ */
+let audioCtx = null;
+function initAudio() {
+  if (!audioCtx) {
+    try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
+  }
+}
+function beep(freq, dur, vol, type, delay) {
+  vol = vol == null ? 0.05 : vol;
+  type = type || 'sine';
+  delay = delay || 0;
+  if (!audioCtx) return;
+  const t0 = audioCtx.currentTime + delay;
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(freq, t0);
+  o.connect(g);
+  g.connect(audioCtx.destination);
+  g.gain.setValueAtTime(vol, t0);
+  g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+  o.start(t0);
+  o.stop(t0 + dur);
+}
+function sfxLand() { beep(320, 0.08, 0.06, 'triangle'); }
+function sfxCollapse() {
+  beep(180, 0.14, 0.09, 'square');
+  beep(120, 0.20, 0.08, 'square', 0.10);
+  beep(80, 0.30, 0.07, 'square', 0.25);
+}
+function sfxClick() { beep(520, 0.06, 0.05, 'triangle'); }
+
+/* ============================================================
+   更新
+============================================================ */
+function update(dt) {
+  time += dt;
+
+  if (state.fallingBook) {
+    const b = state.fallingBook;
+    b.y += b.vy * dt;
+    b.vy += 700 * dt;
+    const targetY = getNextBookY();
+    if (b.y >= targetY) {
+      b.y = targetY;
+      b.vy = 0;
+      b.landed = true;
+      state.books.push(b);
+      state.fallingBook = null;
+      sfxLand();
+      spawnImpactSparks(b.x, b.y);
+
+      const cap = SHAPES[state.shape].capacity;
+      if (state.books.length > cap) {
+        state.collapsed = true;
+        sfxCollapse();
+        for (const book of state.books) {
+          book.vx = (Math.random() - 0.5) * 220;
+          book.vy = -80 - Math.random() * 100;
+          book.rotSpeed = (Math.random() - 0.5) * 8;
+          book.rot = 0;
+        }
+        const survived = cap;
+        if (survived > state.bests[state.shape]) {
+          state.bests[state.shape] = survived;
+        }
+        updateBests();
+      }
+    }
+  }
+
+  if (state.collapsed && state.collapseProgress < 1) {
+    state.collapseProgress = Math.min(1, state.collapseProgress + dt * 1.2);
+    for (const b of state.books) {
+      b.x += (b.vx || 0) * dt;
+      b.y += (b.vy || 0) * dt;
+      b.vy = (b.vy || 0) + 700 * dt;
+      b.rot = (b.rot || 0) + (b.rotSpeed || 0) * dt;
+      if (b.y > scene.groundY - b.h / 2) {
+        b.y = scene.groundY - b.h / 2;
+        b.vy *= -0.3;
+        b.vx *= 0.7;
+        b.rotSpeed *= 0.5;
+      }
+    }
+  }
+
+  const cap = SHAPES[state.shape].capacity;
+  state.pressure = Math.min(1.4, state.books.length / cap);
+
+  for (const s of state.sparks) {
+    s.x += s.vx * dt;
+    s.y += s.vy * dt;
+    s.vy += 300 * dt;
+    s.life -= dt * 1.5;
+  }
+  state.sparks = state.sparks.filter(function (s) { return s.life > 0; });
+
+  updateUI();
+}
+
+function getNextBookY() {
+  const baseY = getPaperTopY() - 4 * S;
+  const bookH = 14 * S;
+  const count = state.books.length + 1;
+  return baseY - bookH / 2 - (count - 1) * (bookH * 0.92);
+}
+
+function spawnImpactSparks(x, y) {
+  for (let i = 0; i < 6; i++) {
+    state.sparks.push({
+      x: x + (Math.random() - 0.5) * 40 * S,
+      y: y,
+      vx: (Math.random() - 0.5) * 120,
+      vy: -40 - Math.random() * 80,
+      life: 1,
+      size: 2 + Math.random() * 2,
+      color: '#ffe066'
+    });
+  }
+}
+
+/* ============================================================
+   UI
+============================================================ */
+function updateUI() {
+  const shapeInfo = SHAPES[state.shape];
+  shapeValEl.textContent = shapeInfo.name;
+  countValEl.textContent = state.books.length + ' 本';
+
+  if (state.collapsed) {
+    const survived = shapeInfo.capacity;
+    if (survived >= 12) {
+      statusEl.textContent = '🎉 圆柱撑住了 ' + survived + ' 本书！它最结实';
+      statusEl.className = 'status win';
+    } else if (survived >= 8) {
+      statusEl.textContent = '👍 三角撑住了 ' + survived + ' 本书，比平纸结实多了';
+      statusEl.className = 'status win';
+    } else if (survived >= 5) {
+      statusEl.textContent = '😊 瓦楞撑住了 ' + survived + ' 本书，比平纸强';
+      statusEl.className = 'status win';
+    } else {
+      statusEl.textContent = '😅 平纸太软了，只能撑 ' + survived + ' 本';
+      statusEl.className = 'status fail';
+    }
+  } else if (state.books.length > 0) {
+    const ratio = state.books.length / shapeInfo.capacity;
+    if (ratio >= 0.85) {
+      statusEl.textContent = '⚠️ 纸快撑不住了！';
+      statusEl.className = 'status';
+    } else if (ratio >= 0.5) {
+      statusEl.textContent = '📚 纸开始有点弯了，可以再放一本';
+      statusEl.className = 'status';
+    } else {
+      statusEl.textContent = '📖 稳稳的，继续放';
+      statusEl.className = 'status';
+    }
+  } else {
+    statusEl.textContent = '📖 选一种纸的形状，往上面放书试试';
+    statusEl.className = 'status';
+  }
+
+  btnAdd.disabled = state.collapsed || !!state.fallingBook;
+  if (state.collapsed) btnAdd.textContent = '💥 已塌陷';
+  else if (state.fallingBook) btnAdd.textContent = '📚 下落中…';
+  else btnAdd.textContent = '📚 放一本书';
+
+  shapeBtns.forEach(function (b) {
+    b.disabled = state.collapsed || !!state.fallingBook || state.books.length > 0;
+  });
+}
+
+function updateBests() {
+  bestFlatEl.textContent = state.bests.flat > 0 ? state.bests.flat + ' 本' : '--';
+  bestCorrEl.textContent = state.bests.corrugated > 0 ? state.bests.corrugated + ' 本' : '--';
+  bestTriEl.textContent = state.bests.triangle > 0 ? state.bests.triangle + ' 本' : '--';
+  bestCylEl.textContent = state.bests.cylinder > 0 ? state.bests.cylinder + ' 本' : '--';
+}
+
+/* ============================================================
+   绘制：背景
+============================================================ */
+function drawBackground() {
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#1a2438');
+  g.addColorStop(0.6, '#0d1422');
+  g.addColorStop(1, '#050810');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+
+  const glow = ctx.createRadialGradient(
+    W * 0.5, H * 0.4, 30,
+    W * 0.5, H * 0.4, Math.max(W, H) * 0.6
+  );
+  glow.addColorStop(0, 'rgba(120, 180, 255, 0.10)');
+  glow.addColorStop(1, 'rgba(120, 180, 255, 0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+}
+
+/* ============================================================
+   绘制：桌子
+============================================================ */
+function drawTable(t) {
+  ctx.save();
+  ctx.globalAlpha = 0.35;
+  ctx.beginPath();
+  ctx.ellipse(t.x + t.w / 2, t.y + t.h + 4 * S, t.w * 0.55, 8 * S, 0, 0, Math.PI * 2);
+  ctx.fillStyle = '#000';
+  ctx.fill();
+  ctx.restore();
+
+  const g = ctx.createLinearGradient(0, t.y, 0, t.y + t.h);
+  g.addColorStop(0, '#b08858');
+  g.addColorStop(0.5, '#8a6840');
+  g.addColorStop(1, '#5a4228');
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  roundRect(t.x, t.y, t.w, t.h, 4 * S);
+  ctx.fill();
+  ctx.strokeStyle = '#3a2410';
+  ctx.lineWidth = 2 * S;
+  ctx.stroke();
+
+  ctx.strokeStyle = 'rgba(60, 40, 20, 0.4)';
+  ctx.lineWidth = 1 * S;
+  for (let i = 0; i < 3; i++) {
+    const y = t.y + t.h * (0.25 + i * 0.25);
+    ctx.beginPath();
+    ctx.moveTo(t.x + 6 * S, y);
+    ctx.lineTo(t.x + t.w - 6 * S, y);
+    ctx.stroke();
+  }
+
+  ctx.beginPath();
+  ctx.moveTo(t.x + 4 * S, t.y + 2 * S);
+  ctx.lineTo(t.x + t.w - 4 * S, t.y + 2 * S);
+  ctx.strokeStyle = 'rgba(255, 220, 160, 0.4)';
+  ctx.lineWidth = 2 * S;
+  ctx.stroke();
+}
+
+/* ============================================================
+   纸结构绘制（重点改动）
+   ============================================================ */
+function drawPaperStructure() {
+  const p = scene.paper;
+  const shape = state.shape;
+  const pressure = state.collapsed ? 1.4 : state.pressure;
+  const collapseT = state.collapsed ? state.collapseProgress : 0;
+
+  if (shape === 'flat') drawFlatPaper(p, pressure, collapseT);
+  else if (shape === 'corrugated') drawCorrugated(p, pressure, collapseT);
+  else if (shape === 'triangle') drawTriangle(p, pressure, collapseT);
+  else drawCylinder(p, pressure, collapseT);
+}
+
+/* ---------- 平纸：一条下垂的薄片 ---------- */
+function drawFlatPaper(p, pressure, collapseT) {
+  // 中间下垂量：书越多，垂得越厉害
+  const sag = Math.min(70 * S, pressure * 30 * S + collapseT * 50 * S);
+
+  // 纸的路径
+  ctx.beginPath();
+  const N = 40;
+
+  // 上边缘
+  for (let i = 0; i <= N; i++) {
+    const t = i / N;
+    const x = p.x + p.w * t;
+    const y = p.y + Math.sin(Math.PI * t) * sag;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+
+  // 下边缘（厚 3 像素）
+  for (let i = N; i >= 0; i--) {
+    const t = i / N;
+    const x = p.x + p.w * t;
+    const y = p.y + Math.sin(Math.PI * t) * sag + 3 * S;
+    ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+
+  const g = ctx.createLinearGradient(0, p.y, 0, p.y + sag + 6 * S);
+  g.addColorStop(0, '#fffcf0');
+  g.addColorStop(0.6, '#f0e0b8');
+  g.addColorStop(1, '#c8b888');
+  ctx.fillStyle = g;
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(120, 100, 60, 0.7)';
+  ctx.lineWidth = 1.5 * S;
+  ctx.stroke();
+
+  // 两桌支撑点上的小圆（表示纸被夹住）
+  for (const x of [p.x, p.x + p.w]) {
+    ctx.beginPath();
+    ctx.arc(x, p.y, 4 * S, 0, Math.PI * 2);
+    ctx.fillStyle = '#8a6840';
+    ctx.fill();
+    ctx.strokeStyle = '#3a2410';
+    ctx.lineWidth = 1.2 * S;
+    ctx.stroke();
+  }
+}
+
+/* ---------- 瓦楞：连续的半圆拱 ---------- */
+function drawCorrugated(p, pressure, collapseT) {
+  // 拱的高度：书越多，被压得越扁
+  const maxArchH = 20 * S;
+  const compression = Math.min(0.85, pressure * 0.55 + collapseT);
+  const archH = maxArchH * (1 - compression);
+
+  // 拱的数量
+  const archCount = 7;
+  const archW = p.w / archCount;
+
+  // 主线：连续的下凹弧 + 上凸拱
+  ctx.beginPath();
+  ctx.moveTo(p.x, p.y);
+
+  // 画波浪顶（一个个上凸的拱）
+  for (let i = 0; i < archCount; i++) {
+    const cx = p.x + archW * (i + 0.5);
+    // 二次贝塞尔画拱
+    ctx.quadraticCurveTo(cx, p.y - archH * 2, p.x + archW * (i + 1), p.y);
+  }
+
+  // 底部返回
+  for (let i = archCount - 1; i >= 0; i--) {
+    const cx = p.x + archW * (i + 0.5);
+    ctx.quadraticCurveTo(cx, p.y - archH * 2 + 3 * S, p.x + archW * i, p.y + 3 * S);
+  }
+  ctx.closePath();
+
+  const g = ctx.createLinearGradient(0, p.y - archH * 2, 0, p.y + 4 * S);
+  g.addColorStop(0, '#fffcf0');
+  g.addColorStop(0.5, '#f0e0b8');
+  g.addColorStop(1, '#c8b888');
+  ctx.fillStyle = g;
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(120, 100, 60, 0.8)';
+  ctx.lineWidth = 1.5 * S;
+  ctx.stroke();
+
+  // 每个拱的"折线"（横线）—— 让它看起来像折叠的
+  ctx.strokeStyle = 'rgba(120, 100, 60, 0.35)';
+  ctx.lineWidth = 1 * S;
+  for (let i = 1; i < archCount; i++) {
+    const x = p.x + archW * i;
+    ctx.beginPath();
+    ctx.moveTo(x, p.y);
+    ctx.lineTo(x, p.y - 2 * S);
+    ctx.stroke();
+  }
+}
+
+/* ---------- 三角：一排山脊（帐篷形） ---------- */
+function drawTriangle(p, pressure, collapseT) {
+  const maxTriH = 42 * S;
+  const compression = Math.min(0.8, pressure * 0.5 + collapseT);
+  const triH = maxTriH * (1 - compression);
+  const triCount = 5;
+  const triW = p.w / triCount;
+
+  // 用一条连贯的折线画出所有三角形（帐篷连在一起）
+  ctx.beginPath();
+  ctx.moveTo(p.x, p.y);
+
+  // 上山下山
+  for (let i = 0; i < triCount; i++) {
+    const cx = p.x + triW * (i + 0.5);
+    const rx = p.x + triW * (i + 1);
+    // 上山
+    ctx.lineTo(cx, p.y - triH);
+    // 下山
+    ctx.lineTo(rx, p.y);
+  }
+
+  // 底部返回（厚度 4 像素）
+  for (let i = triCount; i > 0; i--) {
+    const cx = p.x + triW * (i - 0.5);
+    const lx = p.x + triW * (i - 1);
+    ctx.lineTo(cx, p.y - triH + 4 * S);
+    ctx.lineTo(lx, p.y + 4 * S);
+  }
+  ctx.closePath();
+
+  const g = ctx.createLinearGradient(0, p.y - triH, 0, p.y + 4 * S);
+  g.addColorStop(0, '#fffcf0');
+  g.addColorStop(0.6, '#f0e0b8');
+  g.addColorStop(1, '#b8a878');
+  ctx.fillStyle = g;
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(120, 100, 60, 0.85)';
+  ctx.lineWidth = 1.8 * S;
+  ctx.lineJoin = 'round';
+  ctx.stroke();
+
+  // 每条三角形的"竖直棱"（内部折线）
+  ctx.strokeStyle = 'rgba(120, 100, 60, 0.4)';
+  ctx.lineWidth = 1 * S;
+  for (let i = 0; i < triCount; i++) {
+    const cx = p.x + triW * (i + 0.5);
+    ctx.beginPath();
+    ctx.moveTo(cx, p.y - triH);
+    ctx.lineTo(cx, p.y - triH + 4 * S);
+    ctx.stroke();
+  }
+}
+
+/* ---------- 圆柱：三个竖立的圆筒 ---------- */
+function drawCylinder(p, pressure, collapseT) {
+  const maxCylH = 50 * S;
+  const compression = Math.min(0.75, pressure * 0.4 + collapseT * 1.1);
+  const cylH = maxCylH * (1 - compression);
+
+  const cylCount = 3;
+  const cylW = Math.min(34 * S, p.w / (cylCount + 0.5) - 8 * S);
+  const spacing = (p.w - cylCount * cylW) / (cylCount + 1);
+
+  for (let i = 0; i < cylCount; i++) {
+    const cx = p.x + spacing * (i + 1) + cylW * i;
+    const cyBase = p.y;   // 底部
+    const cyTop = p.y - cylH;
+
+    // 侧面渐变
+    const sideGrad = ctx.createLinearGradient(cx, 0, cx + cylW, 0);
+    sideGrad.addColorStop(0, '#c8b888');
+    sideGrad.addColorStop(0.2, '#e8d8b0');
+    sideGrad.addColorStop(0.4, '#fffcf0');
+    sideGrad.addColorStop(0.65, '#f0e0b8');
+    sideGrad.addColorStop(0.85, '#d8c8a0');
+    sideGrad.addColorStop(1, '#a89870');
+
+    // 侧面矩形
+    ctx.beginPath();
+    ctx.moveTo(cx, cyTop);
+    ctx.lineTo(cx, cyBase);
+    ctx.lineTo(cx + cylW, cyBase);
+    ctx.lineTo(cx + cylW, cyTop);
+    ctx.closePath();
+    ctx.fillStyle = sideGrad;
+    ctx.fill();
+
+    // 上下椭圆高度
+    const ellipseH = 6 * S;
+
+    // 顶部椭圆（能看到内壁，颜色稍暗）
+    ctx.beginPath();
+    ctx.ellipse(cx + cylW / 2, cyTop, cylW / 2, ellipseH, 0, 0, Math.PI * 2);
+    const topGrad = ctx.createRadialGradient(cx + cylW / 2, cyTop, 2 * S, cx + cylW / 2, cyTop, cylW / 2);
+    topGrad.addColorStop(0, '#8a7850');
+    topGrad.addColorStop(0.7, '#a89870');
+    topGrad.addColorStop(1, '#c8b888');
+    ctx.fillStyle = topGrad;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(80, 60, 30, 0.85)';
+    ctx.lineWidth = 1.5 * S;
+    ctx.stroke();
+
+    // 底部椭圆（被桌子挡住，只画可见部分）
+    ctx.beginPath();
+    ctx.ellipse(cx + cylW / 2, cyBase, cylW / 2, ellipseH, 0, 0, Math.PI);
+    ctx.fillStyle = '#a89870';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(80, 60, 30, 0.7)';
+    ctx.stroke();
+
+    // 侧面轮廓线
+    ctx.beginPath();
+    ctx.moveTo(cx, cyTop);
+    ctx.lineTo(cx, cyBase);
+    ctx.moveTo(cx + cylW, cyTop);
+    ctx.lineTo(cx + cylW, cyBase);
+    ctx.strokeStyle = 'rgba(120, 100, 60, 0.75)';
+    ctx.lineWidth = 1.5 * S;
+    ctx.stroke();
+
+    // 侧面高光（竖线）
+    ctx.beginPath();
+    ctx.moveTo(cx + cylW * 0.35, cyTop + ellipseH * 0.5);
+    ctx.lineTo(cx + cylW * 0.35, cyBase - ellipseH * 0.3);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.75)';
+    ctx.lineWidth = 2.5 * S;
+    ctx.stroke();
+  }
+}
+
+/* ============================================================
+   绘制：书
+============================================================ */
+function drawBook(b) {
+  const w = b.w;
+  const h = b.h;
+  const colorSet = BOOK_COLORS[b.colorIdx % BOOK_COLORS.length];
+
+  ctx.save();
+  ctx.translate(b.x, b.y);
+  ctx.rotate(b.rot || 0);
+
+  ctx.beginPath();
+  ctx.ellipse(3 * S, h * 0.5 + 3 * S, w * 0.5, 3 * S, 0, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+  ctx.fill();
+
+  ctx.beginPath();
+  roundRect(-w / 2, -h / 2, w, h, 2 * S);
+  const g = ctx.createLinearGradient(0, -h / 2, 0, h / 2);
+  g.addColorStop(0, colorSet.main);
+  g.addColorStop(1, colorSet.side);
+  ctx.fillStyle = g;
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(0, 0, 0, 0.4)';
+  ctx.lineWidth = 1.2 * S;
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.rect(-w / 2 + 2 * S, -h / 2 + 2 * S, w - 4 * S, h - 4 * S);
+  ctx.fillStyle = colorSet.page;
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.rect(-w / 2 + 2 * S, -h / 2 + 2 * S, 4 * S, h - 4 * S);
+  ctx.fillStyle = colorSet.side;
+  ctx.fill();
+
+  ctx.strokeStyle = 'rgba(180, 160, 120, 0.5)';
+  ctx.lineWidth = 0.6 * S;
+  for (let i = 1; i <= 3; i++) {
+    const y = -h / 2 + 2 * S + (h - 4 * S) * (i / 4);
+    ctx.beginPath();
+    ctx.moveTo(-w / 2 + 6 * S, y);
+    ctx.lineTo(w / 2 - 2 * S, y);
+    ctx.stroke();
+  }
+
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+  ctx.fillRect(-w * 0.25, -2 * S, w * 0.4, 2 * S);
+
+  ctx.restore();
+}
+
+/* ============================================================
+   绘制：火花
+============================================================ */
+function drawSparks() {
+  for (const s of state.sparks) {
+    ctx.save();
+    ctx.globalAlpha = s.life;
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, s.size * s.life, 0, Math.PI * 2);
+    ctx.fillStyle = s.color;
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+/* ============================================================
+   绘制：压力条
+============================================================ */
+function drawPressureBar() {
+  if (state.books.length === 0 && !state.collapsed) return;
+
+  const shapeInfo = SHAPES[state.shape];
+  const barW = 120 * S;
+  const barH = 8 * S;
+  const bx = scene.paper.x + scene.paper.w / 2 - barW / 2;
+  const by = scene.paper.y - 200 * S;
+
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+  roundRect(bx, by, barW, barH, barH / 2);
+  ctx.fill();
+
+  const ratio = Math.min(1, state.books.length / shapeInfo.capacity);
+  if (ratio > 0) {
+    const g = ctx.createLinearGradient(bx, 0, bx + barW, 0);
+    if (ratio < 0.6) {
+      g.addColorStop(0, '#7fdd6e');
+      g.addColorStop(1, '#5eb3ff');
+    } else if (ratio < 0.9) {
+      g.addColorStop(0, '#ffd54f');
+      g.addColorStop(1, '#ffb055');
+    } else {
+      g.addColorStop(0, '#ff6b6b');
+      g.addColorStop(1, '#c43030');
+    }
+    ctx.fillStyle = g;
+    roundRect(bx, by, barW * ratio, barH, barH / 2);
+    ctx.fill();
+  }
+
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
+  ctx.lineWidth = 1.2 * S;
+  roundRect(bx, by, barW, barH, barH / 2);
+  ctx.stroke();
+
+  ctx.font = 'bold ' + Math.round(11 * S) + 'px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'bottom';
+  ctx.fillStyle = '#a8c0e0';
+  ctx.fillText(state.books.length + ' / ' + shapeInfo.capacity, scene.paper.x + scene.paper.w / 2, by - 4 * S);
+}
+
+/* ============================================================
+   工具
+============================================================ */
+function roundRect(x, y, w, h, r) {
+  const rr = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.lineTo(x + w - rr, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+  ctx.lineTo(x + w, y + h - rr);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+  ctx.lineTo(x + rr, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+  ctx.lineTo(x, y + rr);
+  ctx.quadraticCurveTo(x, y, x + rr, y);
+  ctx.closePath();
+}
+
+/* ============================================================
+   渲染
+============================================================ */
+function render() {
+  ctx.clearRect(0, 0, W, H);
+
+  drawBackground();
+  drawTable(scene.tableLeft);
+  drawTable(scene.tableRight);
+  drawPaperStructure();
+
+  for (const b of state.books) {
+    drawBook(b);
+  }
+
+  if (state.fallingBook) {
+    drawBook(state.fallingBook);
+  }
+
+  drawSparks();
+  drawPressureBar();
+}
+
+/* ============================================================
+   交互
+============================================================ */
+btnAdd.addEventListener('click', function () {
+  if (state.collapsed || state.fallingBook) return;
+  initAudio();
+
+  const bookW = Math.min(scene.paper.w * 0.7, 100 * S);
+  const bookH = 14 * S;
+  const startY = scene.paper.y - 320 * S;
+
+  state.fallingBook = {
+    x: scene.paper.x + scene.paper.w / 2,
+    y: startY,
+    vx: 0,
+    vy: 100,
+    w: bookW,
+    h: bookH,
+    colorIdx: state.books.length,
+    rot: 0,
+    rotSpeed: 0,
+    landed: false
+  };
+});
+
+btnReset.addEventListener('click', function () {
+  initAudio();
+  sfxClick();
+  state.books = [];
+  state.fallingBook = null;
+  state.collapsed = false;
+  state.collapseProgress = 0;
+  state.sparks = [];
+  state.pressure = 0;
+  updateUI();
+});
+
+shapeBtns.forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    initAudio();
+    sfxClick();
+    state.shape = btn.dataset.shape;
+    shapeBtns.forEach(function (b) {
+      b.classList.toggle('active', b === btn);
+    });
+
+    state.books = [];
+    state.fallingBook = null;
+    state.collapsed = false;
+    state.collapseProgress = 0;
+    state.sparks = [];
+    state.pressure = 0;
+
+    updateUI();
+  });
+});
+
+canvas.addEventListener('dblclick', function (e) { e.preventDefault(); });
+
+/* ============================================================
+   启动
+============================================================ */
+resize();
+updateUI();
+updateBests();
+
+window.addEventListener('resize', function () {
+  resize();
+  render();
+});
+
+if (window.ResizeObserver) {
+  new ResizeObserver(function () {
+    const cw = canvas.clientWidth, ch = canvas.clientHeight;
+    if (cw > 0 && ch > 0 && (Math.abs(cw - W) > 1 || Math.abs(ch - H) > 1)) {
+      resize();
+      render();
+    }
+  }).observe(canvas);
+}
+
+render();
+requestAnimationFrame(function () {
+  resize();
+  updateUI();
+  render();
+});
+
+gsap.ticker.add(function (t, dt) {
+  const d = Math.min(dt || 16, 50) / 1000;
+  update(d);
+  render();
+});
+</script>
+</body>
+</html>

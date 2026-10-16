@@ -1,0 +1,988 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>磁铁的两极 —— 推开还是吸住</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    height: 100%; width: 100%; overflow: hidden; background: #0a1018;
+    touch-action: none;
+    font-family: system-ui, -apple-system, sans-serif;
+    color: #fff;
+  }
+  canvas { display: block; position: absolute; inset: 0; }
+
+  .status {
+    position: fixed;
+    top: 16px; left: 50%;
+    transform: translateX(-50%);
+    padding: 14px 28px;
+    background: rgba(16, 22, 38, 0.92);
+    border-radius: 30px;
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    font-size: 16px; font-weight: 700;
+    z-index: 10; white-space: nowrap; max-width: 94vw;
+    text-align: center; transition: all 0.3s;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+  }
+  .status.attract {
+    background: rgba(40, 130, 60, 0.95);
+    border-color: rgba(127, 221, 110, 0.7);
+  }
+  .status.repel {
+    background: rgba(180, 60, 60, 0.95);
+    border-color: rgba(255, 140, 140, 0.7);
+  }
+
+  .readout {
+    position: fixed;
+    top: 16px; right: 16px;
+    padding: 14px 18px;
+    background: rgba(16, 22, 38, 0.9);
+    border-radius: 14px;
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    font-size: 13px; z-index: 10;
+    line-height: 1.9; min-width: 190px;
+  }
+  .readout .row {
+    display: flex; justify-content: space-between; gap: 12px;
+  }
+  .readout .lbl { color: #8898b0; }
+  .readout .num {
+    color: #ffd54f; font-weight: 800; font-variant-numeric: tabular-nums;
+  }
+  .readout .num.attract { color: #7fdd6e; }
+  .readout .num.repel { color: #ff7a9c; }
+  .readout .divider {
+    margin: 6px 0; border-top: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .panel {
+    position: fixed;
+    bottom: 14px; left: 50%;
+    transform: translateX(-50%);
+    width: min(700px, 94vw);
+    background: rgba(16, 22, 38, 0.94);
+    padding: 14px 22px;
+    border-radius: 20px;
+    backdrop-filter: blur(14px);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    z-index: 10;
+    display: flex; flex-direction: column; gap: 10px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+  }
+  .panel .tip {
+    font-size: 13px; color: #a8c0e0;
+    text-align: center; line-height: 1.5;
+  }
+  .panel .btns {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 10px;
+  }
+  .panel button {
+    padding: 13px 12px;
+    border-radius: 13px;
+    border: none;
+    font-weight: 800; font-size: 14px;
+    cursor: pointer; transition: transform 0.12s, box-shadow 0.2s;
+    white-space: nowrap;
+  }
+  .panel button:active { transform: translateY(1px); }
+  .panel .btn-flip {
+    background: linear-gradient(135deg, #5eb3ff, #a8e6ff);
+    color: #061020;
+    box-shadow: 0 4px 14px rgba(94, 179, 255, 0.4);
+  }
+  .panel .btn-demo {
+    background: linear-gradient(135deg, #ffb055, #ff9eb5);
+    color: #1a0a00;
+    box-shadow: 0 4px 14px rgba(255, 160, 90, 0.4);
+  }
+  .panel .btn-reset {
+    background: rgba(255, 255, 255, 0.14);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.22);
+  }
+  .panel .btn-reset:hover { background: rgba(255, 255, 255, 0.24); }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div class="status" id="status">🧲 拖动磁铁互相靠近，看看会推开还是吸住</div>
+
+<div class="readout">
+  <div class="row"><span class="lbl">磁铁间距离</span><span class="num" id="distVal">--</span></div>
+  <div class="row"><span class="lbl">当前作用力</span><span class="num" id="forceVal">--</span></div>
+  <div class="divider"></div>
+  <div class="row"><span class="lbl">🔴 N 极</span><span class="num" id="leftPole">朝右</span></div>
+  <div class="row"><span class="lbl">🔵 S 极</span><span class="num" id="rightPole">朝左</span></div>
+</div>
+
+<div class="panel">
+  <div class="tip" id="tip">💡 同极相斥，异极相吸——试试翻转其中一块磁铁</div>
+  <div class="btns">
+    <button class="btn-flip" id="btnFlip">🔄 翻转左边磁铁</button>
+    <button class="btn-demo" id="btnDemo">✨ 自动演示</button>
+    <button class="btn-reset" id="btnReset">🔄 重置</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+<script>
+/* ============================================================
+   磁铁的两极 —— 推开还是吸住
+   ------------------------------------------------------------
+   核心概念：
+   ① 磁铁有两极：N 极（北极）和 S 极（南极）
+   ② 同极靠近 → 互相推开（N-N 或 S-S）
+   ③ 异极靠近 → 互相吸引（N-S）
+   ④ 磁铁离得越近，作用力越大
+   ⑤ 磁铁离得越远，作用力越小（渐渐消失）
+   ============================================================ */
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+const statusEl = document.getElementById('status');
+const distValEl = document.getElementById('distVal');
+const forceValEl = document.getElementById('forceVal');
+const leftPoleEl = document.getElementById('leftPole');
+const rightPoleEl = document.getElementById('rightPole');
+const tipEl = document.getElementById('tip');
+const btnFlip = document.getElementById('btnFlip');
+const btnDemo = document.getElementById('btnDemo');
+const btnReset = document.getElementById('btnReset');
+
+let W = 800, H = 600, DPR = 1, S = 1;
+let time = 0;
+
+const state = {
+  leftFlip: false,
+  rightFlip: false,
+  interaction: 0,
+  demoing: false,
+  demoStartTime: 0,
+  sparks: []
+};
+
+const scene = {
+  groundY: 0,
+  left: { x: 0, y: 0, w: 0, h: 0, homeX: 0, homeY: 0 },
+  right: { x: 0, y: 0, w: 0, h: 0, homeX: 0, homeY: 0 }
+};
+
+let dragging = null;
+let activePointer = null;
+let dragOff = { x: 0, y: 0 };
+
+/* ============================================================
+   尺寸
+============================================================ */
+function resize() {
+  let w = window.innerWidth || document.documentElement.clientWidth || 800;
+  let h = window.innerHeight || document.documentElement.clientHeight || 600;
+  if (w < 200) w = 800;
+  if (h < 200) h = 600;
+
+  W = w; H = h;
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width = Math.floor(W * DPR);
+  canvas.height = Math.floor(H * DPR);
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+  S = Math.max(0.55, Math.min(1.15, H / 800));
+
+  layoutScene();
+}
+
+function layoutScene() {
+  scene.groundY = H * 0.78;
+
+  const mw = Math.min(W * 0.18, 180 * S);
+  const mh = Math.min(W * 0.06, 60 * S);
+
+  scene.left.w = mw;
+  scene.left.h = mh;
+  scene.left.homeX = W * 0.30;
+  scene.left.homeY = H * 0.44;
+
+  scene.right.w = mw;
+  scene.right.h = mh;
+  scene.right.homeX = W * 0.70;
+  scene.right.homeY = H * 0.44;
+
+  if (!scene.left.initialized) {
+    scene.left.x = scene.left.homeX;
+    scene.left.y = scene.left.homeY;
+    scene.right.x = scene.right.homeX;
+    scene.right.y = scene.right.homeY;
+    scene.left.initialized = true;
+  }
+}
+
+/* ============================================================
+   音效
+============================================================ */
+let audioCtx = null;
+function initAudio() {
+  if (!audioCtx) {
+    try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
+  }
+}
+function beep(freq, dur, vol, type, delay) {
+  vol = vol == null ? 0.05 : vol;
+  type = type || 'sine';
+  delay = delay || 0;
+  if (!audioCtx) return;
+  const t0 = audioCtx.currentTime + delay;
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(freq, t0);
+  o.connect(g);
+  g.connect(audioCtx.destination);
+  g.gain.setValueAtTime(vol, t0);
+  g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+  o.start(t0);
+  o.stop(t0 + dur);
+}
+function sfxGrab() { beep(620, 0.05, 0.05, 'triangle'); }
+function sfxDrop() { beep(400, 0.08, 0.05, 'triangle'); }
+function sfxAttract() { beep(400, 0.08, 0.05, 'sine'); beep(600, 0.10, 0.05, 'sine', 0.06); }
+function sfxRepel() { beep(500, 0.06, 0.04, 'square'); beep(400, 0.08, 0.04, 'square', 0.05); }
+function sfxClick() { beep(520, 0.06, 0.05, 'triangle'); }
+
+/* ============================================================
+   极性
+============================================================ */
+function getLeftPolarity() {
+  if (state.leftFlip) return { left: 'S', right: 'N' };
+  return { left: 'N', right: 'S' };
+}
+
+function getRightPolarity() {
+  if (state.rightFlip) return { left: 'S', right: 'N' };
+  return { left: 'N', right: 'S' };
+}
+
+function computeInteraction() {
+  const lp = getLeftPolarity().right;
+  const rp = getRightPolarity().left;
+
+  const dx = scene.right.x - scene.left.x;
+  const dy = scene.right.y - scene.left.y;
+  const dist = Math.hypot(dx, dy) || 1;
+
+  const contactDist = (scene.left.w + scene.right.w) / 2;
+  const normalized = Math.max(0.3, dist / contactDist);
+  const strength = Math.min(1, 1 / (normalized * normalized));
+
+  const isSame = lp === rp;
+  const force = isSame ? strength : -strength;
+
+  return {
+    lp, rp, dist, normalized, strength, force, isSame,
+    contactDist
+  };
+}
+
+/* ============================================================
+   更新
+============================================================ */
+function update(dt) {
+  time += dt;
+
+  const inter = computeInteraction();
+  state.interaction = inter.force;
+
+  // 自动演示：两块磁铁主动来回移动
+  if (state.demoing && !dragging) {
+    const t = time - state.demoStartTime;
+    const cycle = (t % 5) / 5;   // 0~1
+
+    const centerX = W * 0.5;
+    let half;
+    if (cycle < 0.45) {
+      // 靠近
+      const k = cycle / 0.45;
+      half = 260 * S - k * 200 * S;
+    } else if (cycle < 0.55) {
+      // 短暂停留（接触位置）
+      half = 60 * S;
+    } else {
+      // 分开
+      const k = (cycle - 0.55) / 0.45;
+      half = 60 * S + k * 200 * S;
+    }
+
+    // 同极时不能真的贴上
+    if (inter.isSame) {
+      const minHalf = (scene.left.w + scene.right.w) / 2 * 1.2;
+      if (half < minHalf) half = minHalf;
+    } else {
+      const minHalf = (scene.left.w + scene.right.w) / 2 * 0.96;
+      if (half < minHalf) half = minHalf;
+    }
+
+    scene.left.x = centerX - half;
+    scene.right.x = centerX + half;
+
+    // 演示时也偶尔冒出火花
+    if (inter.strength > 0.4 && Math.random() < 0.3) {
+      spawnSpark((scene.left.x + scene.right.x) / 2, (scene.left.y + scene.right.y) / 2, inter.isSame);
+    }
+  }
+
+  // 火花
+  for (const s of state.sparks) {
+    s.x += s.vx * dt;
+    s.y += s.vy * dt;
+    s.vx *= 0.95;
+    s.vy *= 0.95;
+    s.life -= dt * 1.4;
+    s.rot += s.rotSpeed * dt;
+  }
+  state.sparks = state.sparks.filter(function (s) { return s.life > 0; });
+
+  updateUI();
+}
+
+function spawnSpark(x, y, isSame) {
+  const color = isSame ? '#ff7a9c' : '#7fdd6e';
+  for (let i = 0; i < 3; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const v = 60 + Math.random() * 100;
+    state.sparks.push({
+      x: x + (Math.random() - 0.5) * 20 * S,
+      y: y + (Math.random() - 0.5) * 20 * S,
+      vx: Math.cos(a) * v,
+      vy: Math.sin(a) * v,
+      life: 1,
+      size: 2 + Math.random() * 2.5,
+      color: color,
+      rot: Math.random() * Math.PI * 2,
+      rotSpeed: (Math.random() - 0.5) * 8
+    });
+  }
+}
+
+/* ============================================================
+   UI
+============================================================ */
+function updateUI() {
+  const inter = computeInteraction();
+
+  const distCm = Math.round(inter.dist / S / 8);
+  distValEl.textContent = distCm + ' cm';
+
+  if (inter.strength < 0.05) {
+    forceValEl.textContent = '几乎为零';
+    forceValEl.className = 'num';
+    if (!state.demoing) {
+      statusEl.textContent = '🧲 拖动磁铁互相靠近，看看会推开还是吸住';
+      statusEl.className = 'status';
+    }
+  } else if (inter.isSame) {
+    forceValEl.textContent = '排斥 ' + Math.round(inter.strength * 100) + '%';
+    forceValEl.className = 'num repel';
+    if (inter.strength > 0.3) {
+      statusEl.textContent = '❌ 同极相斥！磁铁被推开了';
+      statusEl.className = 'status repel';
+    } else {
+      statusEl.textContent = '↔️ 开始感到一股推力……';
+      statusEl.className = 'status';
+    }
+  } else {
+    forceValEl.textContent = '吸引 ' + Math.round(inter.strength * 100) + '%';
+    forceValEl.className = 'num attract';
+    if (inter.strength > 0.3) {
+      statusEl.textContent = '💚 异极相吸！磁铁被吸住了';
+      statusEl.className = 'status attract';
+    } else {
+      statusEl.textContent = '→ 开始感到一股拉力……';
+      statusEl.className = 'status';
+    }
+  }
+
+  const lp = getLeftPolarity();
+  const rp = getRightPolarity();
+  leftPoleEl.textContent = lp.right === 'N' ? '🔴 朝右' : '🔵 朝右';
+  rightPoleEl.textContent = rp.left === 'N' ? '🔴 朝左' : '🔵 朝左';
+}
+
+/* ============================================================
+   绘制：背景 & 桌子
+============================================================ */
+function drawBackground() {
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#1a2438');
+  g.addColorStop(0.55, '#0d1422');
+  g.addColorStop(1, '#050810');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+
+  const glow = ctx.createRadialGradient(W * 0.5, H * 0.44, 30, W * 0.5, H * 0.44, Math.max(W, H) * 0.6);
+  glow.addColorStop(0, 'rgba(120, 180, 255, 0.10)');
+  glow.addColorStop(1, 'rgba(120, 180, 255, 0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+}
+
+function drawTable() {
+  const ty = scene.groundY;
+  const g = ctx.createLinearGradient(0, ty, 0, H);
+  g.addColorStop(0, '#4a3020');
+  g.addColorStop(0.4, '#2a1a10');
+  g.addColorStop(1, '#150c05');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, ty, W, H - ty);
+
+  ctx.strokeStyle = 'rgba(180, 140, 90, 0.4)';
+  ctx.lineWidth = 2.5 * S;
+  ctx.beginPath();
+  ctx.moveTo(0, ty);
+  ctx.lineTo(W, ty);
+  ctx.stroke();
+
+  ctx.strokeStyle = 'rgba(60, 40, 20, 0.4)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 4; i++) {
+    const y = ty + 20 * S + i * 26 * S;
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(W, y);
+    ctx.stroke();
+  }
+}
+
+/* ============================================================
+   绘制：磁铁
+============================================================ */
+function drawMagnet(m, isLeft) {
+  const x = m.x;
+  const y = m.y;
+  const w = m.w;
+  const h = m.h;
+  const halfW = w / 2;
+  const polarity = isLeft ? getLeftPolarity() : getRightPolarity();
+
+  ctx.save();
+  ctx.translate(x, y);
+
+  const bob = Math.sin(time * 1.6 + (isLeft ? 0 : 1)) * 1.5 * S;
+  ctx.translate(0, bob);
+
+  // 阴影
+  ctx.save();
+  ctx.globalAlpha = 0.35;
+  ctx.beginPath();
+  ctx.ellipse(3 * S, h * 0.7, w * 0.42, 5 * S, 0, 0, Math.PI * 2);
+  ctx.fillStyle = '#000';
+  ctx.fill();
+  ctx.restore();
+
+  // 左半
+  const leftColor = polarity.left === 'N' ? 'red' : 'blue';
+  const rightColor = polarity.right === 'N' ? 'red' : 'blue';
+
+  ctx.beginPath();
+  roundRect(-halfW, -h / 2, halfW, h, [8 * S, 0, 0, 8 * S]);
+  const lgrad = ctx.createLinearGradient(-halfW, -h / 2, -halfW, h / 2);
+  if (leftColor === 'red') {
+    lgrad.addColorStop(0, '#ff9090');
+    lgrad.addColorStop(0.5, '#e84040');
+    lgrad.addColorStop(1, '#8a1a1a');
+  } else {
+    lgrad.addColorStop(0, '#90b0ff');
+    lgrad.addColorStop(0.5, '#3a7ae8');
+    lgrad.addColorStop(1, '#1a3a8a');
+  }
+  ctx.fillStyle = lgrad;
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+  ctx.lineWidth = 2 * S;
+  ctx.stroke();
+
+  // 右半
+  ctx.beginPath();
+  roundRect(0, -h / 2, halfW, h, [0, 8 * S, 8 * S, 0]);
+  const rgrad = ctx.createLinearGradient(0, -h / 2, w, h / 2);
+  if (rightColor === 'red') {
+    rgrad.addColorStop(0, '#e84040');
+    rgrad.addColorStop(0.5, '#ff6060');
+    rgrad.addColorStop(1, '#a83030');
+  } else {
+    rgrad.addColorStop(0, '#3a7ae8');
+    rgrad.addColorStop(0.5, '#5a9aff');
+    rgrad.addColorStop(1, '#1a3a8a');
+  }
+  ctx.fillStyle = rgrad;
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+  ctx.lineWidth = 2 * S;
+  ctx.stroke();
+
+  // 中线
+  ctx.beginPath();
+  ctx.moveTo(0, -h / 2 + 2 * S);
+  ctx.lineTo(0, h / 2 - 2 * S);
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+  ctx.lineWidth = 2 * S;
+  ctx.stroke();
+
+  // 高光
+  ctx.save();
+  ctx.beginPath();
+  roundRect(-halfW, -h / 2, w, h, 8 * S);
+  ctx.clip();
+  ctx.beginPath();
+  ctx.ellipse(-w * 0.2, -h * 0.25, w * 0.35, h * 0.15, 0, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.22)';
+  ctx.fill();
+  ctx.restore();
+
+  // 标签
+  ctx.font = 'bold ' + Math.round(h * 0.55) + 'px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#fff';
+  ctx.fillText(polarity.left, -halfW / 2, 1);
+  ctx.fillText(polarity.right, halfW / 2, 1);
+
+  ctx.restore();
+
+  // 朝向对方那一端的光晕
+  const inter = computeInteraction();
+  if (inter.strength > 0.15) {
+    const glowColor = inter.isSame ? 'rgba(255, 120, 160, ' : 'rgba(127, 221, 110, ';
+    let ex, ey;
+    if (isLeft) { ex = x + halfW; ey = y; }
+    else { ex = x - halfW; ey = y; }
+
+    ctx.save();
+    const pulse = 0.6 + Math.sin(time * 6) * 0.4;
+    const glowR = 80 * S * inter.strength;
+    const gg = ctx.createRadialGradient(ex, ey, 5, ex, ey, glowR);
+    gg.addColorStop(0, glowColor + (inter.strength * pulse * 0.9) + ')');
+    gg.addColorStop(0.5, glowColor + (inter.strength * pulse * 0.4) + ')');
+    gg.addColorStop(1, glowColor + '0)');
+    ctx.fillStyle = gg;
+    ctx.beginPath();
+    ctx.arc(ex, ey, glowR, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+/* ============================================================
+   绘制：磁力线和力箭头
+============================================================ */
+function drawFieldLines() {
+  const inter = computeInteraction();
+  if (inter.strength < 0.08) return;
+
+  const lx = scene.left.x + scene.left.w / 2;
+  const ly = scene.left.y;
+  const rx = scene.right.x - scene.right.w / 2;
+  const ry = scene.right.y;
+
+  const midX = (lx + rx) / 2;
+  const midY = (ly + ry) / 2;
+
+  const numLines = Math.ceil(inter.strength * 6) + 1;
+
+  ctx.save();
+
+  if (inter.isSame) {
+    for (let i = 0; i < numLines; i++) {
+      const t = numLines === 1 ? 0.5 : i / (numLines - 1);
+      const spread = (t - 0.5) * 100 * S;
+      const curve = 60 * S * inter.strength;
+
+      ctx.beginPath();
+      ctx.moveTo(lx, ly + spread * 0.4);
+      ctx.quadraticCurveTo(midX, midY + spread + (spread > 0 ? curve : -curve), rx, ry + spread * 0.4);
+      ctx.strokeStyle = 'rgba(255, 140, 170, ' + (inter.strength * 0.55) + ')';
+      ctx.lineWidth = 2 * S;
+      ctx.setLineDash([6 * S, 6 * S]);
+      ctx.lineDashOffset = -time * 30 * S;
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  } else {
+    for (let i = 0; i < numLines; i++) {
+      const t = numLines === 1 ? 0.5 : i / (numLines - 1);
+      const spread = (t - 0.5) * 100 * S;
+      const curve = -30 * S * inter.strength;
+
+      ctx.beginPath();
+      ctx.moveTo(lx, ly + spread * 0.4);
+      ctx.quadraticCurveTo(midX, midY + spread * 0.4 + curve, rx, ry + spread * 0.4);
+      ctx.strokeStyle = 'rgba(127, 221, 110, ' + (inter.strength * 0.65) + ')';
+      ctx.lineWidth = 2.2 * S;
+      ctx.setLineDash([6 * S, 6 * S]);
+      ctx.lineDashOffset = time * 40 * S;
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    const pulse = 0.7 + Math.sin(time * 5) * 0.3;
+    const bg = ctx.createRadialGradient(midX, midY, 0, midX, midY, 16 * S * inter.strength * pulse);
+    bg.addColorStop(0, 'rgba(160, 255, 140, ' + (inter.strength * 0.8) + ')');
+    bg.addColorStop(1, 'rgba(160, 255, 140, 0)');
+    ctx.beginPath();
+    ctx.arc(midX, midY, 16 * S * inter.strength * pulse, 0, Math.PI * 2);
+    ctx.fillStyle = bg;
+    ctx.fill();
+  }
+
+  ctx.restore();
+
+  drawForceArrow(midX, midY, inter);
+}
+
+function drawForceArrow(midX, midY, inter) {
+  if (inter.strength < 0.15) return;
+
+  const arrowLen = 30 + inter.strength * 50 * S;
+  const arrowWidth = 10 * S;
+
+  ctx.save();
+  ctx.globalAlpha = Math.min(1, inter.strength * 1.3);
+
+  if (inter.isSame) {
+    drawArrowHead(midX - 25 * S, midY, -1, arrowLen * 0.6, arrowWidth, 'rgba(255, 140, 170, 0.9)');
+    drawArrowLine(midX, midY, midX - 25 * S - arrowLen * 0.6, midY, 'rgba(255, 140, 170, 0.7)');
+
+    drawArrowHead(midX + 25 * S, midY, 1, arrowLen * 0.6, arrowWidth, 'rgba(255, 140, 170, 0.9)');
+    drawArrowLine(midX, midY, midX + 25 * S + arrowLen * 0.6, midY, 'rgba(255, 140, 170, 0.7)');
+  } else {
+    drawArrowHead(midX - 25 * S, midY, 1, arrowLen * 0.6, arrowWidth, 'rgba(160, 255, 140, 0.9)');
+    drawArrowLine(midX - 25 * S - arrowLen * 0.6, midY, midX - 25 * S, midY, 'rgba(160, 255, 140, 0.7)');
+
+    drawArrowHead(midX + 25 * S, midY, -1, arrowLen * 0.6, arrowWidth, 'rgba(160, 255, 140, 0.9)');
+    drawArrowLine(midX + 25 * S + arrowLen * 0.6, midY, midX + 25 * S, midY, 'rgba(160, 255, 140, 0.7)');
+  }
+
+  ctx.restore();
+}
+
+function drawArrowHead(x, y, dir, len, w, color) {
+  ctx.beginPath();
+  ctx.moveTo(x + dir * len, y);
+  ctx.lineTo(x, y - w / 2);
+  ctx.lineTo(x, y + w / 2);
+  ctx.closePath();
+  ctx.fillStyle = color;
+  ctx.fill();
+}
+
+function drawArrowLine(x1, y1, x2, y2, color) {
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(x2, y2);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 3 * S;
+  ctx.lineCap = 'round';
+  ctx.stroke();
+}
+
+/* ============================================================
+   绘制：火花
+============================================================ */
+function drawSparks() {
+  for (const s of state.sparks) {
+    ctx.save();
+    ctx.globalAlpha = s.life;
+    ctx.translate(s.x, s.y);
+    ctx.rotate(s.rot);
+    ctx.beginPath();
+    for (let i = 0; i < 8; i++) {
+      const r = i % 2 === 0 ? s.size : s.size * 0.4;
+      const a = (Math.PI / 4) * i;
+      const x = Math.cos(a) * r;
+      const y = Math.sin(a) * r;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.fillStyle = s.color;
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+/* ============================================================
+   工具
+============================================================ */
+function roundRect(x, y, w, h, r) {
+  if (Array.isArray(r)) {
+    const [tl, tr, br, bl] = r;
+    ctx.beginPath();
+    ctx.moveTo(x + tl, y);
+    ctx.lineTo(x + w - tr, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + tr);
+    ctx.lineTo(x + w, y + h - br);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - br, y + h);
+    ctx.lineTo(x + bl, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - bl);
+    ctx.lineTo(x, y + tl);
+    ctx.quadraticCurveTo(x, y, x + tl, y);
+    ctx.closePath();
+  } else {
+    const rr = Math.min(r, w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + rr, y);
+    ctx.lineTo(x + w - rr, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+    ctx.lineTo(x + w, y + h - rr);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+    ctx.lineTo(x + rr, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+    ctx.lineTo(x, y + rr);
+    ctx.quadraticCurveTo(x, y, x + rr, y);
+    ctx.closePath();
+  }
+}
+
+/* ============================================================
+   渲染
+============================================================ */
+function render() {
+  ctx.clearRect(0, 0, W, H);
+
+  drawBackground();
+  drawTable();
+
+  drawMagnet(scene.left, true);
+  drawMagnet(scene.right, false);
+  drawFieldLines();
+  drawSparks();
+}
+
+/* ============================================================
+   交互
+============================================================ */
+function getPos(e) {
+  const rect = canvas.getBoundingClientRect();
+  return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+}
+
+function hitMagnet(p) {
+  const candidates = [
+    { id: 'left', m: scene.left },
+    { id: 'right', m: scene.right }
+  ];
+  let best = null;
+  let bestDist = Infinity;
+
+  for (const c of candidates) {
+    const dx = Math.abs(p.x - c.m.x);
+    const dy = Math.abs(p.y - c.m.y);
+    if (dx < c.m.w * 0.65 && dy < c.m.h * 0.85) {
+      const d = Math.hypot(dx, dy);
+      if (d < bestDist) { bestDist = d; best = c; }
+    }
+  }
+  return best;
+}
+
+function onDown(e) {
+  initAudio();
+  if (activePointer !== null) return;
+  activePointer = e.pointerId;
+  const p = getPos(e);
+  const hit = hitMagnet(p);
+  if (hit) {
+    dragging = hit.id;
+    dragOff.x = hit.m.x - p.x;
+    dragOff.y = hit.m.y - p.y;
+    sfxGrab();
+    // 手动拖动时停止自动演示
+    if (state.demoing) {
+      state.demoing = false;
+      btnDemo.textContent = '✨ 自动演示';
+    }
+  }
+}
+
+function onMove(e) {
+  if (activePointer !== e.pointerId) return;
+  if (!dragging) return;
+  const p = getPos(e);
+  const m = dragging === 'left' ? scene.left : scene.right;
+  const other = dragging === 'left' ? scene.right : scene.left;
+
+  // 用户想让磁铁去的位置
+  m.x = p.x + dragOff.x;
+  m.y = p.y + dragOff.y;
+
+  // 边界
+  m.x = Math.max(m.w / 2 + 10 * S, Math.min(W - m.w / 2 - 10 * S, m.x));
+  m.y = Math.max(m.h / 2 + 10 * S, Math.min(scene.groundY - m.h * 0.3, m.y));
+
+  // ---- 磁力交互 ----
+  const inter = computeInteraction();
+  const contactDist = (m.w + other.w) / 2;
+
+  let dx = other.x - m.x;
+  let dy = other.y - m.y;
+  let dist = Math.hypot(dx, dy);
+  if (dist < 1) dist = 1;
+  const ux = dx / dist;
+  const uy = dy / dist;
+
+  if (inter.isSame && inter.strength > 0.1) {
+    // ===== 同极：推开 =====
+    // 维持一个最小"安全距离"
+    const safeDist = contactDist * 1.28;
+
+    if (dist < safeDist) {
+      // 把另一块磁铁推到安全距离之外
+      const targetX = m.x + ux * safeDist;
+      const targetY = m.y + uy * safeDist;
+
+      // 限制在屏幕内
+      other.x = Math.max(other.w / 2 + 10 * S, Math.min(W - other.w / 2 - 10 * S, targetX));
+      other.y = Math.max(other.h / 2 + 10 * S, Math.min(scene.groundY - other.h * 0.3, targetY));
+
+      // 反馈：声音 + 火花
+      if (Math.random() < 0.25) sfxRepel();
+      if (Math.random() < 0.4) {
+        spawnSpark((m.x + other.x) / 2, (m.y + other.y) / 2, true);
+      }
+    }
+  } else if (!inter.isSame && inter.strength > 0.15) {
+    // ===== 异极：吸引 =====
+    const maxDist = contactDist * 2.2;
+
+    if (dist > contactDist * 0.98 && dist < maxDist) {
+      // 把另一块磁铁拉近
+      const pull = (inter.strength - 0.15) * 18 * S;
+      other.x -= ux * pull;
+      other.y -= uy * pull;
+
+      // 边界
+      other.x = Math.max(other.w / 2 + 10 * S, Math.min(W - other.w / 2 - 10 * S, other.x));
+      other.y = Math.max(other.h / 2 + 10 * S, Math.min(scene.groundY - other.h * 0.3, other.y));
+
+      // 不能穿过
+      const newDx = other.x - m.x;
+      const newDy = other.y - m.y;
+      const newDist = Math.hypot(newDx, newDy);
+      const minDist = contactDist * 0.98;
+      if (newDist < minDist && newDist > 1) {
+        other.x = m.x + (newDx / newDist) * minDist;
+        other.y = m.y + (newDy / newDist) * minDist;
+      }
+
+      if (Math.random() < 0.3) {
+        spawnSpark((m.x + other.x) / 2, (m.y + other.y) / 2, false);
+      }
+    }
+  }
+}
+
+function onUp(e) {
+  if (activePointer !== e.pointerId) return;
+  activePointer = null;
+  if (dragging) {
+    sfxDrop();
+    dragging = null;
+  }
+}
+
+canvas.addEventListener('pointerdown', onDown);
+canvas.addEventListener('pointermove', onMove);
+canvas.addEventListener('pointerup', onUp);
+canvas.addEventListener('pointercancel', onUp);
+canvas.addEventListener('dblclick', function (e) { e.preventDefault(); });
+
+/* ============================================================
+   按钮
+============================================================ */
+btnFlip.addEventListener('click', function () {
+  initAudio();
+  sfxClick();
+  state.leftFlip = !state.leftFlip;
+
+  const inter = computeInteraction();
+  if (inter.strength > 0.3) {
+    if (inter.isSame) sfxRepel(); else sfxAttract();
+    spawnSpark((scene.left.x + scene.right.x) / 2, (scene.left.y + scene.right.y) / 2, inter.isSame);
+  }
+});
+
+btnDemo.addEventListener('click', function () {
+  initAudio();
+  sfxClick();
+
+  if (state.demoing) {
+    state.demoing = false;
+    btnDemo.textContent = '✨ 自动演示';
+    return;
+  }
+
+  state.demoing = true;
+  state.demoStartTime = time;
+  btnDemo.textContent = '⏸️ 停止演示';
+});
+
+btnReset.addEventListener('click', function () {
+  initAudio();
+  sfxClick();
+  state.demoing = false;
+  state.leftFlip = false;
+  state.rightFlip = false;
+  scene.left.x = scene.left.homeX;
+  scene.left.y = scene.left.homeY;
+  scene.right.x = scene.right.homeX;
+  scene.right.y = scene.right.homeY;
+  state.sparks = [];
+  btnDemo.textContent = '✨ 自动演示';
+  statusEl.textContent = '🧲 拖动磁铁互相靠近，看看会推开还是吸住';
+  statusEl.className = 'status';
+});
+
+/* ============================================================
+   启动
+============================================================ */
+resize();
+
+window.addEventListener('resize', function () {
+  resize();
+  render();
+});
+
+if (window.ResizeObserver) {
+  new ResizeObserver(function () {
+    const cw = canvas.clientWidth, ch = canvas.clientHeight;
+    if (cw > 0 && ch > 0 && (Math.abs(cw - W) > 1 || Math.abs(ch - H) > 1)) {
+      resize();
+      render();
+    }
+  }).observe(canvas);
+}
+
+render();
+requestAnimationFrame(function () {
+  resize();
+  render();
+});
+
+gsap.ticker.add(function (t, dt) {
+  const d = Math.min(dt || 16, 50) / 1000;
+  update(d);
+  render();
+});
+</script>
+</body>
+</html>

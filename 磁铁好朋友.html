@@ -1,0 +1,978 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>磁铁好朋友 —— 什么会被吸住</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    height: 100%; width: 100%; overflow: hidden; background: #0a1018;
+    touch-action: none;
+    font-family: system-ui, -apple-system, sans-serif;
+    color: #fff;
+  }
+  canvas {
+    display: block;
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+  }
+
+  .status {
+    position: fixed;
+    top: 20px; left: 50%;
+    transform: translateX(-50%);
+    padding: 12px 26px;
+    background: rgba(16, 22, 38, 0.88);
+    border-radius: 30px;
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    font-size: 15px;
+    font-weight: 700;
+    z-index: 10;
+    white-space: nowrap;
+    max-width: 92vw;
+    text-align: center;
+    transition: all 0.3s;
+  }
+
+  .counter {
+    position: fixed;
+    top: 20px; right: 20px;
+    padding: 10px 16px;
+    background: rgba(16, 22, 38, 0.75);
+    border-radius: 14px;
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    font-size: 13px;
+    font-weight: 700;
+    color: #a8c0e0;
+    z-index: 10;
+  }
+  .counter .num {
+    color: #ffd54f;
+    font-size: 16px;
+  }
+
+  .panel {
+    position: fixed;
+    bottom: 20px; left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 10px;
+    z-index: 10;
+  }
+  .panel button {
+    padding: 12px 24px;
+    border-radius: 14px;
+    background: rgba(16, 22, 38, 0.9);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    color: #fff;
+    font-weight: 700;
+    font-size: 14px;
+    cursor: pointer;
+    backdrop-filter: blur(12px);
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .panel button:hover {
+    background: rgba(40, 60, 90, 0.9);
+  }
+  .panel button:active {
+    transform: translateY(1px);
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div class="status" id="status">🧲 拖一拖磁铁，看看谁会被吸住</div>
+<div class="counter">已吸住：<span class="num" id="cnt">0</span> / <span id="total">0</span></div>
+
+<div class="panel">
+  <button id="btnReset">🔄 重新摆放</button>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+<script>
+/* ============================================================
+   磁铁好朋友 —— 什么会被吸住
+   ------------------------------------------------------------
+   教材依据：
+   第五章第三节「磁铁」—— 吸附力、穿透力、传介性
+   第一章「迷思概念」—— 幼儿以为所有金属都会被磁铁吸住
+   英国《发展至关重要》—— "探索事物如何运作"
+
+   核心概念：
+   ① 磁铁能吸铁、钴、镍等铁磁性物质
+   ② 磁铁吸不住铜、铝、木头、塑料、玻璃
+   ③ 不是"金属都会被吸"，铜钥匙、铝箔都吸不住
+   ④ 磁力有一定范围，靠近才起作用
+   ============================================================ */
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+const statusEl = document.getElementById('status');
+const cntEl = document.getElementById('cnt');
+const totalEl = document.getElementById('total');
+const btnReset = document.getElementById('btnReset');
+
+let W = 800, H = 600, DPR = 1, S = 1;
+let time = 0;
+
+/* ---------- 磁铁 ---------- */
+const magnet = {
+  x: 0, y: 0,
+  w: 0, h: 0,
+  homeX: 0, homeY: 0,
+  scale: 1,
+  drag: false
+};
+
+/* ---------- 物品 ---------- */
+const ITEM_DEFS = [
+  { id: 'nail',    name: '铁钉',   magnetic: true,  color: '#a8b0be' },
+  { id: 'clip',    name: '回形针', magnetic: true,  color: '#b8c0cc' },
+  { id: 'screw',   name: '铁螺丝', magnetic: true,  color: '#909aa8' },
+  { id: 'key',     name: '铜钥匙', magnetic: false, color: '#c68a4a' },
+  { id: 'pencil',  name: '木铅笔', magnetic: false, color: '#e0b070' },
+  { id: 'block',   name: '塑料块', magnetic: false, color: '#5eb3ff' },
+  { id: 'foil',    name: '铝箔球', magnetic: false, color: '#c8d0d8' },
+  { id: 'marble',  name: '玻璃球', magnetic: false, color: '#7fc8e8' }
+];
+
+let items = [];
+
+/* ---------- 交互 ---------- */
+let activePointer = null;
+let dragOffset = { x: 0, y: 0 };
+
+/* ---------- 视觉 ---------- */
+let sparks = [];
+let absorbedCount = 0;
+
+/* ============================================================
+   尺寸
+============================================================ */
+function resize() {
+  let w = window.innerWidth || document.documentElement.clientWidth || 800;
+  let h = window.innerHeight || document.documentElement.clientHeight || 600;
+  if (w < 200) w = 800;
+  if (h < 200) h = 600;
+
+  W = w;
+  H = h;
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+
+  canvas.width = Math.floor(W * DPR);
+  canvas.height = Math.floor(H * DPR);
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+  S = Math.max(0.55, Math.min(1.15, H / 800));
+
+  layoutScene();
+}
+
+function layoutScene() {
+  // 磁铁初始位置在左上
+  magnet.w = 170 * S;
+  magnet.h = 56 * S;
+  magnet.homeX = W * 0.30;
+  magnet.homeY = H * 0.22;
+  if (!magnet.drag) {
+    magnet.x = magnet.homeX;
+    magnet.y = magnet.homeY;
+  }
+
+  // 物品按 4 列 2 行排列在下方
+  const cols = 4;
+  const rows = 2;
+  const padX = W * 0.10;
+  const padTop = H * 0.62;
+  const padBottom = H * 0.12;
+  const cellW = (W - padX * 2) / (cols - 1);
+  const cellH = (H - padTop - padBottom) / (rows - 1);
+
+  const newItems = ITEM_DEFS.map((def, i) => {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const existing = items.find(it => it.id === def.id);
+
+    return {
+      id: def.id,
+      name: def.name,
+      magnetic: def.magnetic,
+      color: def.color,
+      x: existing ? existing.x : padX + cellW * col,
+      y: existing ? existing.y : padTop + cellH * row,
+      homeX: padX + cellW * col,
+      homeY: padTop + cellH * row,
+      r: 22 * S,
+      attached: existing ? existing.attached : false,
+      // 相对于磁铁的相对偏移（吸附后使用）
+      relX: existing ? existing.relX : 0,
+      relY: existing ? existing.relY : 0,
+      attachOrder: existing ? existing.attachOrder : 0,
+      bob: Math.random() * Math.PI * 2,
+      flash: 0
+    };
+  });
+
+  items = newItems;
+}
+
+/* ============================================================
+   音效
+============================================================ */
+let audioCtx = null;
+function initAudio() {
+  if (!audioCtx) {
+    try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
+  }
+}
+function beep(freq, dur, vol, type, delay) {
+  vol = vol || 0.07;
+  type = type || 'sine';
+  delay = delay || 0;
+  if (!audioCtx) return;
+  const t0 = audioCtx.currentTime + delay;
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(freq, t0);
+  o.connect(g);
+  g.connect(audioCtx.destination);
+  g.gain.setValueAtTime(vol, t0);
+  g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+  o.start(t0);
+  o.stop(t0 + dur);
+}
+function sfxAttract() {
+  beep(660, 0.08, 0.08, 'sine');
+  beep(880, 0.10, 0.07, 'sine', 0.06);
+}
+function sfxNoAttract() {
+  beep(300, 0.08, 0.04, 'triangle');
+}
+function sfxAllMagnetic() {
+  beep(523, 0.12, 0.09);
+  beep(659, 0.12, 0.09, 'sine', 0.10);
+  beep(784, 0.14, 0.09, 'sine', 0.20);
+  beep(1046, 0.26, 0.09, 'sine', 0.34);
+}
+
+/* ============================================================
+   吸附逻辑
+============================================================ */
+function tryAttract(item) {
+  if (item.attached || !item.magnetic) return false;
+
+  // 距离阈值：磁铁外接范围 + 一点余量
+  const dx = item.x - magnet.x;
+  const dy = item.y - magnet.y;
+  const rx = magnet.w / 2;
+  const ry = magnet.h / 2;
+  const d = Math.hypot(dx / rx, dy / ry);
+  const threshold = 1.35 + item.r / rx;
+
+  if (d < threshold) {
+    // 吸附
+    item.attached = true;
+    item.attachOrder = absorbedCount;
+
+    // 计算相对位置：从磁铁中心向物品方向，沿椭圆边缘外侧吸附
+    const angle = Math.atan2(dy, dx);
+    const ex = rx + item.r * 1.4;
+    const ey = ry + item.r * 1.4;
+    item.relX = Math.cos(angle) * ex;
+    item.relY = Math.sin(angle) * ey;
+
+    // 立即跳到吸附位置
+    item.x = magnet.x + item.relX;
+    item.y = magnet.y + item.relY;
+
+    // 视觉反馈
+    item.flash = 1;
+    spawnSparks(item.x, item.y);
+    sfxAttract();
+
+    absorbedCount++;
+    updateCounter();
+    return true;
+  }
+  return false;
+}
+
+function spawnSparks(x, y) {
+  for (let i = 0; i < 10; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const v = 60 + Math.random() * 120;
+    sparks.push({
+      x: x, y: y,
+      vx: Math.cos(a) * v,
+      vy: Math.sin(a) * v - 30,
+      life: 1,
+      size: 2.5 + Math.random() * 3,
+      color: ['#ffe066', '#fff7c4', '#a8e6ff'][i % 3]
+    });
+  }
+}
+
+function updateCounter() {
+  cntEl.textContent = absorbedCount;
+
+  const magneticTotal = items.filter(it => it.magnetic).length;
+  if (absorbedCount >= magneticTotal) {
+    statusEl.textContent = '🎉 铁做的都被吸住了，剩下的吸不动！';
+    statusEl.style.color = '#7fdd6e';
+    sfxAllMagnetic();
+  } else if (absorbedCount > 0) {
+    statusEl.textContent = '🧲 吸住了 ' + absorbedCount + ' 个，继续试试看';
+    statusEl.style.color = '#ffd54f';
+  } else {
+    statusEl.textContent = '🧲 拖一拖磁铁，看看谁会被吸住';
+    statusEl.style.color = '#ffffff';
+  }
+}
+
+/* ============================================================
+   更新
+============================================================ */
+function update(dt) {
+  time += dt;
+
+  // 磁铁轻微脉动
+  magnet.scale = 1 + Math.sin(time * 2.4) * 0.015;
+
+  // 物品跟随磁铁
+  for (const item of items) {
+    if (item.attached) {
+      item.x = magnet.x + item.relX;
+      item.y = magnet.y + item.relY;
+    }
+    if (item.flash > 0) {
+      item.flash = Math.max(0, item.flash - dt * 2.2);
+    }
+    item.bob += dt * 1.5;
+  }
+
+  // 拖动时尝试吸附
+  if (magnet.drag) {
+    for (const item of items) {
+      if (!item.attached) tryAttract(item);
+    }
+  }
+
+  // 火花
+  for (const s of sparks) {
+    s.x += s.vx * dt;
+    s.y += s.vy * dt;
+    s.vy += 180 * dt;
+    s.vx *= 0.95;
+    s.life -= dt * 1.6;
+  }
+  sparks = sparks.filter(s => s.life > 0);
+}
+
+/* ============================================================
+   绘制：背景
+============================================================ */
+function drawBackground() {
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#141b2e');
+  g.addColorStop(0.55, '#0d1322');
+  g.addColorStop(1, '#070a14');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+
+  // 实验桌面
+  const deskY = H * 0.54;
+  const tg = ctx.createLinearGradient(0, deskY, 0, H);
+  tg.addColorStop(0, 'rgba(50, 65, 100, 0.28)');
+  tg.addColorStop(1, 'rgba(20, 28, 48, 0.65)');
+  ctx.fillStyle = tg;
+  ctx.fillRect(0, deskY, W, H - deskY);
+
+  ctx.strokeStyle = 'rgba(120, 170, 255, 0.15)';
+  ctx.lineWidth = 2 * S;
+  ctx.beginPath();
+  ctx.moveTo(0, deskY);
+  ctx.lineTo(W, deskY);
+  ctx.stroke();
+
+  // 细微网格
+  ctx.strokeStyle = 'rgba(120, 160, 220, 0.035)';
+  ctx.lineWidth = 1;
+  const step = 60 * S;
+  for (let x = 0; x < W; x += step) {
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, H);
+    ctx.stroke();
+  }
+  for (let y = 0; y < H; y += step) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(W, y);
+    ctx.stroke();
+  }
+}
+
+/* ============================================================
+   绘制：磁铁
+=========================================================== */
+function drawMagnet() {
+  const cx = magnet.x;
+  const cy = magnet.y;
+  const w = magnet.w * magnet.scale;
+  const h = magnet.h * magnet.scale;
+  const left = cx - w / 2;
+  const top = cy - h / 2;
+  const half = w / 2;
+
+  // 磁力场（淡淡的圆环）
+  const fieldAlpha = magnet.drag ? 0.22 : 0.10;
+  for (let i = 0; i < 3; i++) {
+    const r = Math.max(w, h) * (0.75 + i * 0.35);
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(255, 200, 100, ' + fieldAlpha + ')';
+    ctx.lineWidth = 1.5 * S;
+    ctx.setLineDash([6 * S, 10 * S]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // 磁铁阴影
+  ctx.save();
+  ctx.globalAlpha = 0.35;
+  ctx.beginPath();
+  ctx.ellipse(cx + 4 * S, cy + h * 0.85, w * 0.55, h * 0.22, 0, 0, Math.PI * 2);
+  ctx.fillStyle = '#000';
+  ctx.fill();
+  ctx.restore();
+
+  // 磁铁本体（圆角矩形）
+  // 左半部分红色 N 极
+  ctx.save();
+  roundRectPath(left, top, half, h, 12 * S);
+  const nGrad = ctx.createLinearGradient(left, top, left + half, top);
+  nGrad.addColorStop(0, '#ff9090');
+  nGrad.addColorStop(0.5, '#e84040');
+  nGrad.addColorStop(1, '#a02020');
+  ctx.fillStyle = nGrad;
+  ctx.fill();
+  ctx.restore();
+
+  // 右半部分蓝色 S 极
+  ctx.save();
+  roundRectPath(left + half, top, half, h, 12 * S);
+  const sGrad = ctx.createLinearGradient(left + half, top, left + w, top);
+  sGrad.addColorStop(0, '#3060c4');
+  sGrad.addColorStop(0.5, '#4a7fdd');
+  sGrad.addColorStop(1, '#a0c8ff');
+  ctx.fillStyle = sGrad;
+  ctx.fill();
+  ctx.restore();
+
+  // 分割线（中间的白线）
+  ctx.beginPath();
+  ctx.moveTo(cx, top + 3 * S);
+  ctx.lineTo(cx, top + h - 3 * S);
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.75)';
+  ctx.lineWidth = 3 * S;
+  ctx.stroke();
+
+  // 描边
+  ctx.save();
+  roundRectPath(left, top, w, h, 12 * S);
+  ctx.strokeStyle = 'rgba(0, 0, 0, 0.55)';
+  ctx.lineWidth = 2.5 * S;
+  ctx.stroke();
+  ctx.restore();
+
+  // 高光
+  ctx.save();
+  ctx.beginPath();
+  ctx.ellipse(cx - w * 0.25, cy - h * 0.28, w * 0.28, h * 0.16, 0, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
+  ctx.fill();
+  ctx.restore();
+
+  // N / S 标签
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold ' + Math.round(20 * S) + 'px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('N', left + half / 2, cy + 1);
+  ctx.fillText('S', left + half + half / 2, cy + 1);
+}
+
+function roundRectPath(x, y, w, h, r) {
+  const rr = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.lineTo(x + w - rr, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+  ctx.lineTo(x + w, y + h - rr);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+  ctx.lineTo(x + rr, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+  ctx.lineTo(x, y + rr);
+  ctx.quadraticCurveTo(x, y, x + rr, y);
+  ctx.closePath();
+}
+
+/* ============================================================
+   绘制：物品
+============================================================ */
+function drawItem(item) {
+  const x = item.x;
+  const y = item.y;
+  const r = item.r;
+
+  // 阴影
+  ctx.save();
+  ctx.globalAlpha = 0.35;
+  ctx.beginPath();
+  ctx.ellipse(x, y + r * 0.85, r * 0.85, r * 0.28, 0, 0, Math.PI * 2);
+  ctx.fillStyle = '#000';
+  ctx.fill();
+  ctx.restore();
+
+  // 吸附闪光
+  if (item.flash > 0.05) {
+    const glowR = r * (1.6 + item.flash * 1.2);
+    const gg = ctx.createRadialGradient(x, y, r * 0.3, x, y, glowR);
+    gg.addColorStop(0, 'rgba(255, 240, 160, ' + (item.flash * 0.85) + ')');
+    gg.addColorStop(1, 'rgba(255, 240, 160, 0)');
+    ctx.fillStyle = gg;
+    ctx.beginPath();
+    ctx.arc(x, y, glowR, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.save();
+  ctx.translate(x, y);
+
+  // 轻微浮动（未吸附时）
+  if (!item.attached) {
+    const bobOff = Math.sin(item.bob) * 1.5 * S;
+    ctx.translate(0, bobOff);
+  }
+
+  switch (item.id) {
+    case 'nail':    drawNail(ctx, r); break;
+    case 'clip':    drawClip(ctx, r); break;
+    case 'screw':   drawScrew(ctx, r); break;
+    case 'key':     drawKey(ctx, r); break;
+    case 'pencil':  drawPencil(ctx, r); break;
+    case 'block':   drawBlock(ctx, r); break;
+    case 'foil':    drawFoil(ctx, r); break;
+    case 'marble':  drawMarble(ctx, r); break;
+  }
+
+  ctx.restore();
+
+  // 名字标签（仅未吸附时显示）
+  if (!item.attached) {
+    ctx.save();
+    ctx.font = 'bold ' + Math.round(11 * S) + 'px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
+    ctx.fillText(item.name, x, y + r + 8 * S);
+    ctx.restore();
+  }
+}
+
+/* ---------- 各个物品的绘制 ---------- */
+function drawNail(g, r) {
+  // 钉身
+  g.fillStyle = '#a8b0be';
+  g.beginPath();
+  g.moveTo(-r * 0.5, -r * 0.55);
+  g.lineTo(r * 0.55, 0);
+  g.lineTo(-r * 0.5, r * 0.55);
+  g.closePath();
+  g.fill();
+  // 钉帽
+  g.fillStyle = '#c0c8d4';
+  g.beginPath();
+  g.ellipse(-r * 0.55, 0, r * 0.22, r * 0.55, 0, 0, Math.PI * 2);
+  g.fill();
+  // 高光
+  g.fillStyle = 'rgba(255, 255, 255, 0.6)';
+  g.beginPath();
+  g.ellipse(-r * 0.55, -r * 0.18, r * 0.08, r * 0.2, 0, 0, Math.PI * 2);
+  g.fill();
+}
+
+function drawClip(g, r) {
+  // 回形针：弯曲的线
+  g.strokeStyle = '#b8c0cc';
+  g.lineWidth = r * 0.28;
+  g.lineCap = 'round';
+  g.lineJoin = 'round';
+
+  g.beginPath();
+  g.moveTo(-r * 0.55, -r * 0.6);
+  g.lineTo(r * 0.35, -r * 0.6);
+  g.quadraticCurveTo(r * 0.7, -r * 0.6, r * 0.7, -r * 0.2);
+  g.lineTo(r * 0.7, r * 0.3);
+  g.quadraticCurveTo(r * 0.7, r * 0.7, r * 0.3, r * 0.7);
+  g.lineTo(-r * 0.5, r * 0.7);
+  g.quadraticCurveTo(-r * 0.75, r * 0.7, -r * 0.75, r * 0.4);
+  g.lineTo(-r * 0.75, -r * 0.3);
+  g.quadraticCurveTo(-r * 0.75, -r * 0.6, -r * 0.55, -r * 0.6);
+  g.stroke();
+
+  // 内圈
+  g.beginPath();
+  g.moveTo(-r * 0.4, -r * 0.35);
+  g.lineTo(r * 0.4, -r * 0.35);
+  g.stroke();
+
+  // 高光
+  g.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+  g.lineWidth = r * 0.1;
+  g.beginPath();
+  g.moveTo(-r * 0.5, -r * 0.55);
+  g.lineTo(r * 0.3, -r * 0.55);
+  g.stroke();
+}
+
+function drawScrew(g, r) {
+  // 螺帽
+  g.fillStyle = '#909aa8';
+  g.beginPath();
+  g.ellipse(0, -r * 0.35, r * 0.62, r * 0.28, 0, 0, Math.PI * 2);
+  g.fill();
+  // 螺丝主体
+  g.fillStyle = '#a8b0be';
+  g.fillRect(-r * 0.45, -r * 0.35, r * 0.9, r * 0.95);
+  // 螺纹线
+  g.strokeStyle = 'rgba(60, 70, 90, 0.6)';
+  g.lineWidth = r * 0.09;
+  for (let i = 0; i < 3; i++) {
+    const y = -r * 0.15 + i * r * 0.25;
+    g.beginPath();
+    g.moveTo(-r * 0.45, y);
+    g.lineTo(r * 0.45, y + r * 0.1);
+    g.stroke();
+  }
+  // 十字槽
+  g.strokeStyle = '#4a5468';
+  g.lineWidth = r * 0.12;
+  g.beginPath();
+  g.moveTo(-r * 0.28, -r * 0.35);
+  g.lineTo(r * 0.28, -r * 0.35);
+  g.moveTo(0, -r * 0.55);
+  g.lineTo(0, -r * 0.15);
+  g.stroke();
+  // 高光
+  g.fillStyle = 'rgba(255, 255, 255, 0.4)';
+  g.beginPath();
+  g.ellipse(-r * 0.15, -r * 0.4, r * 0.1, r * 0.06, 0, 0, Math.PI * 2);
+  g.fill();
+}
+
+function drawKey(g, r) {
+  // 钥匙柄
+  g.fillStyle = '#c68a4a';
+  g.beginPath();
+  g.arc(-r * 0.35, 0, r * 0.5, 0, Math.PI * 2);
+  g.fill();
+  // 钥匙孔
+  g.fillStyle = '#7a5018';
+  g.beginPath();
+  g.arc(-r * 0.35, 0, r * 0.18, 0, Math.PI * 2);
+  g.fill();
+  // 钥匙杆
+  g.fillStyle = '#c68a4a';
+  g.fillRect(-r * 0.1, -r * 0.16, r * 0.85, r * 0.32);
+  // 齿
+  g.fillRect(r * 0.45, r * 0.05, r * 0.1, r * 0.25);
+  g.fillRect(r * 0.6, r * 0.05, r * 0.1, r * 0.25);
+  // 高光
+  g.fillStyle = 'rgba(255, 240, 200, 0.5)';
+  g.beginPath();
+  g.ellipse(-r * 0.4, -r * 0.15, r * 0.15, r * 0.08, -0.3, 0, Math.PI * 2);
+  g.fill();
+}
+
+function drawPencil(g, r) {
+  // 笔杆
+  g.fillStyle = '#e0b070';
+  g.fillRect(-r * 0.75, -r * 0.18, r * 1.4, r * 0.36);
+  // 笔杆上的彩色条纹
+  g.fillStyle = '#d04040';
+  g.fillRect(-r * 0.75, -r * 0.18, r * 1.4, r * 0.10);
+  // 笔尖
+  g.fillStyle = '#e8c89a';
+  g.beginPath();
+  g.moveTo(r * 0.65, -r * 0.18);
+  g.lineTo(r * 0.95, 0);
+  g.lineTo(r * 0.65, r * 0.18);
+  g.closePath();
+  g.fill();
+  // 笔尖黑头
+  g.fillStyle = '#2a2018';
+  g.beginPath();
+  g.moveTo(r * 0.85, -r * 0.06);
+  g.lineTo(r * 0.95, 0);
+  g.lineTo(r * 0.85, r * 0.06);
+  g.closePath();
+  g.fill();
+  // 橡皮头
+  g.fillStyle = '#ff8fa3';
+  g.fillRect(-r * 0.85, -r * 0.2, r * 0.12, r * 0.4);
+  // 金属箍
+  g.fillStyle = '#a8b0be';
+  g.fillRect(-r * 0.74, -r * 0.2, r * 0.08, r * 0.4);
+}
+
+function drawBlock(g, r) {
+  // 积木块
+  const grad = g.createLinearGradient(-r * 0.7, -r * 0.7, r * 0.7, r * 0.7);
+  grad.addColorStop(0, '#a8dcff');
+  grad.addColorStop(0.5, '#5eb3ff');
+  grad.addColorStop(1, '#2a6ba8');
+  g.fillStyle = grad;
+  g.fillRect(-r * 0.7, -r * 0.7, r * 1.4, r * 1.4);
+  // 凸点
+  g.fillStyle = 'rgba(255, 255, 255, 0.4)';
+  g.beginPath();
+  g.arc(-r * 0.35, -r * 0.35, r * 0.15, 0, Math.PI * 2);
+  g.arc(r * 0.35, -r * 0.35, r * 0.15, 0, Math.PI * 2);
+  g.arc(-r * 0.35, r * 0.35, r * 0.15, 0, Math.PI * 2);
+  g.arc(r * 0.35, r * 0.35, r * 0.15, 0, Math.PI * 2);
+  g.fill();
+  // 描边
+  g.strokeStyle = 'rgba(20, 60, 110, 0.7)';
+  g.lineWidth = 2 * S;
+  g.strokeRect(-r * 0.7, -r * 0.7, r * 1.4, r * 1.4);
+}
+
+function drawFoil(g, r) {
+  // 铝箔球：多个圆形叠加
+  const g1 = g.createRadialGradient(-r * 0.3, -r * 0.3, r * 0.1, 0, 0, r * 0.8);
+  g1.addColorStop(0, '#f0f4f8');
+  g1.addColorStop(0.5, '#c8d0d8');
+  g1.addColorStop(1, '#8898a8');
+  g.fillStyle = g1;
+  g.beginPath();
+  g.arc(0, 0, r * 0.8, 0, Math.PI * 2);
+  g.fill();
+  // 皱褶
+  g.strokeStyle = 'rgba(120, 140, 160, 0.6)';
+  g.lineWidth = r * 0.08;
+  g.beginPath();
+  g.moveTo(-r * 0.5, -r * 0.3);
+  g.lineTo(-r * 0.1, r * 0.1);
+  g.lineTo(r * 0.3, -r * 0.2);
+  g.moveTo(-r * 0.2, r * 0.4);
+  g.lineTo(r * 0.1, r * 0.5);
+  g.moveTo(r * 0.3, r * 0.1);
+  g.lineTo(r * 0.5, r * 0.4);
+  g.stroke();
+  // 高光
+  g.fillStyle = 'rgba(255, 255, 255, 0.7)';
+  g.beginPath();
+  g.arc(-r * 0.28, -r * 0.32, r * 0.18, 0, Math.PI * 2);
+  g.fill();
+}
+
+function drawMarble(g, r) {
+  // 玻璃球
+  const g1 = g.createRadialGradient(-r * 0.25, -r * 0.25, r * 0.05, 0, 0, r * 0.75);
+  g1.addColorStop(0, 'rgba(220, 245, 255, 0.95)');
+  g1.addColorStop(0.5, 'rgba(120, 200, 240, 0.7)');
+  g1.addColorStop(1, 'rgba(40, 120, 180, 0.85)');
+  g.fillStyle = g1;
+  g.beginPath();
+  g.arc(0, 0, r * 0.75, 0, Math.PI * 2);
+  g.fill();
+  // 内部色带
+  g.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+  g.lineWidth = r * 0.15;
+  g.beginPath();
+  g.arc(-r * 0.15, 0, r * 0.45, 0.4, Math.PI * 1.6);
+  g.stroke();
+  // 高光
+  g.fillStyle = 'rgba(255, 255, 255, 0.85)';
+  g.beginPath();
+  g.arc(-r * 0.28, -r * 0.3, r * 0.16, 0, Math.PI * 2);
+  g.fill();
+  g.fillStyle = 'rgba(255, 255, 255, 0.5)';
+  g.beginPath();
+  g.arc(r * 0.2, r * 0.25, r * 0.1, 0, Math.PI * 2);
+  g.fill();
+}
+
+/* ============================================================
+   绘制：火花
+============================================================ */
+function drawSparks() {
+  for (const s of sparks) {
+    ctx.save();
+    ctx.globalAlpha = s.life;
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, s.size * s.life, 0, Math.PI * 2);
+    ctx.fillStyle = s.color;
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+/* ============================================================
+   渲染
+============================================================ */
+function render() {
+  ctx.clearRect(0, 0, W, H);
+
+  drawBackground();
+
+  // 先画未吸附的物品（在下层），再画磁铁，再画已吸附的（在磁铁上层）
+  for (const item of items) {
+    if (!item.attached) drawItem(item);
+  }
+
+  drawMagnet();
+
+  for (const item of items) {
+    if (item.attached) drawItem(item);
+  }
+
+  drawSparks();
+}
+
+/* ============================================================
+   交互：拖动磁铁
+============================================================ */
+function getPos(e) {
+  const rect = canvas.getBoundingClientRect();
+  return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+}
+
+function hitMagnet(p) {
+  const rx = magnet.w / 2 + 20 * S;
+  const ry = magnet.h / 2 + 20 * S;
+  const dx = (p.x - magnet.x) / rx;
+  const dy = (p.y - magnet.y) / ry;
+  return dx * dx + dy * dy <= 1;
+}
+
+function onDown(e) {
+  initAudio();
+  if (activePointer !== null) return;
+  activePointer = e.pointerId;
+  const p = getPos(e);
+
+  if (hitMagnet(p)) {
+    magnet.drag = true;
+    dragOffset.x = magnet.x - p.x;
+    dragOffset.y = magnet.y - p.y;
+    gsap.to(magnet, { scale: 1.12, duration: 0.15, ease: 'power2.out' });
+  }
+}
+
+function onMove(e) {
+  if (activePointer !== e.pointerId) return;
+  if (!magnet.drag) return;
+  const p = getPos(e);
+  magnet.x = p.x + dragOffset.x;
+  magnet.y = p.y + dragOffset.y;
+
+  // 边界限制
+  const pad = 20 * S;
+  magnet.x = Math.max(magnet.w / 2 + pad, Math.min(W - magnet.w / 2 - pad, magnet.x));
+  magnet.y = Math.max(magnet.h / 2 + pad, Math.min(H - magnet.h / 2 - pad, magnet.y));
+}
+
+function onUp(e) {
+  if (activePointer !== e.pointerId) return;
+  activePointer = null;
+  if (magnet.drag) {
+    magnet.drag = false;
+    gsap.to(magnet, { scale: 1, duration: 0.25, ease: 'back.out(2)' });
+  }
+}
+
+canvas.addEventListener('pointerdown', onDown);
+canvas.addEventListener('pointermove', onMove);
+canvas.addEventListener('pointerup', onUp);
+canvas.addEventListener('pointercancel', onUp);
+canvas.addEventListener('dblclick', function (e) { e.preventDefault(); });
+
+/* ============================================================
+   重置
+============================================================ */
+btnReset.addEventListener('click', function () {
+  initAudio();
+
+  absorbedCount = 0;
+  updateCounter();
+
+  for (const item of items) {
+    item.attached = false;
+    item.relX = 0;
+    item.relY = 0;
+    item.flash = 0;
+    gsap.to(item, {
+      x: item.homeX,
+      y: item.homeY,
+      duration: 0.55,
+      ease: 'power2.inOut'
+    });
+  }
+
+  gsap.to(magnet, {
+    x: magnet.homeX,
+    y: magnet.homeY,
+    duration: 0.55,
+    ease: 'power2.inOut'
+  });
+});
+
+/* ============================================================
+   启动
+============================================================ */
+resize();
+window.addEventListener('resize', function () {
+  resize();
+  render();
+});
+
+if (window.ResizeObserver) {
+  new ResizeObserver(function () {
+    const cw = canvas.clientWidth;
+    const ch = canvas.clientHeight;
+    if (cw > 0 && ch > 0 && (Math.abs(cw - W) > 1 || Math.abs(ch - H) > 1)) {
+      resize();
+      render();
+    }
+  }).observe(canvas);
+}
+
+totalEl.textContent = ITEM_DEFS.filter(it => it.magnetic).length;
+
+render();
+requestAnimationFrame(function () {
+  resize();
+  render();
+});
+
+gsap.ticker.add(function (t, deltaTime) {
+  const dt = Math.min(deltaTime || 16, 50) / 1000;
+  update(dt);
+  render();
+});
+</script>
+</body>
+</html>

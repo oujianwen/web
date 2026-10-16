@@ -1,0 +1,1083 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>空气阻力 —— 物体为什么不是同时落地</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    height: 100%; width: 100%; overflow: hidden; background: #0a1018;
+    touch-action: none;
+    font-family: system-ui, -apple-system, sans-serif;
+    color: #fff;
+  }
+  canvas { display: block; position: absolute; inset: 0; }
+
+  .status {
+    position: fixed;
+    top: 14px; left: 50%;
+    transform: translateX(-50%);
+    padding: 12px 26px;
+    background: rgba(16, 22, 38, 0.92);
+    border-radius: 30px;
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    font-size: 15px; font-weight: 700;
+    z-index: 10; white-space: nowrap; max-width: 94vw;
+    text-align: center; transition: all 0.3s;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+  }
+  .status.vacuum {
+    background: rgba(120, 80, 180, 0.95);
+    border-color: rgba(200, 160, 255, 0.7);
+  }
+  .status.win {
+    background: rgba(40, 130, 60, 0.95);
+    border-color: rgba(127, 221, 110, 0.7);
+  }
+
+  .panel {
+    position: fixed;
+    bottom: 14px; left: 50%;
+    transform: translateX(-50%);
+    width: min(780px, 94vw);
+    background: rgba(16, 22, 38, 0.94);
+    padding: 12px 18px;
+    border-radius: 18px;
+    backdrop-filter: blur(14px);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    z-index: 10;
+    display: flex; flex-direction: column; gap: 10px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+  }
+
+  /* 第一行：高度选择 + 空气密度 */
+  .panel .controls-row {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    gap: 18px;
+    align-items: center;
+  }
+
+  /* 高度下拉 */
+  .height-control {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .height-control .lbl {
+    font-size: 13px;
+    font-weight: 700;
+    color: #ffd54f;
+    white-space: nowrap;
+  }
+  .height-control select {
+    flex: 1;
+    padding: 8px 12px;
+    border-radius: 10px;
+    border: 2px solid rgba(255, 213, 79, 0.5);
+    background: rgba(255, 213, 79, 0.10);
+    color: #fff7c4;
+    font-weight: 800;
+    font-size: 14px;
+    cursor: pointer;
+    outline: none;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3e%3cpath fill='%23ffd54f' d='M6 8L0 0h12z'/%3e%3c/svg%3e");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    background-size: 10px;
+    padding-right: 32px;
+    transition: all 0.15s;
+    font-variant-numeric: tabular-nums;
+  }
+  .height-control select:hover {
+    background-color: rgba(255, 213, 79, 0.18);
+    border-color: rgba(255, 213, 79, 0.8);
+  }
+  .height-control select:focus {
+    box-shadow: 0 0 0 3px rgba(255, 213, 79, 0.3);
+  }
+  .height-control select option {
+    background: #1a2438;
+    color: #fff7c4;
+    padding: 6px;
+  }
+
+  /* 空气密度控制 */
+  .rho-control {
+    display: grid;
+    grid-template-columns: 90px 1fr 60px;
+    gap: 10px;
+    align-items: center;
+    font-size: 13px;
+  }
+  .rho-control .lbl {
+    font-weight: 700;
+    color: #a8e6ff;
+    white-space: nowrap;
+    font-size: 13px;
+  }
+  .rho-control input[type="range"] {
+    width: 100%;
+    height: 6px;
+    cursor: pointer;
+    -webkit-appearance: none;
+    appearance: none;
+    background: linear-gradient(90deg, #2a3a5a, #5eb3ff);
+    border-radius: 3px;
+    outline: none;
+  }
+  .rho-control input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #fff;
+    border: 3px solid #5eb3ff;
+    cursor: grab;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
+  }
+  .rho-control .val {
+    text-align: right;
+    color: #5eb3ff;
+    font-weight: 800;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* 第二行：三个操作按钮 */
+  .actions {
+    display: grid;
+    grid-template-columns: 1.3fr 1.3fr 1fr;
+    gap: 8px;
+  }
+  .actions button {
+    padding: 11px 12px;
+    border-radius: 12px;
+    border: none;
+    font-weight: 800;
+    font-size: 14px;
+    cursor: pointer;
+    transition: transform 0.12s, box-shadow 0.2s;
+    white-space: nowrap;
+  }
+  .actions button:active:not(:disabled) { transform: translateY(1px); }
+  .actions button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    box-shadow: none !important;
+  }
+  .actions .btn-drop {
+    background: linear-gradient(135deg, #5eb3ff, #a8e6ff);
+    color: #061020;
+    box-shadow: 0 4px 12px rgba(94, 179, 255, 0.4);
+  }
+  .actions .btn-vacuum {
+    background: linear-gradient(135deg, #a890ff, #d0b0ff);
+    color: #1a0a2a;
+    box-shadow: 0 4px 12px rgba(168, 144, 255, 0.4);
+  }
+  .actions .btn-vacuum.active {
+    background: linear-gradient(135deg, #ffd54f, #ff9eb5);
+    color: #1a0a00;
+  }
+  .actions .btn-reset {
+    background: rgba(255, 255, 255, 0.14);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.22);
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div class="status" id="status">🔬 选择高度，按下"一起落下"，观察实时数据</div>
+
+<div class="panel">
+  <div class="controls-row">
+    <!-- 高度下拉框 -->
+    <div class="height-control">
+      <span class="lbl">📏 高度</span>
+      <select id="heightSelect">
+        <option value="10">1.0 m</option>
+        <option value="15">1.5 m</option>
+        <option value="20">2.0 m</option>
+        <option value="25" selected>2.5 m</option>
+        <option value="30">3.0 m</option>
+        <option value="40">4.0 m</option>
+        <option value="50">5.0 m</option>
+        <option value="60">6.0 m</option>
+        <option value="80">8.0 m</option>
+        <option value="100">10.0 m</option>
+      </select>
+    </div>
+
+    <!-- 空气密度 -->
+    <div class="rho-control">
+      <span class="lbl">🌬️ 空气密度</span>
+      <input type="range" id="rhoSlider" min="0" max="200" value="100">
+      <span class="val" id="rhoVal">1.23</span>
+    </div>
+  </div>
+
+  <div class="actions">
+    <button class="btn-drop" id="btnDrop">🎬 一起落下</button>
+    <button class="btn-vacuum" id="btnVacuum">🌫️ 抽掉空气</button>
+    <button class="btn-reset" id="btnReset">🔄 重置</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+<script>
+/* ============================================================
+   空气阻力 —— 物体为什么不是同时落地（下拉框选高度）
+   ============================================================ */
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+const statusEl = document.getElementById('status');
+const heightSelect = document.getElementById('heightSelect');
+const rhoSlider = document.getElementById('rhoSlider');
+const rhoValEl = document.getElementById('rhoVal');
+const btnDrop = document.getElementById('btnDrop');
+const btnVacuum = document.getElementById('btnVacuum');
+const btnReset = document.getElementById('btnReset');
+
+let W = 800, H = 600, DPR = 1, S = 1;
+let time = 0;
+
+const G = 9.8;
+
+const state = {
+  fallHeight: 2.5,
+  airDensity: 1.225,
+  airOn: true,
+  running: false,
+  startTime: 0,
+  landedCount: 0,
+  items: [],
+  particles: []
+};
+
+const scene = {
+  platformY: 0,
+  groundY: 0,
+  PX_PER_M: 200,
+  itemsStartX: 0,
+  itemSpacing: 0,
+  chart: { x: 0, y: 0, w: 0, h: 0 },
+  data: { x: 0, y: 0, w: 0, h: 0 }
+};
+
+const ITEMS_DEF = [
+  { id: 'feather', name: '羽毛', emoji: '🪶',
+    mass: 0.0001, area: 0.005, Cd: 2.0,
+    color: '#f0e8d8', visualR: 20, wobble: true },
+  { id: 'paper',   name: '纸片', emoji: '📄',
+    mass: 0.005, area: 0.02, Cd: 1.2,
+    color: '#fffaf0', visualR: 22, wobble: true },
+  { id: 'rock',    name: '石头', emoji: '🪨',
+    mass: 0.05, area: 0.002, Cd: 0.8,
+    color: '#7a7a85', visualR: 24, wobble: false },
+  { id: 'ball',    name: '铁球', emoji: '⚫',
+    mass: 0.2, area: 0.001, Cd: 0.47,
+    color: '#3a4250', visualR: 22, wobble: false }
+];
+
+function resize() {
+  let w = window.innerWidth || document.documentElement.clientWidth || 800;
+  let h = window.innerHeight || document.documentElement.clientHeight || 600;
+  if (w < 200) w = 800;
+  if (h < 200) h = 600;
+
+  W = w; H = h;
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width = Math.floor(W * DPR);
+  canvas.height = Math.floor(H * DPR);
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+  S = Math.max(0.55, Math.min(1.15, H / 800));
+
+  layoutScene();
+  if (state.items.length > 0) rebuildScreenPositions();
+}
+
+function layoutScene() {
+  const fallAreaW = W * 0.52;
+  scene.platformY = H * 0.14;
+  scene.groundY = H * 0.78;
+  scene.PX_PER_M = (scene.groundY - scene.platformY) / state.fallHeight;
+
+  const totalW = fallAreaW * 0.85;
+  const gap = totalW / ITEMS_DEF.length;
+  scene.itemsStartX = fallAreaW * 0.08 + gap / 2;
+  scene.itemSpacing = gap;
+
+  scene.chart.x = W * 0.58;
+  scene.chart.y = H * 0.12;
+  scene.chart.w = W * 0.37;
+  scene.chart.h = H * 0.30;
+
+  scene.data.x = W * 0.58;
+  scene.data.y = H * 0.46;
+  scene.data.w = W * 0.37;
+  scene.data.h = H * 0.26;
+}
+
+function buildItems() {
+  state.items = ITEMS_DEF.map(function (def, i) {
+    return {
+      def: def,
+      x: scene.itemsStartX + scene.itemSpacing * i,
+      y: scene.platformY + def.visualR,
+      y_m: 0, v: 0, t: 0, a: G, Fd: 0,
+      landed: false, finalTime: null, finalV: null,
+      rot: 0,
+      wobblePhase: Math.random() * Math.PI * 2,
+      vHistory: [{ t: 0, v: 0 }],
+      lastSampleT: 0
+    };
+  });
+}
+
+function rebuildScreenPositions() {
+  for (let i = 0; i < state.items.length; i++) {
+    const it = state.items[i];
+    it.x = scene.itemsStartX + scene.itemSpacing * i;
+    it.y = scene.platformY + it.y_m * scene.PX_PER_M + it.def.visualR;
+  }
+}
+
+function getTerminalVelocity(def) {
+  if (state.airDensity < 1e-6) return Infinity;
+  return Math.sqrt(2 * def.mass * G / (state.airDensity * def.Cd * def.area));
+}
+
+function getDragForce(def, v) {
+  return 0.5 * state.airDensity * def.Cd * def.area * v * v;
+}
+
+function updateItem(it, dt) {
+  if (it.landed) return;
+  const def = it.def;
+  it.Fd = state.airOn ? getDragForce(def, it.v) : 0;
+  const dragAcc = it.Fd / def.mass;
+  it.a = G - dragAcc;
+  if (it.a < 0) it.a = 0;
+  it.v += it.a * dt;
+  it.y_m += it.v * dt;
+  it.t += dt;
+
+  if (it.t - it.lastSampleT > 0.05) {
+    it.vHistory.push({ t: it.t, v: it.v });
+    it.lastSampleT = it.t;
+  }
+
+  if (it.y_m >= state.fallHeight) {
+    it.y_m = state.fallHeight;
+    it.landed = true;
+    it.finalTime = it.t;
+    it.finalV = it.v;
+    state.landedCount++;
+    spawnImpactParticles(it.x, scene.groundY - def.visualR);
+  }
+
+  it.y = scene.platformY + it.y_m * scene.PX_PER_M + def.visualR;
+
+  if (def.wobble && !it.landed) {
+    const wobbleStrength = state.airOn ? Math.min(1, it.Fd / (def.mass * G + 0.001)) : 0;
+    it.wobblePhase += dt * (5 + it.v * 0.5);
+    it.rot = Math.sin(it.wobblePhase) * 0.6 * wobbleStrength;
+  }
+}
+
+function spawnImpactParticles(x, y) {
+  for (let i = 0; i < 8; i++) {
+    const a = -Math.PI * 0.5 + (Math.random() - 0.5) * Math.PI;
+    const v = 40 + Math.random() * 120;
+    state.particles.push({
+      x: x, y: y,
+      vx: Math.cos(a) * v,
+      vy: Math.sin(a) * v - 30,
+      life: 1,
+      size: 2 + Math.random() * 3,
+      color: '#ffd54f'
+    });
+  }
+}
+
+let audioCtx = null;
+function initAudio() {
+  if (!audioCtx) {
+    try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
+  }
+}
+function beep(freq, dur, vol, type, delay) {
+  vol = vol == null ? 0.05 : vol;
+  type = type || 'sine';
+  delay = delay || 0;
+  if (!audioCtx) return;
+  const t0 = audioCtx.currentTime + delay;
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(freq, t0);
+  o.connect(g);
+  g.connect(audioCtx.destination);
+  g.gain.setValueAtTime(vol, t0);
+  g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+  o.start(t0);
+  o.stop(t0 + dur);
+}
+function sfxClick() { beep(520, 0.06, 0.05, 'triangle'); }
+function sfxDrop() { beep(400, 0.10, 0.06, 'triangle'); beep(300, 0.14, 0.05, 'triangle', 0.08); }
+function sfxVacuum() {
+  for (let i = 0; i < 6; i++) beep(600 - i * 80, 0.10, 0.035, 'sine', i * 0.06);
+}
+
+function update(dt) {
+  time += dt;
+  if (state.running) {
+    for (const it of state.items) updateItem(it, dt);
+    if (state.landedCount >= state.items.length) {
+      state.running = false;
+      onAllLanded();
+    }
+  }
+  for (const p of state.particles) {
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.vy += 400 * dt;
+    p.life -= dt * 1.5;
+  }
+  state.particles = state.particles.filter(function (p) { return p.life > 0; });
+}
+
+function onAllLanded() {
+  const times = state.items.map(function (it) { return it.finalTime; });
+  const maxT = Math.max.apply(null, times);
+  const minT = Math.min.apply(null, times);
+  btnDrop.disabled = false;
+  btnVacuum.disabled = false;
+  if (maxT - minT < 0.05) {
+    statusEl.textContent = '🎉 所有物体同时落地！没有空气，下落只由重力决定';
+    statusEl.className = 'status vacuum';
+  } else {
+    const ft = state.items[0].finalTime;
+    const rt = state.items[2].finalTime;
+    statusEl.textContent = '💡 羽毛用了 ' + ft.toFixed(2) + 's，石头只用了 ' + rt.toFixed(2) + 's';
+    statusEl.className = 'status win';
+  }
+}
+
+function drawBackground() {
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#1a2438');
+  g.addColorStop(0.55, '#0d1422');
+  g.addColorStop(1, '#050810');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+  if (!state.airOn) {
+    ctx.fillStyle = 'rgba(120, 80, 180, 0.10)';
+    ctx.fillRect(0, 0, W, H);
+  }
+  const glow = ctx.createRadialGradient(W * 0.28, H * 0.4, 30, W * 0.28, H * 0.4, Math.max(W, H) * 0.7);
+  glow.addColorStop(0, 'rgba(120, 180, 255, 0.08)');
+  glow.addColorStop(1, 'rgba(120, 180, 255, 0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+}
+
+function drawHeightRuler() {
+  const rx = scene.itemsStartX - scene.itemSpacing * 0.9;
+  const top = scene.platformY;
+  const bot = scene.groundY;
+
+  ctx.beginPath();
+  ctx.moveTo(rx, top);
+  ctx.lineTo(rx, bot);
+  ctx.strokeStyle = 'rgba(255, 213, 79, 0.55)';
+  ctx.lineWidth = 2 * S;
+  ctx.stroke();
+
+  let step = 0.5;
+  if (state.fallHeight > 4) step = 1;
+  if (state.fallHeight > 7) step = 2;
+
+  ctx.font = Math.round(10 * S) + 'px system-ui, sans-serif';
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = 'rgba(255, 213, 79, 0.85)';
+
+  for (let m = 0; m <= state.fallHeight + 0.001; m += step) {
+    const y = top + m * scene.PX_PER_M;
+    if (y > bot + 1) break;
+    const isMajor = Math.abs(m - Math.round(m)) < 0.001 || step < 1;
+    const tickLen = (m === 0 || Math.abs(m - state.fallHeight) < 0.001 || isMajor) ? 10 * S : 5 * S;
+
+    ctx.beginPath();
+    ctx.moveTo(rx, y);
+    ctx.lineTo(rx - tickLen, y);
+    ctx.strokeStyle = 'rgba(255, 213, 79, 0.7)';
+    ctx.lineWidth = 1.5 * S;
+    ctx.stroke();
+
+    if (isMajor || m === 0) {
+      ctx.fillText(m.toFixed(m % 1 === 0 ? 0 : 1) + 'm', rx - tickLen - 4 * S, y);
+    }
+  }
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'bottom';
+  ctx.font = 'bold ' + Math.round(11 * S) + 'px system-ui, sans-serif';
+  ctx.fillStyle = 'rgba(255, 213, 79, 0.9)';
+  ctx.fillText('h = ' + state.fallHeight.toFixed(1) + ' m', rx - 20 * S, top - 6 * S);
+}
+
+function drawPlatform() {
+  const px = scene.itemsStartX - scene.itemSpacing * 0.7;
+  const pw = scene.itemSpacing * (ITEMS_DEF.length - 1) + scene.itemSpacing * 1.4;
+  const py = scene.platformY;
+
+  const g = ctx.createLinearGradient(0, py - 16 * S, 0, py + 8 * S);
+  g.addColorStop(0, '#8a6840');
+  g.addColorStop(1, '#4a3020');
+  ctx.fillStyle = g;
+  roundRect(px, py - 16 * S, pw, 22 * S, 4 * S);
+  ctx.fill();
+  ctx.strokeStyle = '#3a2410';
+  ctx.lineWidth = 2 * S;
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(px + 4 * S, py - 14 * S);
+  ctx.lineTo(px + pw - 4 * S, py - 14 * S);
+  ctx.strokeStyle = 'rgba(255, 220, 160, 0.4)';
+  ctx.lineWidth = 2 * S;
+  ctx.stroke();
+}
+
+function drawGround() {
+  const gy = scene.groundY;
+  const g = ctx.createLinearGradient(0, gy, 0, H);
+  g.addColorStop(0, '#3a4a2a');
+  g.addColorStop(0.4, '#1a2a10');
+  g.addColorStop(1, '#0a1006');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, gy, W, H - gy);
+  ctx.strokeStyle = 'rgba(180, 220, 140, 0.5)';
+  ctx.lineWidth = 2.5 * S;
+  ctx.beginPath();
+  ctx.moveTo(0, gy);
+  ctx.lineTo(W, gy);
+  ctx.stroke();
+}
+
+function drawItem(it) {
+  const def = it.def;
+  const x = it.x;
+  const y = it.y;
+  const r = def.visualR;
+
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(it.rot);
+  if (def.id === 'feather') drawFeather(ctx, r, def.color);
+  else if (def.id === 'paper') drawPaper(ctx, r, def.color);
+  else if (def.id === 'rock') drawRock(ctx, r, def.color);
+  else drawBall(ctx, r, def.color);
+  ctx.restore();
+
+  if (state.running && !it.landed) drawSpeedLabel(it);
+  if (it.landed && it.finalTime !== null) drawTimeLabel(it);
+
+  ctx.font = 'bold ' + Math.round(11 * S) + 'px system-ui, sans-serif';
+  ctx.fillStyle = 'rgba(200, 220, 240, 0.8)';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'bottom';
+  ctx.fillText(def.name, x, scene.platformY - 22 * S);
+}
+
+function drawSpeedLabel(it) {
+  const x = it.x;
+  const y = it.y + it.def.visualR + 8 * S;
+  const speedTxt = it.v.toFixed(2) + ' m/s';
+  let dragTxt;
+  if (it.Fd < 0.001) dragTxt = it.Fd.toExponential(1) + ' N';
+  else if (it.Fd < 0.1) dragTxt = it.Fd.toFixed(4) + ' N';
+  else dragTxt = it.Fd.toFixed(2) + ' N';
+  const vt = getTerminalVelocity(it.def);
+  const nearTerminal = isFinite(vt) && it.v > vt * 0.95;
+
+  const padding = 6 * S;
+  const bgH = 30 * S;
+  ctx.font = 'bold ' + Math.round(10 * S) + 'px system-ui, sans-serif';
+  const w1 = ctx.measureText(speedTxt).width;
+  const w2 = ctx.measureText('F=' + dragTxt).width;
+  const bgW = Math.max(w1, w2) + padding * 2;
+
+  ctx.fillStyle = 'rgba(16, 22, 38, 0.88)';
+  roundRect(x - bgW / 2, y, bgW, bgH, 6 * S);
+  ctx.fill();
+  ctx.strokeStyle = nearTerminal ? 'rgba(127, 221, 110, 0.7)' : 'rgba(94, 179, 255, 0.5)';
+  ctx.lineWidth = 1.2 * S;
+  roundRect(x - bgW / 2, y, bgW, bgH, 6 * S);
+  ctx.stroke();
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = nearTerminal ? '#7fdd6e' : '#a8e6ff';
+  ctx.fillText(speedTxt, x, y + bgH * 0.32);
+  ctx.font = Math.round(9 * S) + 'px system-ui, sans-serif';
+  ctx.fillStyle = nearTerminal ? 'rgba(127, 221, 110, 0.85)' : 'rgba(255, 213, 79, 0.85)';
+  ctx.fillText(nearTerminal ? '✓ 已达终端速度' : '阻力 ' + dragTxt, x, y + bgH * 0.72);
+}
+
+function drawTimeLabel(it) {
+  const x = it.x;
+  const y = it.y + it.def.visualR + 8 * S;
+  const txt = '⏱ ' + it.finalTime.toFixed(2) + 's';
+  ctx.font = 'bold ' + Math.round(11 * S) + 'px system-ui, sans-serif';
+  const tw = ctx.measureText(txt).width;
+  const padX = 8 * S;
+  const bgW = tw + padX * 2;
+  const bgH = 22 * S;
+  ctx.fillStyle = 'rgba(40, 130, 60, 0.9)';
+  roundRect(x - bgW / 2, y, bgW, bgH, 11 * S);
+  ctx.fill();
+  ctx.fillStyle = '#e8ffe0';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(txt, x, y + bgH / 2);
+}
+
+function drawFeather(c, r, color) {
+  c.beginPath();
+  c.ellipse(0, 0, r * 0.35, r, 0.25, 0, Math.PI * 2);
+  const g = c.createLinearGradient(-r * 0.4, -r, r * 0.4, r);
+  g.addColorStop(0, '#fffaf0');
+  g.addColorStop(0.5, color);
+  g.addColorStop(1, '#c8c0a8');
+  c.fillStyle = g;
+  c.fill();
+  c.strokeStyle = 'rgba(120, 110, 90, 0.5)';
+  c.lineWidth = 1.2;
+  c.stroke();
+  c.beginPath();
+  c.moveTo(-r * 0.5, 0);
+  c.lineTo(r * 0.5, 0);
+  c.strokeStyle = 'rgba(160, 140, 110, 0.7)';
+  c.lineWidth = 1.5;
+  c.stroke();
+}
+
+function drawPaper(c, r, color) {
+  c.beginPath();
+  c.moveTo(-r * 0.7, -r * 0.6);
+  c.lineTo(r * 0.5, -r * 0.5);
+  c.quadraticCurveTo(r * 0.8, r * 0.2, r * 0.5, r * 0.6);
+  c.lineTo(-r * 0.6, r * 0.5);
+  c.quadraticCurveTo(-r * 0.8, 0, -r * 0.7, -r * 0.6);
+  c.closePath();
+  const g = c.createLinearGradient(-r * 0.7, -r * 0.6, r * 0.5, r * 0.6);
+  g.addColorStop(0, color);
+  g.addColorStop(1, '#d0c8b0');
+  c.fillStyle = g;
+  c.fill();
+  c.strokeStyle = 'rgba(120, 110, 90, 0.5)';
+  c.lineWidth = 1.2;
+  c.stroke();
+}
+
+function drawRock(c, r, color) {
+  c.beginPath();
+  for (let i = 0; i < 7; i++) {
+    const a = (Math.PI * 2 / 7) * i;
+    const rr = r * (0.75 + Math.sin(i * 1.7) * 0.25);
+    const x = Math.cos(a) * rr;
+    const y = Math.sin(a) * rr;
+    if (i === 0) c.moveTo(x, y);
+    else c.lineTo(x, y);
+  }
+  c.closePath();
+  const g = c.createRadialGradient(-r * 0.3, -r * 0.3, r * 0.1, 0, 0, r);
+  g.addColorStop(0, '#b0b0bc');
+  g.addColorStop(0.6, color);
+  g.addColorStop(1, '#2a2a35');
+  c.fillStyle = g;
+  c.fill();
+  c.strokeStyle = 'rgba(40, 45, 55, 0.8)';
+  c.lineWidth = 1.8;
+  c.stroke();
+  c.beginPath();
+  c.arc(-r * 0.3, -r * 0.3, r * 0.2, 0, Math.PI * 2);
+  c.fillStyle = 'rgba(255, 255, 255, 0.3)';
+  c.fill();
+}
+
+function drawBall(c, r, color) {
+  c.beginPath();
+  c.arc(0, 0, r * 0.85, 0, Math.PI * 2);
+  const g = c.createRadialGradient(-r * 0.35, -r * 0.35, r * 0.1, 0, 0, r);
+  g.addColorStop(0, '#c0c8d8');
+  g.addColorStop(0.5, color);
+  g.addColorStop(1, '#151a25');
+  c.fillStyle = g;
+  c.fill();
+  c.strokeStyle = 'rgba(20, 25, 35, 0.9)';
+  c.lineWidth = 1.8;
+  c.stroke();
+  c.beginPath();
+  c.arc(-r * 0.3, -r * 0.35, r * 0.22, 0, Math.PI * 2);
+  c.fillStyle = 'rgba(255, 255, 255, 0.55)';
+  c.fill();
+}
+
+function drawChart() {
+  const c = scene.chart;
+  ctx.fillStyle = 'rgba(16, 22, 38, 0.75)';
+  roundRect(c.x, c.y, c.w, c.h, 10 * S);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(94, 179, 255, 0.3)';
+  ctx.lineWidth = 1.2 * S;
+  roundRect(c.x, c.y, c.w, c.h, 10 * S);
+  ctx.stroke();
+
+  ctx.font = 'bold ' + Math.round(11 * S) + 'px system-ui, sans-serif';
+  ctx.fillStyle = 'rgba(168, 200, 232, 0.9)';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillText('📈 速度 - 时间  ·  h=' + state.fallHeight.toFixed(1) + 'm', c.x + 10 * S, c.y + 8 * S);
+
+  const padL = 34 * S, padR = 12 * S, padT = 28 * S, padB = 22 * S;
+  const px0 = c.x + padL;
+  const py0 = c.y + padT;
+  const pw = c.w - padL - padR;
+  const ph = c.h - padT - padB;
+
+  const freeFallT = Math.sqrt(2 * state.fallHeight / G);
+  const tMax = Math.max(0.6, freeFallT * 1.4);
+  const vFreefall = Math.sqrt(2 * G * state.fallHeight);
+  const vMax = Math.max(3, vFreefall * 1.15);
+
+  ctx.strokeStyle = 'rgba(94, 179, 255, 0.08)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 6; i++) {
+    const x = px0 + (pw * i / 6);
+    ctx.beginPath();
+    ctx.moveTo(x, py0);
+    ctx.lineTo(x, py0 + ph);
+    ctx.stroke();
+  }
+  for (let i = 0; i <= 4; i++) {
+    const y = py0 + (ph * i / 4);
+    ctx.beginPath();
+    ctx.moveTo(px0, y);
+    ctx.lineTo(px0 + pw, y);
+    ctx.stroke();
+  }
+
+  ctx.strokeStyle = 'rgba(94, 179, 255, 0.4)';
+  ctx.lineWidth = 1.5 * S;
+  ctx.beginPath();
+  ctx.moveTo(px0, py0);
+  ctx.lineTo(px0, py0 + ph);
+  ctx.lineTo(px0 + pw, py0 + ph);
+  ctx.stroke();
+
+  ctx.font = Math.round(9 * S) + 'px system-ui, sans-serif';
+  ctx.fillStyle = 'rgba(168, 200, 232, 0.7)';
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(vMax.toFixed(1), px0 - 4 * S, py0);
+  ctx.fillText('0', px0 - 4 * S, py0 + ph);
+
+  for (let i = 0; i < ITEMS_DEF.length; i++) {
+    const def = ITEMS_DEF[i];
+    const vt = getTerminalVelocity(def);
+    if (!isFinite(vt) || vt > vMax) continue;
+    const y = py0 + ph - (vt / vMax) * ph;
+    const color = getItemColor(def.id);
+    ctx.beginPath();
+    ctx.moveTo(px0, y);
+    ctx.lineTo(px0 + pw, y);
+    ctx.strokeStyle = color + '60';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4 * S, 4 * S]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  for (let i = 0; i < state.items.length; i++) {
+    const it = state.items[i];
+    if (it.vHistory.length < 2) continue;
+    const color = getItemColor(it.def.id);
+    ctx.beginPath();
+    let first = true;
+    for (const pt of it.vHistory) {
+      const x = px0 + (pt.t / tMax) * pw;
+      const y = py0 + ph - (Math.min(pt.v, vMax) / vMax) * ph;
+      if (x > px0 + pw) break;
+      if (first) { ctx.moveTo(x, y); first = false; }
+      else ctx.lineTo(x, y);
+    }
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2.5 * S;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.shadowBlur = 6 * S;
+    ctx.shadowColor = color + '90';
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+  }
+}
+
+function getItemColor(id) {
+  if (id === 'feather') return '#f0e8d8';
+  if (id === 'paper') return '#ffd54f';
+  if (id === 'rock') return '#a8b0c0';
+  if (id === 'ball') return '#5eb3ff';
+  return '#fff';
+}
+
+function drawDataPanel() {
+  const d = scene.data;
+  ctx.fillStyle = 'rgba(16, 22, 38, 0.75)';
+  roundRect(d.x, d.y, d.w, d.h, 10 * S);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(94, 179, 255, 0.3)';
+  ctx.lineWidth = 1.2 * S;
+  roundRect(d.x, d.y, d.w, d.h, 10 * S);
+  ctx.stroke();
+
+  ctx.font = 'bold ' + Math.round(11 * S) + 'px system-ui, sans-serif';
+  ctx.fillStyle = 'rgba(168, 200, 232, 0.9)';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillText('📋 物体数据', d.x + 10 * S, d.y + 8 * S);
+
+  const colY = d.y + 26 * S;
+  const rowH = (d.h - 44 * S) / 4;
+
+  const col1X = d.x + 10 * S;
+  const col2X = d.x + d.w * 0.36;
+  const col3X = d.x + d.w * 0.58;
+  const col4X = d.x + d.w * 0.78;
+
+  ctx.font = 'bold ' + Math.round(9 * S) + 'px system-ui, sans-serif';
+  ctx.fillStyle = 'rgba(136, 152, 176, 0.9)';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('物体', col1X, colY);
+  ctx.fillText('质量kg', col2X, colY);
+  ctx.fillText('面积m²', col3X, colY);
+  ctx.fillText('终端m/s', col4X, colY);
+
+  for (let i = 0; i < ITEMS_DEF.length; i++) {
+    const def = ITEMS_DEF[i];
+    const y = colY + rowH * (i + 0.9);
+    const color = getItemColor(def.id);
+    const vt = getTerminalVelocity(def);
+
+    ctx.beginPath();
+    ctx.arc(col1X + 4 * S, y, 3.5 * S, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+
+    ctx.fillStyle = 'rgba(200, 220, 240, 0.85)';
+    ctx.font = 'bold ' + Math.round(10 * S) + 'px system-ui, sans-serif';
+    ctx.fillText(def.name, col1X + 12 * S, y);
+
+    ctx.font = Math.round(10 * S) + 'px system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(168, 200, 232, 0.85)';
+    ctx.fillText(def.mass.toFixed(def.mass < 0.001 ? 5 : 4), col2X, y);
+    ctx.fillText(def.area.toFixed(4), col3X, y);
+
+    ctx.fillStyle = color;
+    ctx.font = 'bold ' + Math.round(10 * S) + 'px system-ui, sans-serif';
+    ctx.fillText(isFinite(vt) ? (vt < 1 ? vt.toFixed(2) : vt.toFixed(1)) : '∞', col4X, y);
+  }
+
+  ctx.font = Math.round(9 * S) + 'px system-ui, sans-serif';
+  ctx.fillStyle = 'rgba(136, 152, 176, 0.8)';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'bottom';
+  ctx.fillText('F_D = ½·ρ·C_D·A·v²   v_t = √(2mg / ρ·C_D·A)', d.x + 10 * S, d.y + d.h - 6 * S);
+}
+
+function drawVacuumWatermark() {
+  if (state.airOn) return;
+  ctx.save();
+  ctx.globalAlpha = 0.06 + Math.sin(time * 2) * 0.02;
+  ctx.font = 'bold ' + Math.round(90 * S) + 'px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#d0b0ff';
+  ctx.fillText('真空', W * 0.28, H * 0.45);
+  ctx.restore();
+}
+
+function drawParticles() {
+  for (const p of state.particles) {
+    ctx.save();
+    ctx.globalAlpha = p.life;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
+    ctx.fillStyle = p.color;
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+function roundRect(x, y, w, h, r) {
+  const rr = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.lineTo(x + w - rr, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+  ctx.lineTo(x + w, y + h - rr);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+  ctx.lineTo(x + rr, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+  ctx.lineTo(x, y + rr);
+  ctx.quadraticCurveTo(x, y, x + rr, y);
+  ctx.closePath();
+}
+
+function render() {
+  ctx.clearRect(0, 0, W, H);
+  drawBackground();
+  drawVacuumWatermark();
+  drawHeightRuler();
+  drawPlatform();
+  for (const it of state.items) if (!it.landed) drawItem(it);
+  for (const it of state.items) if (it.landed) drawItem(it);
+  drawGround();
+  drawParticles();
+  drawChart();
+  drawDataPanel();
+}
+
+btnDrop.addEventListener('click', function () {
+  if (state.running) return;
+  initAudio();
+  sfxDrop();
+  buildItems();
+  state.running = true;
+  state.startTime = time;
+  state.landedCount = 0;
+  btnDrop.disabled = true;
+  btnVacuum.disabled = true;
+  statusEl.textContent = '⏱️ 观察每个物体的速度变化……';
+  statusEl.className = 'status';
+});
+
+btnVacuum.addEventListener('click', function () {
+  if (state.running) return;
+  initAudio();
+  sfxVacuum();
+  state.airOn = !state.airOn;
+  if (state.airOn) {
+    state.airDensity = +rhoSlider.value / 100 * 1.225;
+    btnVacuum.textContent = '🌫️ 抽掉空气';
+    btnVacuum.classList.remove('active');
+    statusEl.textContent = '🌬️ 空气已恢复，再按"一起落下"试试';
+    statusEl.className = 'status';
+  } else {
+    state.airDensity = 0;
+    btnVacuum.textContent = '🌬️ 恢复空气';
+    btnVacuum.classList.add('active');
+    statusEl.textContent = '🌫️ 真空状态：没有空气阻力，只看重力';
+    statusEl.className = 'status vacuum';
+  }
+  buildItems();
+  state.running = false;
+  state.landedCount = 0;
+  btnDrop.disabled = false;
+});
+
+btnReset.addEventListener('click', function () {
+  initAudio();
+  sfxClick();
+  state.airOn = true;
+  state.airDensity = +rhoSlider.value / 100 * 1.225;
+  state.running = false;
+  state.landedCount = 0;
+  state.particles = [];
+  buildItems();
+  btnDrop.disabled = false;
+  btnVacuum.disabled = false;
+  btnVacuum.textContent = '🌫️ 抽掉空气';
+  btnVacuum.classList.remove('active');
+  statusEl.textContent = '🔬 选择高度，按下"一起落下"，观察实时数据';
+  statusEl.className = 'status';
+});
+
+/* ---- 高度下拉框：关键新逻辑 ---- */
+heightSelect.addEventListener('change', function (e) {
+  if (state.running) {
+    // 下落过程中不允许改，恢复原值
+    heightSelect.value = String(Math.round(state.fallHeight * 10));
+    return;
+  }
+  initAudio();
+  sfxClick();
+  const h_m = +e.target.value / 10;
+  state.fallHeight = h_m;
+
+  scene.PX_PER_M = (scene.groundY - scene.platformY) / state.fallHeight;
+  buildItems();
+  state.landedCount = 0;
+  state.particles = [];
+  statusEl.textContent = '📏 下落高度已设为 ' + h_m.toFixed(1) + ' 米，按"一起落下"试试';
+  statusEl.className = 'status';
+});
+
+rhoSlider.addEventListener('input', function (e) {
+  const v = +e.target.value / 100;
+  rhoValEl.textContent = (v * 1.225).toFixed(2);
+  if (state.airOn) state.airDensity = v * 1.225;
+});
+
+canvas.addEventListener('dblclick', function (e) { e.preventDefault(); });
+
+resize();
+buildItems();
+
+window.addEventListener('resize', function () {
+  resize();
+  render();
+});
+
+if (window.ResizeObserver) {
+  new ResizeObserver(function () {
+    const cw = canvas.clientWidth, ch = canvas.clientHeight;
+    if (cw > 0 && ch > 0 && (Math.abs(cw - W) > 1 || Math.abs(ch - H) > 1)) {
+      resize();
+      render();
+    }
+  }).observe(canvas);
+}
+
+render();
+requestAnimationFrame(function () {
+  resize();
+  buildItems();
+  render();
+});
+
+gsap.ticker.add(function (t, dt) {
+  const d = Math.min(dt || 16, 50) / 1000;
+  update(d);
+  render();
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,935 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>水瓶排笛 —— 水多水少，声音怎么会变</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    height: 100%; width: 100%; overflow: hidden; background: #0a1018;
+    touch-action: none;
+    font-family: system-ui, -apple-system, sans-serif;
+    color: #fff;
+  }
+  canvas { display: block; position: absolute; inset: 0; }
+
+  .status {
+    position: fixed;
+    top: 16px; left: 50%;
+    transform: translateX(-50%);
+    padding: 14px 28px;
+    background: rgba(16, 22, 38, 0.92);
+    border-radius: 30px;
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    font-size: 16px; font-weight: 700;
+    z-index: 10; white-space: nowrap; max-width: 94vw;
+    text-align: center; transition: all 0.3s;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+  }
+  .status.flash {
+    background: rgba(40, 130, 60, 0.95);
+    border-color: rgba(127, 221, 110, 0.7);
+  }
+
+  .readout {
+    position: fixed;
+    top: 16px; right: 16px;
+    padding: 14px 18px;
+    background: rgba(16, 22, 38, 0.9);
+    border-radius: 14px;
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    font-size: 13px; z-index: 10;
+    line-height: 1.9; min-width: 175px;
+  }
+  .readout .row {
+    display: flex; justify-content: space-between; gap: 12px;
+  }
+  .readout .lbl { color: #8898b0; }
+  .readout .num {
+    color: #5eb3ff; font-weight: 800; font-variant-numeric: tabular-nums;
+  }
+  .readout .num.hi { color: #ffd54f; }
+
+  .panel {
+    position: fixed;
+    bottom: 14px; left: 50%;
+    transform: translateX(-50%);
+    width: min(720px, 94vw);
+    background: rgba(16, 22, 38, 0.94);
+    padding: 14px 22px;
+    border-radius: 20px;
+    backdrop-filter: blur(14px);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    z-index: 10;
+    display: flex; flex-direction: column; gap: 10px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+  }
+  .panel .tip {
+    font-size: 13px; color: #a8c0e0;
+    text-align: center; line-height: 1.5;
+  }
+  .panel .btns {
+    display: grid;
+    grid-template-columns: 1.5fr 1fr 1fr;
+    gap: 10px;
+  }
+  .panel button {
+    padding: 13px 14px;
+    border-radius: 13px;
+    border: none;
+    font-weight: 800; font-size: 15px;
+    cursor: pointer; transition: transform 0.12s, box-shadow 0.2s;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+  }
+  .panel button:active:not(:disabled) { transform: translateY(1px); }
+  .panel .btn-song {
+    background: linear-gradient(135deg, #ffb055, #ff9eb5);
+    color: #1a0a00;
+    box-shadow: 0 4px 14px rgba(255, 160, 90, 0.4);
+  }
+  .panel .btn-song:disabled {
+    background: rgba(120, 130, 150, 0.3);
+    color: rgba(255, 255, 255, 0.35);
+    cursor: not-allowed; box-shadow: none;
+  }
+  .panel .btn-sweep {
+    background: linear-gradient(135deg, #5eb3ff, #a8e6ff);
+    color: #061020;
+    box-shadow: 0 4px 14px rgba(94, 179, 255, 0.4);
+  }
+  .panel .btn-sweep:disabled {
+    background: rgba(120, 130, 150, 0.3);
+    color: rgba(255, 255, 255, 0.35);
+    cursor: not-allowed; box-shadow: none;
+  }
+  .panel .btn-reset {
+    background: rgba(255, 255, 255, 0.14);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.22);
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div class="status" id="status">👆 点一点瓶子，听听水多水少声音有什么不一样</div>
+
+<div class="readout">
+  <div class="row"><span class="lbl">正在响</span><span class="num hi" id="noteVal">--</span></div>
+  <div class="row"><span class="lbl">音高</span><span class="num" id="freqVal">-- Hz</span></div>
+</div>
+
+<div class="panel">
+  <div class="tip" id="tip">💡 水少的瓶子，空气柱长，声音低；水多的瓶子，空气柱短，声音高</div>
+  <div class="btns">
+    <button class="btn-song" id="btnSong">🎵 演奏《小星星》</button>
+    <button class="btn-sweep" id="btnSweep">🌊 从低到高扫一遍</button>
+    <button class="btn-reset" id="btnReset">🔄 重置</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+<script>
+/* ============================================================
+   水瓶排笛 —— 水多水少，声音怎么会变
+   ------------------------------------------------------------
+   教材依据：
+   第五章第三节「声音」—— 声音形成、声音传送
+   第一章「声音」迷思—— 幼儿以为声音"只有大小"
+   英国《发展至关重要》—— 探索事物如何运作
+
+   核心概念：
+   ① 吹瓶口时，是瓶子里的"空气柱"在振动
+   ② 空气柱越长，振动越慢，音越低
+   ③ 空气柱越短，振动越快，音越高
+   ④ 所以水越多，空气柱越短，音就越高
+   ⑤ 8 个瓶子排成一排，可以奏出音阶
+   ============================================================ */
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+const statusEl = document.getElementById('status');
+const noteValEl = document.getElementById('noteVal');
+const freqValEl = document.getElementById('freqVal');
+const tipEl = document.getElementById('tip');
+const btnSong = document.getElementById('btnSong');
+const btnSweep = document.getElementById('btnSweep');
+const btnReset = document.getElementById('btnReset');
+
+let W = 800, H = 600, DPR = 1, S = 1;
+let time = 0;
+
+/* ---------- 八音阶的频率 ---------- */
+const NOTES = [
+  { name: 'do', freq: 261.63, label: '1', color: '#ff6b6b' },
+  { name: 're', freq: 293.66, label: '2', color: '#ff9500' },
+  { name: 'mi', freq: 329.63, label: '3', color: '#ffd54f' },
+  { name: 'fa', freq: 349.23, label: '4', color: '#a8e06a' },
+  { name: 'sol', freq: 392.00, label: '5', color: '#4fd9c4' },
+  { name: 'la', freq: 440.00, label: '6', color: '#5eb3ff' },
+  { name: 'si', freq: 493.88, label: '7', color: '#a78bfa' },
+  { name: 'do', freq: 523.25, label: 'i', color: '#ff8fa3' }
+];
+
+/* ---------- 状态 ---------- */
+const state = {
+  bottles: [],
+  activeIndex: -1,
+  activeTime: 0,
+  ripples: [],
+  wavePhase: 0,
+  playing: false,
+  songTimer: null
+};
+
+/* ---------- 场景 ---------- */
+const scene = {
+  tableY: 0,
+  trayY: 0
+};
+
+/* ============================================================
+   尺寸
+============================================================ */
+function resize() {
+  let w = window.innerWidth || document.documentElement.clientWidth || 800;
+  let h = window.innerHeight || document.documentElement.clientHeight || 600;
+  if (w < 200) w = 800;
+  if (h < 200) h = 600;
+
+  W = w; H = h;
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width = Math.floor(W * DPR);
+  canvas.height = Math.floor(H * DPR);
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+  S = Math.max(0.55, Math.min(1.15, H / 800));
+
+  layoutScene();
+  buildBottles();
+}
+
+function layoutScene() {
+  scene.tableY = H * 0.80;
+  scene.trayY = H * 0.18;
+}
+
+function buildBottles() {
+  state.bottles = [];
+  const count = NOTES.length;
+  const totalW = Math.min(W * 0.85, 740 * S);
+  const slotW = totalW / count;
+  const startX = W * 0.5 - totalW / 2;
+  const bottleW = Math.min(slotW * 0.72, 64 * S);
+  const bottleH = Math.min(H * 0.52, 280 * S);
+
+  for (let i = 0; i < count; i++) {
+    // 水位从左到右逐渐升高：20% → 80%
+    const waterLevel = 0.20 + (i / (count - 1)) * 0.60;
+    state.bottles.push({
+      index: i,
+      note: NOTES[i],
+      x: startX + slotW * i + slotW / 2,
+      y: scene.tableY,
+      w: bottleW,
+      h: bottleH,
+      waterLevel: waterLevel,
+      // 用于动画
+      glow: 0,
+      shake: 0,
+      surfaceWave: 0,
+      wavePhase: Math.random() * Math.PI * 2
+    });
+  }
+}
+
+/* ============================================================
+   音效：吹瓶子的合成音
+   ============================================================ */
+let audioCtx = null;
+function initAudio() {
+  if (!audioCtx) {
+    try {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    } catch (e) {}
+  }
+}
+
+function playBottleSound(freq) {
+  if (!audioCtx) return;
+  const t = audioCtx.currentTime;
+
+  // 主音（基频）
+  const osc1 = audioCtx.createOscillator();
+  const gain1 = audioCtx.createGain();
+  osc1.type = 'sine';
+  osc1.frequency.setValueAtTime(freq, t);
+  osc1.connect(gain1);
+  gain1.connect(audioCtx.destination);
+  gain1.gain.setValueAtTime(0.0001, t);
+  gain1.gain.linearRampToValueAtTime(0.16, t + 0.012);
+  gain1.gain.exponentialRampToValueAtTime(0.0001, t + 0.65);
+  osc1.start(t);
+  osc1.stop(t + 0.7);
+
+  // 二次泛音（让音色更亮）
+  const osc2 = audioCtx.createOscillator();
+  const gain2 = audioCtx.createGain();
+  osc2.type = 'sine';
+  osc2.frequency.setValueAtTime(freq * 2, t);
+  osc2.connect(gain2);
+  gain2.connect(audioCtx.destination);
+  gain2.gain.setValueAtTime(0.0001, t);
+  gain2.gain.linearRampToValueAtTime(0.05, t + 0.01);
+  gain2.gain.exponentialRampToValueAtTime(0.0001, t + 0.4);
+  osc2.start(t);
+  osc2.stop(t + 0.45);
+
+  // 三次泛音
+  const osc3 = audioCtx.createOscillator();
+  const gain3 = audioCtx.createGain();
+  osc3.type = 'sine';
+  osc3.frequency.setValueAtTime(freq * 3, t);
+  osc3.connect(gain3);
+  gain3.connect(audioCtx.destination);
+  gain3.gain.setValueAtTime(0.0001, t);
+  gain3.gain.linearRampToValueAtTime(0.02, t + 0.008);
+  gain3.gain.exponentialRampToValueAtTime(0.0001, t + 0.25);
+  osc3.start(t);
+  osc3.stop(t + 0.3);
+}
+
+/* ============================================================
+   敲击瓶子
+   ============================================================ */
+function hitBottle(index) {
+  initAudio();
+  const bottle = state.bottles[index];
+  if (!bottle) return;
+
+  playBottleSound(bottle.note.freq);
+
+  bottle.glow = 1;
+  bottle.shake = 1;
+  bottle.surfaceWave = 1;
+
+  state.activeIndex = index;
+  state.activeTime = 0;
+
+  // 瓶口波纹
+  state.ripples.push({
+    x: bottle.x,
+    y: bottle.y - bottle.h,
+    r: bottle.w * 0.4,
+    maxR: bottle.w * 2.2,
+    life: 1
+  });
+
+  // 水面小波纹
+  for (let i = 0; i < 3; i++) {
+    state.ripples.push({
+      x: bottle.x,
+      y: bottle.y - bottle.h * bottle.waterLevel,
+      r: bottle.w * 0.2,
+      maxR: bottle.w * 0.9,
+      life: 1,
+      isWater: true
+    });
+  }
+
+  // 更新读数
+  noteValEl.textContent = bottle.note.name + ' (' + bottle.note.label + ')';
+  freqValEl.textContent = Math.round(bottle.note.freq) + ' Hz';
+
+  // 状态提示
+  const position = index < 3 ? '水很少，声音低' : (index > 4 ? '水很多，声音高' : '');
+  if (position) {
+    statusEl.textContent = '🔔 ' + bottle.note.name + '：' + position;
+    statusEl.className = 'status flash';
+    setTimeout(function () {
+      statusEl.className = 'status';
+    }, 800);
+  }
+}
+
+/* ============================================================
+   更新
+============================================================ */
+function update(dt) {
+  time += dt;
+
+  // 瓶子状态衰减
+  for (const b of state.bottles) {
+    if (b.glow > 0) b.glow = Math.max(0, b.glow - dt * 1.2);
+    if (b.shake > 0) b.shake = Math.max(0, b.shake - dt * 2.5);
+    if (b.surfaceWave > 0) b.surfaceWave = Math.max(0, b.surfaceWave - dt * 0.9);
+    b.wavePhase += dt * 8;
+  }
+
+  // 波纹
+  for (const r of state.ripples) {
+    r.r += (r.maxR - r.r) * Math.min(1, dt * 4);
+    r.life -= dt * 1.4;
+  }
+  state.ripples = state.ripples.filter(function (r) { return r.life > 0; });
+
+  // 当前活跃的瓶子 3 秒后清空读数
+  if (state.activeIndex >= 0) {
+    state.activeTime += dt;
+    if (state.activeTime > 3) {
+      state.activeIndex = -1;
+    }
+  }
+}
+
+/* ============================================================
+   绘制：背景
+============================================================ */
+function drawBackground() {
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#1a2438');
+  g.addColorStop(0.55, '#0d1422');
+  g.addColorStop(1, '#050810');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+
+  // 舞台光晕
+  const glow = ctx.createRadialGradient(
+    W * 0.5, H * 0.4, 30,
+    W * 0.5, H * 0.4, Math.max(W, H) * 0.6
+  );
+  glow.addColorStop(0, 'rgba(120, 180, 255, 0.10)');
+  glow.addColorStop(1, 'rgba(120, 180, 255, 0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+}
+
+/* ============================================================
+   绘制：桌面
+============================================================ */
+function drawTable() {
+  const ty = scene.tableY;
+  const g = ctx.createLinearGradient(0, ty, 0, H);
+  g.addColorStop(0, '#4a3020');
+  g.addColorStop(0.35, '#2a1a10');
+  g.addColorStop(1, '#150c05');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, ty, W, H - ty);
+
+  ctx.strokeStyle = 'rgba(180, 140, 90, 0.4)';
+  ctx.lineWidth = 2.5 * S;
+  ctx.beginPath();
+  ctx.moveTo(0, ty);
+  ctx.lineTo(W, ty);
+  ctx.stroke();
+
+  // 桌面木纹
+  ctx.strokeStyle = 'rgba(60, 40, 20, 0.5)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 3; i++) {
+    const y = ty + 20 * S + i * 24 * S;
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(W, y);
+    ctx.stroke();
+  }
+}
+
+/* ============================================================
+   绘制：单个玻璃瓶
+   ============================================================ */
+function drawBottle(b) {
+  const x = b.x;
+  const y = b.y;       // 底部中心
+  const w = b.w;
+  const h = b.h;
+
+  // 轻微的振动位移
+  const shakeOff = b.shake > 0 ? Math.sin(time * 60) * 2 * b.shake : 0;
+
+  ctx.save();
+  ctx.translate(shakeOff, 0);
+
+  // ---- 阴影 ----
+  ctx.beginPath();
+  ctx.ellipse(x + 3 * S, y + 5 * S, w * 0.55, w * 0.16, 0, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+  ctx.fill();
+
+  // ---- 瓶子的玻璃轮廓路径 ----
+  const topY = y - h;
+  const bottomY = y;
+  const neckW = w * 0.55;   // 瓶口窄
+  const bodyW = w;          // 瓶身宽
+
+  // 被点亮时的光晕
+  if (b.glow > 0.05) {
+    ctx.save();
+    ctx.globalAlpha = b.glow * 0.6;
+    const glow = ctx.createRadialGradient(x, y - h * 0.5, w * 0.5, x, y - h * 0.5, w * 2.5);
+    glow.addColorStop(0, b.note.color + 'cc');
+    glow.addColorStop(1, b.note.color + '00');
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(x, y - h * 0.5, w * 2.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // ---- 瓶子内部（水 + 空气） ----
+  ctx.save();
+  ctx.beginPath();
+  // 瓶身轮廓
+  bottlePath(x, y, w, h, neckW);
+  ctx.clip();
+
+  // 空气部分（深色）
+  const airGrad = ctx.createLinearGradient(x, topY, x, bottomY);
+  airGrad.addColorStop(0, 'rgba(80, 110, 160, 0.35)');
+  airGrad.addColorStop(0.5, 'rgba(50, 80, 130, 0.45)');
+  airGrad.addColorStop(1, 'rgba(40, 70, 120, 0.55)');
+  ctx.fillStyle = airGrad;
+  ctx.fillRect(x - w, topY, w * 2, h);
+
+  // 水（下面那一部分）
+  const waterH = h * b.waterLevel;
+  const waterTop = bottomY - waterH;
+  const waterGrad = ctx.createLinearGradient(x, waterTop, x, bottomY);
+  waterGrad.addColorStop(0, 'rgba(120, 200, 240, 0.7)');
+  waterGrad.addColorStop(0.5, 'rgba(60, 150, 220, 0.85)');
+  waterGrad.addColorStop(1, 'rgba(30, 90, 170, 0.95)');
+  ctx.fillStyle = waterGrad;
+  ctx.fillRect(x - w, waterTop, w * 2, waterH);
+
+  // 水面波纹（被敲击时波动）
+  if (b.surfaceWave > 0.02) {
+    ctx.beginPath();
+    for (let px = x - w; px <= x + w; px += 4) {
+      const wave = Math.sin(px * 0.15 + b.wavePhase * 3) * 3 * b.surfaceWave
+        + Math.sin(px * 0.4 + b.wavePhase) * 1.5 * b.surfaceWave;
+      if (px === x - w) ctx.moveTo(px, waterTop + wave);
+      else ctx.lineTo(px, waterTop + wave);
+    }
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+    ctx.lineWidth = 2 * S;
+    ctx.stroke();
+  } else {
+    // 静止时有一条淡淡的水面线
+    ctx.beginPath();
+    ctx.moveTo(x - w, waterTop);
+    ctx.lineTo(x + w, waterTop);
+    ctx.strokeStyle = 'rgba(200, 240, 255, 0.5)';
+    ctx.lineWidth = 1.5 * S;
+    ctx.stroke();
+  }
+
+  ctx.restore();
+
+  // ---- 玻璃外壳（描边 + 高光） ----
+  ctx.beginPath();
+  bottlePath(x, y, w, h, neckW);
+  ctx.strokeStyle = b.glow > 0.3
+    ? 'rgba(255, 255, 255, ' + (0.7 + b.glow * 0.3) + ')'
+    : 'rgba(200, 225, 245, 0.75)';
+  ctx.lineWidth = 2.5 * S;
+  ctx.lineJoin = 'round';
+  ctx.stroke();
+
+  // 玻璃高光（竖线）
+  ctx.beginPath();
+  ctx.moveTo(x - w * 0.35, y - h * 0.85);
+  ctx.lineTo(x - w * 0.35, y - h * 0.15);
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
+  ctx.lineWidth = 2.5 * S;
+  ctx.lineCap = 'round';
+  ctx.stroke();
+
+  // 玻璃上的反光点
+  ctx.beginPath();
+  ctx.ellipse(x - w * 0.35, y - h * 0.62, w * 0.06, w * 0.14, 0, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+  ctx.fill();
+
+  ctx.restore();
+
+  // ---- 瓶口（画在上层，让瓶口明显） ----
+  ctx.save();
+  ctx.beginPath();
+  ctx.ellipse(x, topY, neckW / 2, 5 * S, 0, 0, Math.PI * 2);
+  ctx.fillStyle = b.glow > 0.3
+    ? 'rgba(255, 255, 255, ' + (0.6 + b.glow * 0.3) + ')'
+    : 'rgba(200, 225, 245, 0.9)';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(120, 160, 200, 0.9)';
+  ctx.lineWidth = 1.5 * S;
+  ctx.stroke();
+
+  // 瓶口内圈（暗）
+  ctx.beginPath();
+  ctx.ellipse(x, topY, neckW / 2 - 3 * S, 5 * S - 1.5 * S, 0, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(30, 50, 80, 0.8)';
+  ctx.fill();
+  ctx.restore();
+
+  // ---- 音符标签 ----
+  ctx.save();
+  const labelY = y + 26 * S;
+
+  // 标签底
+  ctx.font = 'bold ' + Math.round(16 * S) + 'px system-ui, sans-serif';
+  const labelText = b.note.label;
+  const nameText = b.note.name;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  // 音名（do re mi 等）
+  ctx.font = 'bold ' + Math.round(12 * S) + 'px system-ui, sans-serif';
+  ctx.fillStyle = b.glow > 0.2 ? b.note.color : 'rgba(168, 200, 232, 0.85)';
+  ctx.fillText(nameText, x, labelY);
+
+  // 简谱数字（大圆底）
+  const numY = labelY + 26 * S;
+  ctx.beginPath();
+  ctx.arc(x, numY, 14 * S, 0, Math.PI * 2);
+  ctx.fillStyle = b.glow > 0.2 ? b.note.color : 'rgba(30, 45, 70, 0.9)';
+  ctx.fill();
+  ctx.strokeStyle = b.note.color;
+  ctx.lineWidth = 1.5 * S;
+  ctx.stroke();
+
+  ctx.font = 'bold ' + Math.round(14 * S) + 'px system-ui, sans-serif';
+  ctx.fillStyle = b.glow > 0.2 ? '#1a0a00' : b.note.color;
+  ctx.fillText(labelText, x, numY + 1);
+
+  ctx.restore();
+}
+
+/* 瓶子外轮廓路径 */
+function bottlePath(cx, bottomY, w, h, neckW) {
+  const topY = bottomY - h;
+  const neckH = h * 0.25;          // 瓶颈长度
+  const neckY = topY + neckH;      // 瓶颈结束、开始变宽的 y
+  const halfBody = w / 2;
+  const halfNeck = neckW / 2;
+
+  ctx.beginPath();
+  // 从瓶口左侧开始
+  ctx.moveTo(cx - halfNeck, topY);
+  // 瓶颈左侧
+  ctx.lineTo(cx - halfNeck, neckY);
+  // 平滑过渡到瓶身
+  ctx.quadraticCurveTo(cx - halfNeck - 4 * S, neckY + h * 0.06, cx - halfBody, neckY + h * 0.15);
+  // 瓶身左侧
+  ctx.lineTo(cx - halfBody, bottomY - 4 * S);
+  // 瓶底圆角
+  ctx.quadraticCurveTo(cx - halfBody, bottomY, cx - halfBody + 6 * S, bottomY);
+  // 瓶底
+  ctx.lineTo(cx + halfBody - 6 * S, bottomY);
+  ctx.quadraticCurveTo(cx + halfBody, bottomY, cx + halfBody, bottomY - 4 * S);
+  // 瓶身右侧
+  ctx.lineTo(cx + halfBody, neckY + h * 0.15);
+  // 平滑过渡到瓶颈
+  ctx.quadraticCurveTo(cx + halfNeck + 4 * S, neckY + h * 0.06, cx + halfNeck, neckY);
+  // 瓶颈右侧
+  ctx.lineTo(cx + halfNeck, topY);
+  ctx.closePath();
+}
+
+/* ============================================================
+   绘制：波纹
+============================================================ */
+function drawRipples() {
+  for (const r of state.ripples) {
+    ctx.save();
+    ctx.globalAlpha = r.life * 0.7;
+    ctx.beginPath();
+    if (r.isWater) {
+      ctx.ellipse(r.x, r.y, r.r, r.r * 0.28, 0, 0, Math.PI * 2);
+    } else {
+      ctx.arc(r.x, r.y, r.r, 0, Math.PI * 2);
+    }
+    ctx.strokeStyle = r.isWater
+      ? 'rgba(200, 240, 255, 0.9)'
+      : 'rgba(255, 213, 79, 0.85)';
+    ctx.lineWidth = 2 * S;
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+/* ============================================================
+   绘制：空气柱长度提示（左侧小示意图）
+============================================================ */
+function drawAirColumnHint() {
+  const px = 24 * S;
+  const py = H * 0.30;
+
+  ctx.font = 'bold ' + Math.round(11 * S) + 'px system-ui, sans-serif';
+  ctx.fillStyle = 'rgba(168, 200, 232, 0.8)';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillText('空气柱', px, py - 20 * S);
+
+  // 三个示意瓶子（不同水位）
+  const hints = [
+    { level: 0.20, label: '长', color: '#5eb3ff' },
+    { level: 0.50, label: '中', color: '#ffd54f' },
+    { level: 0.80, label: '短', color: '#ff6b6b' }
+  ];
+
+  for (let i = 0; i < hints.length; i++) {
+    const hx = px + i * 46 * S;
+    const hy = py;
+    const hw = 26 * S;
+    const hh = 100 * S;
+
+    // 空气（上面深色）
+    ctx.fillStyle = 'rgba(80, 110, 160, 0.5)';
+    ctx.fillRect(hx, hy, hw, hh);
+    // 水（下面蓝色）
+    const waterH = hh * hints[i].level;
+    const wg = ctx.createLinearGradient(0, hy + hh - waterH, 0, hy + hh);
+    wg.addColorStop(0, 'rgba(120, 200, 240, 0.85)');
+    wg.addColorStop(1, 'rgba(30, 90, 170, 0.9)');
+    ctx.fillStyle = wg;
+    ctx.fillRect(hx, hy + hh - waterH, hw, waterH);
+
+    // 边框
+    ctx.strokeStyle = 'rgba(200, 225, 245, 0.7)';
+    ctx.lineWidth = 1.5 * S;
+    ctx.strokeRect(hx, hy, hw, hh);
+
+    // 空气柱长度箭头
+    const airH = hh - waterH;
+    if (airH > 6 * S) {
+      ctx.beginPath();
+      ctx.moveTo(hx + hw / 2, hy + 4 * S);
+      ctx.lineTo(hx + hw / 2, hy + airH - 4 * S);
+      ctx.strokeStyle = hints[i].color;
+      ctx.lineWidth = 2 * S;
+      ctx.stroke();
+
+      // 上下箭头尖
+      ctx.beginPath();
+      ctx.moveTo(hx + hw / 2, hy + 4 * S);
+      ctx.lineTo(hx + hw / 2 - 3 * S, hy + 10 * S);
+      ctx.lineTo(hx + hw / 2 + 3 * S, hy + 10 * S);
+      ctx.closePath();
+      ctx.fillStyle = hints[i].color;
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.moveTo(hx + hw / 2, hy + airH - 4 * S);
+      ctx.lineTo(hx + hw / 2 - 3 * S, hy + airH - 10 * S);
+      ctx.lineTo(hx + hw / 2 + 3 * S, hy + airH - 10 * S);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // 标签
+    ctx.font = 'bold ' + Math.round(11 * S) + 'px system-ui, sans-serif';
+    ctx.fillStyle = hints[i].color;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText(hints[i].label, hx + hw / 2, hy + hh + 6 * S);
+  }
+
+  // 说明文字
+  ctx.font = Math.round(10 * S) + 'px system-ui, sans-serif';
+  ctx.fillStyle = 'rgba(168, 200, 232, 0.7)';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillText('空气柱越长 → 声音越低', px, py + 140 * S);
+}
+
+/* ============================================================
+   工具
+============================================================ */
+function roundRect(x, y, w, h, r) {
+  const rr = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.lineTo(x + w - rr, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+  ctx.lineTo(x + w, y + h - rr);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+  ctx.lineTo(x + rr, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+  ctx.lineTo(x, y + rr);
+  ctx.quadraticCurveTo(x, y, x + rr, y);
+  ctx.closePath();
+}
+
+/* ============================================================
+   渲染
+============================================================ */
+function render() {
+  ctx.clearRect(0, 0, W, H);
+
+  drawBackground();
+  drawTable();
+
+  for (const b of state.bottles) {
+    drawBottle(b);
+  }
+
+  drawRipples();
+  drawAirColumnHint();
+}
+
+/* ============================================================
+   交互
+============================================================ */
+function getPos(e) {
+  const rect = canvas.getBoundingClientRect();
+  return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+}
+
+function hitBottleIndex(p) {
+  for (let i = 0; i < state.bottles.length; i++) {
+    const b = state.bottles[i];
+    const dx = Math.abs(p.x - b.x);
+    const dy = Math.abs(p.y - (b.y - b.h / 2));
+    if (dx < b.w * 0.75 && dy < b.h * 0.65) return i;
+  }
+  return -1;
+}
+
+canvas.addEventListener('pointerdown', function (e) {
+  initAudio();
+  const p = getPos(e);
+  const idx = hitBottleIndex(p);
+  if (idx >= 0) {
+    hitBottle(idx);
+  }
+});
+
+canvas.addEventListener('dblclick', function (e) { e.preventDefault(); });
+
+/* ============================================================
+   按钮
+============================================================ */
+btnSong.addEventListener('click', function () {
+  initAudio();
+  if (state.playing) return;
+  state.playing = true;
+  btnSong.disabled = true;
+  btnSweep.disabled = true;
+  btnSong.textContent = '🎵 演奏中…';
+
+  // 《小星星》的简谱：1 1 5 5 6 6 5 | 4 4 3 3 2 2 1
+  const song = [
+    0, 0, 4, 4, 5, 5, 4,
+    3, 3, 2, 2, 1, 1, 0
+  ];
+
+  // 每 450ms 弹一个音
+  let i = 0;
+  function step() {
+    if (i >= song.length) {
+      state.playing = false;
+      btnSong.disabled = false;
+      btnSweep.disabled = false;
+      btnSong.textContent = '🎵 演奏《小星星》';
+      return;
+    }
+    hitBottle(song[i]);
+    i++;
+    state.songTimer = setTimeout(step, 450);
+  }
+  step();
+});
+
+btnSweep.addEventListener('click', function () {
+  initAudio();
+  if (state.playing) return;
+  state.playing = true;
+  btnSong.disabled = true;
+  btnSweep.disabled = true;
+  btnSweep.textContent = '🌊 扫过中…';
+
+  let i = 0;
+  function step() {
+    if (i >= state.bottles.length) {
+      state.playing = false;
+      btnSong.disabled = false;
+      btnSweep.disabled = false;
+      btnSweep.textContent = '🌊 从低到高扫一遍';
+      return;
+    }
+    hitBottle(i);
+    i++;
+    state.songTimer = setTimeout(step, 380);
+  }
+  step();
+});
+
+btnReset.addEventListener('click', function () {
+  initAudio();
+  // 停止演奏
+  if (state.songTimer) {
+    clearTimeout(state.songTimer);
+    state.songTimer = null;
+  }
+  state.playing = false;
+  btnSong.disabled = false;
+  btnSweep.disabled = false;
+  btnSong.textContent = '🎵 演奏《小星星》';
+  btnSweep.textContent = '🌊 从低到高扫一遍';
+
+  // 恢复初始状态
+  for (const b of state.bottles) {
+    b.glow = 0;
+    b.shake = 0;
+    b.surfaceWave = 0;
+  }
+  state.ripples = [];
+  state.activeIndex = -1;
+
+  noteValEl.textContent = '--';
+  freqValEl.textContent = '-- Hz';
+  statusEl.textContent = '👆 点一点瓶子，听听水多水少声音有什么不一样';
+  statusEl.className = 'status';
+});
+
+/* ============================================================
+   启动
+============================================================ */
+resize();
+
+window.addEventListener('resize', function () {
+  resize();
+  render();
+});
+
+if (window.ResizeObserver) {
+  new ResizeObserver(function () {
+    const cw = canvas.clientWidth, ch = canvas.clientHeight;
+    if (cw > 0 && ch > 0 && (Math.abs(cw - W) > 1 || Math.abs(ch - H) > 1)) {
+      resize();
+      render();
+    }
+  }).observe(canvas);
+}
+
+render();
+requestAnimationFrame(function () {
+  resize();
+  render();
+});
+
+gsap.ticker.add(function (t, dt) {
+  const d = Math.min(dt || 16, 50) / 1000;
+  update(d);
+  render();
+});
+</script>
+</body>
+</html>
