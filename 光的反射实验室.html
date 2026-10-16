@@ -1,0 +1,735 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>光的反射实验室 · 光线遇到镜子会怎么走</title>
+<style>
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    margin:0;
+    background:radial-gradient(circle at 50% 0%, #141f36 0%, #080d18 55%, #03060c 100%);
+    display:flex;align-items:center;justify-content:center;
+    padding:16px;
+    font-family:"PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif;
+  }
+  .stage{width:min(100%,1180px);}
+  canvas{
+    display:block;width:100%;height:auto;border-radius:22px;
+    box-shadow:0 26px 80px rgba(0,0,0,.72), 0 0 0 1px rgba(120,170,255,.10) inset;
+    touch-action:none;
+  }
+</style>
+</head>
+<body>
+<div class="stage">
+  <canvas id="cv"></canvas>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<script>
+(function(){
+  'use strict';
+
+  /* =========================================================
+     0. 基础常量与工具
+     ========================================================= */
+  const W = 960, H = 660;
+  const FONT = '"PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif';
+  const DEG = Math.PI / 180;
+
+  const cv  = document.getElementById('cv');
+  const ctx = cv.getContext('2d');
+
+  function resizeCanvas(){
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    cv.width  = Math.round(W * dpr);
+    cv.height = Math.round(H * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  resizeCanvas();
+  window.addEventListener('resize', resizeCanvas);
+
+  const clamp01 = v => v < 0 ? 0 : v > 1 ? 1 : v;
+  const clamp   = (v, a, b) => v < a ? a : v > b ? b : v;
+  const lerp    = (a, b, t) => a + (b - a) * t;
+
+  function roundRect(x, y, w, h, r){
+    r = Math.min(r, Math.abs(w) / 2, Math.abs(h) / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y,     x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x,     y + h, r);
+    ctx.arcTo(x,     y + h, x,     y,     r);
+    ctx.arcTo(x,     y,     x + w, y,     r);
+    ctx.closePath();
+  }
+
+  /* =========================================================
+     1. 场景几何常量
+     ========================================================= */
+  const LASER_X     = 140;      // 激光器出口 x
+  const MIRROR_X    = 650;      // 镜面旋转中心 x
+  const MIRROR_Y    = 340;      // 镜面旋转中心 y
+  const MIRROR_HALF = 180;      // 镜面半长
+
+  /* =========================================================
+     2. 可调状态（全部参数化）
+     ========================================================= */
+  const state = {
+    laserY: 250,          // 光源高度 200 ~ 480
+    mirrorAngle: 38       // 镜面角度 -70 ~ 70 度
+  };
+
+  const SLIDERS = [
+    {
+      key: 'mirrorAngle', min: -70, max: 70,
+      x: 100, y: 622, w: 300,
+      label: '镜面角度', unit: '°',
+      accent: '#7fd6ff', accent2: '#3b8fd4'
+    },
+    {
+      key: 'laserY', min: 200, max: 480,
+      x: 560, y: 622, w: 300,
+      label: '光源高度', unit: '',
+      accent: '#ffb765', accent2: '#e0762c'
+    }
+  ];
+
+  /* =========================================================
+     3. 交互
+     ========================================================= */
+  let dragging = null;
+
+  function getPos(e){
+    const r = cv.getBoundingClientRect();
+    return {
+      x: (e.clientX - r.left) * (W / r.width),
+      y: (e.clientY - r.top)  * (H / r.height)
+    };
+  }
+
+  function hitSlider(x, y){
+    for (const s of SLIDERS){
+      if (Math.abs(y - s.y) < 30 && x > s.x - 26 && x < s.x + s.w + 26) return s.key;
+    }
+    return null;
+  }
+
+  function applySlider(key, mouseX){
+    const s = SLIDERS.find(v => v.key === key);
+    const t = clamp01((mouseX - s.x) / s.w);
+    const v = s.min + t * (s.max - s.min);
+    state[key] = Math.round(v);
+  }
+
+  cv.addEventListener('pointerdown', e => {
+    cv.setPointerCapture(e.pointerId);
+    const p = getPos(e);
+    const k = hitSlider(p.x, p.y);
+    if (k){ dragging = k; applySlider(k, p.x); }
+  });
+
+  cv.addEventListener('pointermove', e => {
+    if (!dragging) return;
+    applySlider(dragging, getPos(e).x);
+  });
+
+  cv.addEventListener('pointerup', () => { dragging = null; });
+  cv.addEventListener('pointercancel', () => { dragging = null; });
+
+  /* =========================================================
+     4. 物理计算：反射
+     ========================================================= */
+  function computeOptics(){
+    // 入射方向：从激光器指向镜面旋转中心
+    const dx = MIRROR_X - LASER_X;
+    const dy = MIRROR_Y - state.laserY;
+    const dist = Math.hypot(dx, dy);
+    const dh = { x: dx / dist, y: dy / dist };
+
+    // 镜面方向向量
+    const phi = state.mirrorAngle * DEG;
+    const ux = Math.cos(phi), uy = Math.sin(phi);
+
+    // 镜面法线（取朝向入射侧的那一条）
+    let nx = -Math.sin(phi), ny = Math.cos(phi);
+    if (nx * (-dh.x) + ny * (-dh.y) < 0){ nx = -nx; ny = -ny; }
+
+    // 入射角 = 入射光与法线的夹角
+    const dotDN = dh.x * nx + dh.y * ny;          // 应为负
+    const cosI  = clamp(-dotDN, -1, 1);
+    const incAngle = Math.acos(cosI);             // 弧度
+
+    // 反射方向 r = d - 2(d·n)n
+    const rx = dh.x - 2 * dotDN * nx;
+    const ry = dh.y - 2 * dotDN * ny;
+
+    return { dh, ux, uy, nx, ny, rx, ry, dist, incAngle };
+  }
+
+  // 把射线延伸到画布边界
+  function extendRay(x, y, dx, dy){
+    let t = Infinity;
+    const eps = 1e-6;
+    if (dx >  eps) t = Math.min(t, (W - x) / dx);
+    if (dx < -eps) t = Math.min(t, -x / dx);
+    if (dy >  eps) t = Math.min(t, (H - y) / dy);
+    if (dy < -eps) t = Math.min(t, -y / dy);
+    return t;
+  }
+
+  /* =========================================================
+     5. 绘制：背景与标题
+     ========================================================= */
+  function drawBackground(t){
+    const g = ctx.createLinearGradient(0, 0, W, H);
+    g.addColorStop(0,   '#0b1526');
+    g.addColorStop(0.5, '#101f38');
+    g.addColorStop(1,   '#070e1b');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+
+    // 网格
+    ctx.save();
+    ctx.globalAlpha = 0.045;
+    ctx.strokeStyle = '#7fb2e8';
+    ctx.lineWidth = 1;
+    for (let x = 0; x < W; x += 48){
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+    }
+    for (let y = 0; y < H; y += 48){
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+    }
+    ctx.restore();
+
+    // 镜面附近冷光
+    const rg = ctx.createRadialGradient(MIRROR_X, MIRROR_Y, 20, MIRROR_X, MIRROR_Y, 460);
+    rg.addColorStop(0,   'rgba(100,180,255,0.09)');
+    rg.addColorStop(0.5, 'rgba(80,150,240,0.035)');
+    rg.addColorStop(1,   'rgba(80,150,240,0)');
+    ctx.fillStyle = rg;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  function drawHeader(){
+    ctx.save();
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+
+    ctx.font = '700 27px ' + FONT;
+    ctx.fillStyle = '#eaf4ff';
+    ctx.fillText('光的反射实验室', 40, 46);
+
+    ctx.font = '400 15px ' + FONT;
+    ctx.fillStyle = 'rgba(150,188,230,0.85)';
+    ctx.fillText('光线碰到镜面，会按什么规律弹开？', 40, 76);
+
+    ctx.restore();
+  }
+
+  /* =========================================================
+     6. 绘制：镜面
+     ========================================================= */
+  function drawMirror(t){
+    const phi = state.mirrorAngle * DEG;
+
+    ctx.save();
+    ctx.translate(MIRROR_X, MIRROR_Y);
+
+    // 投影
+    ctx.save();
+    ctx.rotate(phi);
+    ctx.shadowColor = 'rgba(0,0,0,0.6)';
+    ctx.shadowBlur = 22;
+    ctx.shadowOffsetY = 10;
+    roundRect(-MIRROR_HALF, -9, MIRROR_HALF * 2, 18, 9);
+    ctx.fillStyle = 'rgba(0,0,0,0.45)';
+    ctx.fill();
+    ctx.restore();
+
+    // 镜面本体
+    ctx.save();
+    ctx.rotate(phi);
+    roundRect(-MIRROR_HALF, -9, MIRROR_HALF * 2, 18, 9);
+    const g = ctx.createLinearGradient(0, -9, 0, 9);
+    g.addColorStop(0,    '#26364a');
+    g.addColorStop(0.24, '#6d8aa6');
+    g.addColorStop(0.46, '#e8f4ff');
+    g.addColorStop(0.55, '#ffffff');
+    g.addColorStop(0.72, '#7a97b3');
+    g.addColorStop(1,    '#22303f');
+    ctx.fillStyle = g;
+    ctx.fill();
+
+    ctx.strokeStyle = 'rgba(190,225,255,0.40)';
+    ctx.lineWidth = 1.3;
+    ctx.stroke();
+
+    // 镜面高光扫过
+    ctx.save();
+    roundRect(-MIRROR_HALF, -9, MIRROR_HALF * 2, 18, 9);
+    ctx.clip();
+    const sweep = ((t * 0.18) % 1.6) - 0.3;
+    const sx = -MIRROR_HALF + sweep * MIRROR_HALF * 2;
+    const sg = ctx.createLinearGradient(sx - 70, 0, sx + 70, 0);
+    sg.addColorStop(0,   'rgba(255,255,255,0)');
+    sg.addColorStop(0.5, 'rgba(255,255,255,0.32)');
+    sg.addColorStop(1,   'rgba(255,255,255,0)');
+    ctx.fillStyle = sg;
+    ctx.fillRect(-MIRROR_HALF, -9, MIRROR_HALF * 2, 18);
+    ctx.restore();
+
+    // 镜面两端的端点
+    ctx.beginPath();
+    ctx.arc(-MIRROR_HALF, 0, 4.5, 0, Math.PI * 2);
+    ctx.arc( MIRROR_HALF, 0, 4.5, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(230,245,255,0.9)';
+    ctx.fill();
+
+    ctx.restore();
+
+    // 旋转中心支点
+    ctx.beginPath();
+    ctx.arc(0, 0, 11, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(20,34,54,0.95)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(140,200,255,0.75)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(0, 0, 4, 0, Math.PI * 2);
+    ctx.fillStyle = '#9fdcff';
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  /* =========================================================
+     7. 绘制：光线
+     ========================================================= */
+  function drawBeam(x1, y1, x2, y2, color, coreColor, width, glow){
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.shadowColor = color;
+    ctx.shadowBlur = glow;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = coreColor;
+    ctx.lineWidth = Math.max(1.2, width * 0.38);
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawFlow(x1, y1, x2, y2, color, t, count, speed, offset){
+    const dx = x2 - x1, dy = y2 - y1;
+    const len = Math.hypot(dx, dy);
+    if (len < 4) return;
+    const ux = dx / len, uy = dy / len;
+
+    ctx.save();
+    for (let i = 0; i < count; i++){
+      let p = (t * speed + i / count + offset) % 1;
+      if (p < 0) p += 1;
+      const px = x1 + ux * len * p;
+      const py = y1 + uy * len * p;
+      const a = Math.sin(p * Math.PI) * 0.85;
+      ctx.beginPath();
+      ctx.arc(px, py, 3.4, 0, Math.PI * 2);
+      ctx.fillStyle = color.replace('A', a.toFixed(3));
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  /* =========================================================
+     8. 绘制：法线 + 角度弧
+     ========================================================= */
+  function drawNormalLine(opt){
+    const { nx, ny } = opt;
+    const L = 190;
+
+    ctx.save();
+    ctx.setLineDash([9, 8]);
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = 'rgba(190,225,255,0.60)';
+    ctx.beginPath();
+    ctx.moveTo(MIRROR_X - nx * L * 0.55, MIRROR_Y - ny * L * 0.55);
+    ctx.lineTo(MIRROR_X + nx * L,        MIRROR_Y + ny * L);
+    ctx.stroke();
+    ctx.restore();
+
+    // 法线标签
+    const lx = MIRROR_X + nx * (L + 22);
+    const ly = MIRROR_Y + ny * (L + 22);
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = '600 13px ' + FONT;
+    ctx.fillStyle = 'rgba(190,225,255,0.85)';
+    ctx.fillText('法线', lx, ly);
+    ctx.restore();
+  }
+
+  function drawArc(cx, cy, radius, a1, a2, color, text, t){
+    let diff = a2 - a1;
+    while (diff >  Math.PI) diff -= Math.PI * 2;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, a1, a1 + diff, diff < 0);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2.2;
+    ctx.setLineDash([6, 5]);
+    ctx.stroke();
+    ctx.restore();
+
+    const mid = a1 + diff / 2;
+    const tx = cx + Math.cos(mid) * (radius + 26);
+    const ty = cy + Math.sin(mid) * (radius + 26);
+
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = '700 15px ' + FONT;
+    ctx.fillStyle = color;
+    ctx.fillText(text, tx, ty);
+    ctx.restore();
+  }
+
+  /* =========================================================
+     9. 绘制：激光器
+     ========================================================= */
+  function drawLaser(t, opt){
+    const lx = LASER_X, ly = state.laserY;
+    const ang = Math.atan2(MIRROR_Y - ly, MIRROR_X - lx);
+
+    ctx.save();
+    ctx.translate(lx, ly);
+    ctx.rotate(ang);
+
+    // 机身
+    roundRect(-64, -17, 84, 34, 10);
+    const g = ctx.createLinearGradient(0, -17, 0, 17);
+    g.addColorStop(0,    '#4a6079');
+    g.addColorStop(0.45, '#26374a');
+    g.addColorStop(1,    '#141f2c');
+    ctx.fillStyle = g;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(160,205,255,0.34)';
+    ctx.lineWidth = 1.3;
+    ctx.stroke();
+
+    // 电池仓装饰
+    ctx.beginPath();
+    roundRect(-54, -9, 40, 18, 5);
+    ctx.fillStyle = 'rgba(110,220,180,0.35)';
+    ctx.fill();
+
+    // 镜头
+    ctx.save();
+    ctx.shadowColor = 'rgba(255,150,70,0.95)';
+    ctx.shadowBlur = 26;
+    roundRect(18, -11, 16, 22, 6);
+    const lg = ctx.createLinearGradient(18, 0, 34, 0);
+    lg.addColorStop(0, '#ffdd99');
+    lg.addColorStop(1, '#ff8a33');
+    ctx.fillStyle = lg;
+    ctx.fill();
+    ctx.restore();
+
+    ctx.restore();
+
+    // 激光器底座
+    ctx.save();
+    roundRect(lx - 34, ly + 22, 68, 12, 6);
+    ctx.fillStyle = 'rgba(30,45,64,0.95)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(130,175,225,0.28)';
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+    ctx.restore();
+
+    // 标签
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = '600 13px ' + FONT;
+    ctx.fillStyle = 'rgba(255,190,130,0.95)';
+    ctx.fillText('光源', lx, ly + 52);
+    ctx.restore();
+  }
+
+  /* =========================================================
+     10. 绘制：HUD 读数
+     ========================================================= */
+  function drawHUD(opt){
+    const incDeg = opt.incAngle / DEG;
+    const refDeg = incDeg;
+
+    const bx = 630, by = 96, bw = 290, bh = 108;
+
+    ctx.save();
+    roundRect(bx, by, bw, bh, 16);
+    ctx.fillStyle = 'rgba(16,28,46,0.82)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(110,165,225,0.28)';
+    ctx.lineWidth = 1.3;
+    ctx.stroke();
+
+    // 顶部高光
+    ctx.save();
+    roundRect(bx, by, bw, bh, 16);
+    ctx.clip();
+    const hg = ctx.createLinearGradient(0, by, 0, by + 46);
+    hg.addColorStop(0, 'rgba(130,200,255,0.12)');
+    hg.addColorStop(1, 'rgba(130,200,255,0)');
+    ctx.fillStyle = hg;
+    ctx.fillRect(bx, by, bw, 46);
+    ctx.restore();
+
+    ctx.textBaseline = 'middle';
+
+    // 入射角
+    ctx.textAlign = 'left';
+    ctx.font = '500 14px ' + FONT;
+    ctx.fillStyle = 'rgba(170,200,232,0.92)';
+    ctx.fillText('入射角', bx + 22, by + 32);
+
+    ctx.textAlign = 'right';
+    ctx.font = '700 22px ' + FONT;
+    ctx.fillStyle = '#ffa94d';
+    ctx.fillText(incDeg.toFixed(1) + '°', bx + bw - 22, by + 32);
+
+    // 分隔线
+    ctx.beginPath();
+    ctx.moveTo(bx + 20, by + 54);
+    ctx.lineTo(bx + bw - 20, by + 54);
+    ctx.strokeStyle = 'rgba(120,170,225,0.20)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // 反射角
+    ctx.textAlign = 'left';
+    ctx.font = '500 14px ' + FONT;
+    ctx.fillStyle = 'rgba(170,200,232,0.92)';
+    ctx.fillText('反射角', bx + 22, by + 78);
+
+    ctx.textAlign = 'right';
+    ctx.font = '700 22px ' + FONT;
+    ctx.fillStyle = '#5ad8ff';
+    ctx.fillText(refDeg.toFixed(1) + '°', bx + bw - 22, by + 78);
+
+    ctx.restore();
+
+    // 结论提示
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = '600 14px ' + FONT;
+    ctx.fillStyle = 'rgba(140,235,200,0.92)';
+    ctx.fillText('入射角 = 反射角', bx + bw / 2, by + bh + 22);
+    ctx.restore();
+  }
+
+  /* =========================================================
+     11. 绘制：底部控制面板
+     ========================================================= */
+  function drawPanel(){
+    ctx.save();
+    roundRect(40, 578, 880, 68, 18);
+    ctx.fillStyle = 'rgba(16,28,46,0.80)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(110,165,225,0.22)';
+    ctx.lineWidth = 1.3;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawSlider(s){
+    const v = state[s.key];
+    const p = (v - s.min) / (s.max - s.min);
+
+    ctx.save();
+    ctx.textBaseline = 'middle';
+
+    // 标签
+    ctx.textAlign = 'left';
+    ctx.font = '600 14px ' + FONT;
+    ctx.fillStyle = 'rgba(196,220,246,0.95)';
+    ctx.fillText(s.label, s.x, s.y - 24);
+
+    // 数值
+    ctx.textAlign = 'right';
+    ctx.font = '700 16px ' + FONT;
+    ctx.fillStyle = s.accent;
+    ctx.fillText(v + s.unit, s.x + s.w, s.y - 24);
+
+    // 轨道底
+    roundRect(s.x, s.y - 5, s.w, 10, 5);
+    ctx.fillStyle = 'rgba(255,255,255,0.09)';
+    ctx.fill();
+
+    // 轨道填充
+    if (p > 0.001){
+      roundRect(s.x, s.y - 5, s.w * p, 10, 5);
+      const g = ctx.createLinearGradient(s.x, 0, s.x + s.w, 0);
+      g.addColorStop(0, s.accent2);
+      g.addColorStop(1, s.accent);
+      ctx.fillStyle = g;
+      ctx.fill();
+    }
+
+    // 手柄
+    const hx = s.x + s.w * p;
+    ctx.beginPath();
+    ctx.arc(hx, s.y, 12, 0, Math.PI * 2);
+    ctx.fillStyle = '#eaf7ff';
+    ctx.fill();
+    ctx.strokeStyle = s.accent;
+    ctx.lineWidth = 2.4;
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(hx, s.y, 5, 0, Math.PI * 2);
+    ctx.fillStyle = s.accent;
+    ctx.globalAlpha = 0.55;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    ctx.restore();
+  }
+
+  /* =========================================================
+     12. 绘制：场景标签
+     ========================================================= */
+  function drawSceneLabels(opt){
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    // 镜面角度标记
+    const phiDeg = state.mirrorAngle;
+    const lx = MIRROR_X + Math.cos(phiDeg * DEG + Math.PI) * (MIRROR_HALF + 34);
+    const ly = MIRROR_Y + Math.sin(phiDeg * DEG + Math.PI) * (MIRROR_HALF + 34);
+
+    ctx.font = '600 13px ' + FONT;
+    ctx.fillStyle = 'rgba(150,215,255,0.85)';
+    ctx.fillText('镜面', lx, ly);
+
+    ctx.restore();
+  }
+
+  /* =========================================================
+     13. 主循环
+     ========================================================= */
+  let startTime = performance.now();
+
+  function render(now){
+    const t = (now - startTime) / 1000;
+
+    ctx.clearRect(0, 0, W, H);
+
+    drawBackground(t);
+    drawHeader();
+
+    // ---- 计算光学 ----
+    const opt = computeOptics();
+    const { dh, nx, ny, rx, ry } = opt;
+
+    // 入射光线终点（镜面中心）
+    const ix = MIRROR_X, iy = MIRROR_Y;
+
+    // 反射光线终点（延伸到画布边界）
+    const rLen = extendRay(ix, iy, rx, ry);
+    const ex = ix + rx * rLen;
+    const ey = iy + ry * rLen;
+
+    // ---- 绘制顺序 ----
+    drawMirror(t);
+    drawLaser(t, opt);
+
+    // 入射光线
+    drawBeam(LASER_X, state.laserY, ix, iy, 'rgba(255,140,60,0.55)', '#ffd9a8', 8, 26);
+    drawFlow(LASER_X, state.laserY, ix, iy, 'rgba(255,220,170,A)', t, 7, 0.55, 0);
+
+    // 反射光线
+    drawBeam(ix, iy, ex, ey, 'rgba(70,200,255,0.55)', '#c8f4ff', 8, 26);
+    drawFlow(ix, iy, ex, ey, 'rgba(190,240,255,A)', t, 8, 0.60, 0.12);
+
+    // 法线
+    drawNormalLine(opt);
+
+    // 角度弧
+    const toLaser = Math.atan2(state.laserY - MIRROR_Y, LASER_X - MIRROR_X);
+    const normalA = Math.atan2(ny, nx);
+    const reflectA = Math.atan2(ry, rx);
+
+    drawArc(ix, iy, 82, normalA, toLaser, '#ffa94d',
+            (opt.incAngle / DEG).toFixed(0) + '°', t);
+    drawArc(ix, iy, 118, normalA, reflectA, '#5ad8ff',
+            (opt.incAngle / DEG).toFixed(0) + '°', t);
+
+    // 反射光线箭头
+    const arrowPos = 0.86;
+    const ax2 = ix + rx * rLen * arrowPos;
+    const ay2 = iy + ry * rLen * arrowPos;
+    ctx.save();
+    ctx.translate(ax2, ay2);
+    ctx.rotate(reflectA);
+    ctx.beginPath();
+    ctx.moveTo(14, 0);
+    ctx.lineTo(-2, -9);
+    ctx.lineTo(-2, 9);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(150,235,255,0.95)';
+    ctx.shadowColor = 'rgba(90,216,255,0.9)';
+    ctx.shadowBlur = 16;
+    ctx.fill();
+    ctx.restore();
+
+    // 入射光线箭头
+    const idh = Math.hypot(ix - LASER_X, iy - state.laserY);
+    const iax = LASER_X + (ix - LASER_X) * 0.72;
+    const iay = state.laserY + (iy - state.laserY) * 0.72;
+    ctx.save();
+    ctx.translate(iax, iay);
+    ctx.rotate(Math.atan2(dh.y, dh.x));
+    ctx.beginPath();
+    ctx.moveTo(14, 0);
+    ctx.lineTo(-2, -9);
+    ctx.lineTo(-2, 9);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(255,200,140,0.95)';
+    ctx.shadowColor = 'rgba(255,150,60,0.9)';
+    ctx.shadowBlur = 16;
+    ctx.fill();
+    ctx.restore();
+
+    // 标签与面板
+    drawSceneLabels(opt);
+    drawHUD(opt);
+
+    drawPanel();
+    SLIDERS.forEach(s => drawSlider(s));
+
+    requestAnimationFrame(render);
+  }
+
+  requestAnimationFrame(render);
+
+})();
+</script>
+</body>
+</html>

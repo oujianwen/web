@@ -1,0 +1,905 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>电磁铁实验室 · 让电流变成磁铁</title>
+<style>
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    margin:0;
+    background:radial-gradient(circle at 50% 0%, #16233c 0%, #080e1a 55%, #03060c 100%);
+    display:flex;align-items:center;justify-content:center;
+    padding:16px;
+    font-family:"PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif;
+  }
+  .stage{width:min(100%,1180px);}
+  canvas{
+    display:block;width:100%;height:auto;border-radius:22px;
+    box-shadow:0 26px 80px rgba(0,0,0,.7), 0 0 0 1px rgba(120,170,255,.10) inset;
+    touch-action:none;
+  }
+</style>
+</head>
+<body>
+<div class="stage">
+  <canvas id="cv"></canvas>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<script>
+(function(){
+  'use strict';
+
+  /* =========================================================
+     0. 基础常量与工具
+     ========================================================= */
+  const W = 960, H = 620;
+  const FONT = '"PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif';
+
+  const cv  = document.getElementById('cv');
+  const ctx = cv.getContext('2d');
+
+  function resizeCanvas(){
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    cv.width  = Math.round(W * dpr);
+    cv.height = Math.round(H * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  resizeCanvas();
+  window.addEventListener('resize', resizeCanvas);
+
+  const clamp01 = v => v < 0 ? 0 : v > 1 ? 1 : v;
+  const lerp    = (a, b, t) => a + (b - a) * t;
+  const easeOut = t => 1 - Math.pow(1 - t, 3);
+
+  // 确定性伪随机（保证每次刷新布局一致）
+  function rand(i, s){
+    const x = Math.sin(i * 127.1 + s * 311.7) * 43758.5453;
+    return x - Math.floor(x);
+  }
+
+  function roundRect(x, y, w, h, r){
+    r = Math.min(r, Math.abs(w) / 2, Math.abs(h) / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y,     x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x,     y + h, r);
+    ctx.arcTo(x,     y + h, x,     y,     r);
+    ctx.arcTo(x,     y,     x + w, y,     r);
+    ctx.closePath();
+  }
+
+  /* =========================================================
+     1. 几何布局常量（方便统一调参）
+     ========================================================= */
+  const PANEL = { x: 30, y: 100, w: 280, h: 440 };
+
+  const CORE_X    = 600;      // 铁芯中心线
+  const CORE_TOP  = 120;      // 铁芯顶端
+  const CORE_BOT  = 470;      // 铁芯底端
+  const CORE_W    = 26;       // 铁芯宽度
+
+  const COIL_TOP  = 200;      // 线圈顶部
+  const COIL_BOT  = 340;      // 线圈底部
+  const COIL_RY   = 8;        // 线圈椭圆纵向半径
+  const COIL_RX   = CORE_W / 2 + 10;   // 线圈椭圆横向半径
+
+  const BATT_CX   = 430;      // 电池组水平中心
+  const BATT_CY   = 505;      // 电池组垂直中心
+  const BATT_W    = 46;
+  const BATT_H    = 32;
+  const BATT_GAP  = 8;
+
+  const CLIP_ATTACH_X_OFF = 18;   // 回形针吸附时距铁芯中心线的水平偏移
+  const CLIP_ATTACH_Y0    = 452;  // 最下面一枚回形针的吸附高度
+  const CLIP_ATTACH_STEP  = 14;   // 回形针吸附时的纵向间距
+
+  const TOTAL_CLIPS = 16;     // 回形针总数
+  const MAX_STRENGTH = 4 * 36 * 1;  // 4 节电池 × 36 匝 × 有铁芯
+
+  /* =========================================================
+     2. 状态（全部参数化）
+     ========================================================= */
+  const state = {
+    batteries: 2,     // 1 ~ 4 节
+    turns: 16,        // 6 ~ 36 匝
+    hasCore: true     // 有无铁芯
+  };
+
+  const SLIDERS = {
+    batteries: { min:1, max:4,  x:62, y:220, w:216, label:'电池节数', unit:' 节' },
+    turns:     { min:6, max:36, x:62, y:325, w:216, label:'线圈匝数', unit:' 匝' }
+  };
+  const TOGGLE_CORE = { x:62, y:425, w:58, h:32, label:'铁芯' };
+
+  function strength(){
+    return state.batteries * state.turns * (state.hasCore ? 1 : 0.22);
+  }
+  function ratio(){
+    return Math.min(1, strength() / MAX_STRENGTH);
+  }
+  function targetClips(){
+    // 用 0.7 次幂让低参数区也有可见反应
+    return Math.round(TOTAL_CLIPS * Math.pow(ratio(), 0.7));
+  }
+
+  /* =========================================================
+     3. 回形针数据 & 动画
+     ========================================================= */
+  const clips = [];
+
+  function initClips(){
+    for (let i = 0; i < TOTAL_CLIPS; i++){
+      const side = (i % 2 === 0) ? -1 : 1;      // -1 左，+1 右
+      const k = Math.floor(i / 2);              // 同侧第几枚
+
+      clips.push({
+        i,
+        p: 0,                                   // 0=地面  1=吸附
+        tween: null,
+        // 吸附位置
+        ax: CORE_X + side * CLIP_ATTACH_X_OFF,
+        ay: CLIP_ATTACH_Y0 - k * CLIP_ATTACH_STEP,
+        // 地面散落位置
+        gx: 720 + rand(i, 1) * 190,
+        gy: 360 + rand(i, 2) * 170,
+        grot: (rand(i, 3) - 0.5) * 2.6
+      });
+    }
+  }
+  initClips();
+
+  function updateClips(instant){
+    const target = targetClips();
+    clips.forEach(c => {
+      const shouldAttach = c.i < target;
+      const newP = shouldAttach ? 1 : 0;
+      if (Math.abs(c.p - newP) < 0.005) return;
+      if (c.tween) c.tween.kill();
+      c.tween = gsap.to(c, {
+        p: newP,
+        duration: shouldAttach ? 0.72 : 0.52,
+        ease: shouldAttach ? 'back.out(1.8)' : 'power2.in',
+        delay: instant ? 0 : c.i * 0.022
+      });
+    });
+  }
+
+  /* =========================================================
+     4. 交互：滑块 / 开关
+     ========================================================= */
+  let dragging = null;
+
+  function getPos(e){
+    const r = cv.getBoundingClientRect();
+    return {
+      x: (e.clientX - r.left) * (W / r.width),
+      y: (e.clientY - r.top)  * (H / r.height)
+    };
+  }
+
+  function hitSlider(x, y){
+    for (const key in SLIDERS){
+      const s = SLIDERS[key];
+      if (Math.abs(y - s.y) < 24 && x > s.x - 24 && x < s.x + s.w + 24) return key;
+    }
+    return null;
+  }
+  function hitToggle(x, y){
+    const s = TOGGLE_CORE;
+    return x > s.x - 10 && x < s.x + s.w + 10 && y > s.y - 18 && y < s.y + 18;
+  }
+
+  function applySlider(key, mouseX){
+    const s = SLIDERS[key];
+    const t = clamp01((mouseX - s.x) / s.w);
+    let v = s.min + t * (s.max - s.min);
+    v = Math.round(v);
+    if (v === state[key]) return;
+    state[key] = v;
+    updateClips(false);
+  }
+
+  cv.addEventListener('pointerdown', e => {
+    cv.setPointerCapture(e.pointerId);
+    const p = getPos(e);
+    const sKey = hitSlider(p.x, p.y);
+    if (sKey){
+      dragging = sKey;
+      applySlider(sKey, p.x);
+      return;
+    }
+    if (hitToggle(p.x, p.y)){
+      state.hasCore = !state.hasCore;
+      updateClips(false);
+      gsap.fromTo(TOGGLE_CORE, { _pulse: 0 }, { _pulse: 1, duration: .4, ease:'power2.out' });
+    }
+  });
+
+  cv.addEventListener('pointermove', e => {
+    if (!dragging) return;
+    const p = getPos(e);
+    applySlider(dragging, p.x);
+  });
+
+  cv.addEventListener('pointerup', e => {
+    dragging = null;
+  });
+  cv.addEventListener('pointercancel', () => { dragging = null; });
+
+  /* =========================================================
+     5. 绘制：背景 / 面板
+     ========================================================= */
+  function drawBackground(t){
+    const g = ctx.createLinearGradient(0, 0, W, H);
+    g.addColorStop(0,    '#0b1526');
+    g.addColorStop(0.5,  '#101f38');
+    g.addColorStop(1,    '#08111f');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+
+    // 淡淡的网格
+    ctx.save();
+    ctx.globalAlpha = 0.045;
+    ctx.strokeStyle = '#7fb2e8';
+    ctx.lineWidth = 1;
+    for (let x = 0; x < W; x += 48){
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+    }
+    for (let y = 0; y < H; y += 48){
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+    }
+    ctx.restore();
+
+    // 铁芯附近的冷光
+    const rg = ctx.createRadialGradient(CORE_X, 300, 30, CORE_X, 300, 520);
+    rg.addColorStop(0,   'rgba(90,170,255,0.10)');
+    rg.addColorStop(0.5, 'rgba(70,140,230,0.04)');
+    rg.addColorStop(1,   'rgba(70,140,230,0)');
+    ctx.fillStyle = rg;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  function drawHeader(){
+    ctx.save();
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.font = '700 27px ' + FONT;
+    ctx.fillStyle = '#eaf4ff';
+    ctx.fillText('电磁铁实验室', 36, 46);
+
+    ctx.font = '400 15px ' + FONT;
+    ctx.fillStyle = 'rgba(150,188,230,0.85)';
+    ctx.fillText('通电导线绕成线圈，就能把铁变成磁铁', 36, 76);
+    ctx.restore();
+  }
+
+  function drawPanelBase(){
+    ctx.save();
+    roundRect(PANEL.x, PANEL.y, PANEL.w, PANEL.h, 18);
+    ctx.fillStyle = 'rgba(18,32,54,0.78)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(110,165,225,0.22)';
+    ctx.lineWidth = 1.4;
+    ctx.stroke();
+
+    // 顶部高光条
+    roundRect(PANEL.x, PANEL.y, PANEL.w, PANEL.h, 18);
+    ctx.clip();
+    const g = ctx.createLinearGradient(0, PANEL.y, 0, PANEL.y + 60);
+    g.addColorStop(0, 'rgba(120,190,255,0.10)');
+    g.addColorStop(1, 'rgba(120,190,255,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(PANEL.x, PANEL.y, PANEL.w, 60);
+    ctx.restore();
+
+    ctx.save();
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.font = '700 17px ' + FONT;
+    ctx.fillStyle = '#b9d8fb';
+    ctx.fillText('实验参数', PANEL.x + 22, PANEL.y + 32);
+
+    // 小圆点装饰
+    ctx.beginPath();
+    ctx.arc(PANEL.x + PANEL.w - 28, PANEL.y + 32, 5, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(110,200,255,0.8)';
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawSlider(key, t){
+    const s = SLIDERS[key];
+    const v = state[key];
+    const p = (v - s.min) / (s.max - s.min);
+
+    ctx.save();
+    ctx.textBaseline = 'middle';
+
+    // 标签
+    ctx.textAlign = 'left';
+    ctx.font = '600 15px ' + FONT;
+    ctx.fillStyle = 'rgba(196,220,246,0.95)';
+    ctx.fillText(s.label, s.x, s.y - 40);
+
+    // 数值
+    ctx.textAlign = 'right';
+    ctx.font = '700 17px ' + FONT;
+    ctx.fillStyle = '#7fd6ff';
+    ctx.fillText(v + s.unit, s.x + s.w, s.y - 40);
+
+    // 轨道底
+    roundRect(s.x, s.y - 5, s.w, 10, 5);
+    ctx.fillStyle = 'rgba(255,255,255,0.09)';
+    ctx.fill();
+
+    // 轨道填充
+    if (p > 0.001){
+      roundRect(s.x, s.y - 5, s.w * p, 10, 5);
+      const g = ctx.createLinearGradient(s.x, 0, s.x + s.w, 0);
+      g.addColorStop(0, '#3b7dc6');
+      g.addColorStop(1, '#66d4ff');
+      ctx.fillStyle = g;
+      ctx.fill();
+    }
+
+    // 手柄
+    const hx = s.x + s.w * p;
+    ctx.beginPath();
+    ctx.arc(hx, s.y, 12, 0, Math.PI * 2);
+    ctx.fillStyle = '#eaf7ff';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(90,170,240,0.95)';
+    ctx.lineWidth = 2.2;
+    ctx.stroke();
+
+    // 手柄内环
+    ctx.beginPath();
+    ctx.arc(hx, s.y, 5, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(80,170,240,0.55)';
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  function drawToggle(){
+    const s = TOGGLE_CORE;
+    ctx.save();
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'left';
+    ctx.font = '600 15px ' + FONT;
+    ctx.fillStyle = 'rgba(196,220,246,0.95)';
+    ctx.fillText(s.label, s.x, s.y - 34);
+
+    // 开关轨道
+    roundRect(s.x, s.y - s.h / 2, s.w, s.h, s.h / 2);
+    ctx.fillStyle = state.hasCore ? 'rgba(70,200,170,0.85)' : 'rgba(255,255,255,0.12)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+
+    // 滑块
+    const knobX = state.hasCore ? s.x + s.w - s.h / 2 : s.x + s.h / 2;
+    ctx.beginPath();
+    ctx.arc(knobX, s.y, s.h / 2 - 4, 0, Math.PI * 2);
+    ctx.fillStyle = '#f2fbff';
+    ctx.fill();
+    ctx.shadowColor = 'rgba(0,0,0,0.35)';
+    ctx.shadowBlur = 6;
+
+    ctx.restore();
+  }
+
+  function drawPanelReadout(){
+    const cx = PANEL.x + PANEL.w / 2;
+    const y1 = PANEL.y + 350;
+    const y2 = PANEL.y + 388;
+
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    // 分隔线
+    ctx.beginPath();
+    ctx.moveTo(PANEL.x + 24, y1 - 34);
+    ctx.lineTo(PANEL.x + PANEL.w - 24, y1 - 34);
+    ctx.strokeStyle = 'rgba(120,170,225,0.18)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.font = '400 13px ' + FONT;
+    ctx.fillStyle = 'rgba(150,185,220,0.85)';
+    ctx.fillText('磁力强度', cx, y1 - 8);
+
+    // 强度条
+    const barW = 200, barH = 10;
+    const bx = cx - barW / 2;
+    roundRect(bx, y1 + 8, barW, barH, 5);
+    ctx.fillStyle = 'rgba(255,255,255,0.08)';
+    ctx.fill();
+
+    const r = ratio();
+    if (r > 0.002){
+      roundRect(bx, y1 + 8, barW * r, barH, 5);
+      const g = ctx.createLinearGradient(bx, 0, bx + barW, 0);
+      g.addColorStop(0,   '#3fa9f5');
+      g.addColorStop(0.6, '#61e2ff');
+      g.addColorStop(1,   '#b6ffe8');
+      ctx.fillStyle = g;
+      ctx.fill();
+    }
+
+    ctx.font = '700 15px ' + FONT;
+    ctx.fillStyle = '#8fe6ff';
+    ctx.fillText('吸起 ' + targetClips() + ' 枚回形针', cx, y2);
+
+    ctx.restore();
+  }
+
+  /* =========================================================
+     6. 绘制：实验装置
+     ========================================================= */
+  function drawBench(){
+    ctx.save();
+    roundRect(340, 100, 592, 452, 20);
+    ctx.fillStyle = 'rgba(12,22,38,0.55)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(100,150,210,0.14)';
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawWires(t){
+    const n = state.batteries;
+    const totalW = n * BATT_W + (n - 1) * BATT_GAP;
+    const x0 = BATT_CX - totalW / 2;
+    const x1 = BATT_CX + totalW / 2;
+
+    const flow = clamp01(state.batteries / 4);
+    const dashOffset = -(t * (60 + 120 * flow)) % 26;
+
+    ctx.save();
+    ctx.lineCap = 'round';
+
+    // 左导线
+    ctx.beginPath();
+    ctx.moveTo(CORE_X - 22, 342);
+    ctx.bezierCurveTo(CORE_X - 22, 430, x0 - 6, 420, x0 - 6, BATT_CY - 16);
+    ctx.strokeStyle = 'rgba(120,150,185,0.85)';
+    ctx.lineWidth = 5;
+    ctx.stroke();
+    ctx.strokeStyle = '#2a3a4f';
+    ctx.lineWidth = 2.6;
+    ctx.stroke();
+
+    // 右导线
+    ctx.beginPath();
+    ctx.moveTo(CORE_X + 22, 342);
+    ctx.bezierCurveTo(CORE_X + 22, 452, x1 + 6, 442, x1 + 6, BATT_CY - 16);
+    ctx.strokeStyle = 'rgba(120,150,185,0.85)';
+    ctx.lineWidth = 5;
+    ctx.stroke();
+    ctx.strokeStyle = '#2a3a4f';
+    ctx.lineWidth = 2.6;
+    ctx.stroke();
+
+    // 电流流动（虚线）
+    if (state.batteries > 0){
+      ctx.setLineDash([9, 17]);
+      ctx.lineDashOffset = dashOffset;
+      ctx.strokeStyle = 'rgba(130,225,255,0.95)';
+      ctx.lineWidth = 2.4;
+
+      ctx.beginPath();
+      ctx.moveTo(CORE_X - 22, 342);
+      ctx.bezierCurveTo(CORE_X - 22, 430, x0 - 6, 420, x0 - 6, BATT_CY - 16);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(CORE_X + 22, 342);
+      ctx.bezierCurveTo(CORE_X + 22, 452, x1 + 6, 442, x1 + 6, BATT_CY - 16);
+      ctx.stroke();
+
+      ctx.setLineDash([]);
+    }
+
+    ctx.restore();
+  }
+
+  function drawCore(){
+    // 铁芯底座光晕
+    ctx.save();
+    const g = ctx.createLinearGradient(
+      CORE_X - CORE_W / 2, 0,
+      CORE_X + CORE_W / 2, 0
+    );
+    if (state.hasCore){
+      g.addColorStop(0,    '#414e5c');
+      g.addColorStop(0.22, '#8ba0b6');
+      g.addColorStop(0.5,  '#d3e0ee');
+      g.addColorStop(0.78, '#8ba0b6');
+      g.addColorStop(1,    '#39454f');
+    } else {
+      // 无铁芯：只画一根半透明的“空气柱”提示位置
+      g.addColorStop(0,   'rgba(120,160,200,0.10)');
+      g.addColorStop(0.5, 'rgba(160,200,240,0.18)');
+      g.addColorStop(1,   'rgba(120,160,200,0.10)');
+    }
+    roundRect(CORE_X - CORE_W / 2, CORE_TOP, CORE_W, CORE_BOT - CORE_TOP, CORE_W / 2);
+    ctx.fillStyle = g;
+    ctx.fill();
+
+    if (state.hasCore){
+      ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+
+      // 高光竖线
+      ctx.beginPath();
+      ctx.moveTo(CORE_X - 5, CORE_TOP + 16);
+      ctx.lineTo(CORE_X - 5, CORE_BOT - 16);
+      ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawMagneticGlow(t){
+    const r = ratio();
+    if (r < 0.015) return;
+
+    const cy = (COIL_TOP + COIL_BOT) / 2;
+    const pulse = 0.82 + 0.18 * Math.sin(t * 4.2);
+
+    ctx.save();
+    const glowR = 110 + 130 * r;
+    const g = ctx.createRadialGradient(CORE_X, cy, 8, CORE_X, cy, glowR);
+    g.addColorStop(0,   `rgba(110,210,255,${0.22 * r * pulse})`);
+    g.addColorStop(0.45,`rgba(90,180,255,${0.10 * r * pulse})`);
+    g.addColorStop(1,   'rgba(90,180,255,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(CORE_X, cy, glowR, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 扩散的磁感环
+    const ringCount = 3;
+    for (let i = 0; i < ringCount; i++){
+      const phase = (t * 0.55 + i / ringCount) % 1;
+      const rr = 40 + phase * (90 + 90 * r);
+      const alpha = (1 - phase) * 0.30 * r;
+      if (alpha <= 0.005) continue;
+      ctx.beginPath();
+      ctx.ellipse(CORE_X, cy, rr * 0.85, rr * 0.62, 0, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(130,215,255,${alpha})`;
+      ctx.lineWidth = 1.6;
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawCoil(t){
+    const N = Math.round(state.turns);
+    const span = COIL_BOT - COIL_TOP;
+    const spacing = span / N;
+    const lineW = Math.min(3.4, Math.max(1.4, spacing * 0.52));
+
+    const flowing = state.batteries > 0;
+    const speed = 2.2 + state.batteries * 0.9;
+
+    ctx.save();
+
+    // 线圈底部阴影
+    ctx.beginPath();
+    ctx.ellipse(CORE_X, COIL_BOT - 2, COIL_RX + 4, COIL_RY + 3, 0, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(0,0,0,0.22)';
+    ctx.fill();
+
+    for (let i = 0; i < N; i++){
+      const y = COIL_TOP + spacing * (i + 0.5);
+      const heat = i / Math.max(1, N - 1);
+
+      // 铜线圈颜色
+      const grad = ctx.createLinearGradient(
+        CORE_X - COIL_RX, y, CORE_X + COIL_RX, y
+      );
+      grad.addColorStop(0,    '#7a3f14');
+      grad.addColorStop(0.35, '#d98a3c');
+      grad.addColorStop(0.55, '#ffc178');
+      grad.addColorStop(0.8,  '#c9782f');
+      grad.addColorStop(1,    '#6d3810');
+
+      ctx.beginPath();
+      ctx.ellipse(CORE_X, y, COIL_RX, COIL_RY, 0, 0, Math.PI * 2);
+      ctx.strokeStyle = grad;
+      ctx.lineWidth = lineW;
+      ctx.stroke();
+
+      // 电流粒子
+      if (flowing){
+        const a = t * speed + i * 0.42;
+        const px = CORE_X + COIL_RX * Math.cos(a);
+        const py = y + COIL_RY * Math.sin(a);
+        ctx.beginPath();
+        ctx.arc(px, py, Math.max(1.6, lineW * 0.72), 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(160,240,255,0.95)';
+        ctx.fill();
+      }
+    }
+
+    // 线圈上的轻微辉光
+    if (flowing){
+      const glow = ctx.createLinearGradient(CORE_X - COIL_RX, 0, CORE_X + COIL_RX, 0);
+      glow.addColorStop(0,  'rgba(255,180,90,0)');
+      glow.addColorStop(0.5,'rgba(255,200,120,0.10)');
+      glow.addColorStop(1,  'rgba(255,180,90,0)');
+      ctx.fillStyle = glow;
+      roundRect(CORE_X - COIL_RX - 4, COIL_TOP - 4, (COIL_RX + 4) * 2, span + 8, 12);
+      ctx.fill();
+    }
+
+    ctx.restore();
+  }
+
+  function drawBatteries(t){
+    const n = state.batteries;
+    const totalW = n * BATT_W + (n - 1) * BATT_GAP;
+    const x0 = BATT_CX - totalW / 2;
+
+    ctx.save();
+
+    // 底座
+    roundRect(x0 - 18, BATT_CY - BATT_H / 2 - 10, totalW + 36, BATT_H + 20, 12);
+    ctx.fillStyle = 'rgba(0,0,0,0.30)';
+    ctx.fill();
+
+    for (let i = 0; i < n; i++){
+      const x = x0 + i * (BATT_W + BATT_GAP);
+      const y = BATT_CY;
+
+      // 电池主体
+      roundRect(x, y - BATT_H / 2, BATT_W, BATT_H, 7);
+      const g = ctx.createLinearGradient(x, y - BATT_H / 2, x, y + BATT_H / 2);
+      g.addColorStop(0,   '#55697f');
+      g.addColorStop(0.4, '#2e3f52');
+      g.addColorStop(1,   '#1a2734');
+      ctx.fillStyle = g;
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(180,215,255,0.30)';
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+
+      // 正极帽
+      ctx.beginPath();
+      roundRect(x + BATT_W - 6, y - 8, 8, 16, 3);
+      ctx.fillStyle = '#d9c07a';
+      ctx.fill();
+
+      // 电量条
+      const lit = 0.55 + 0.45 * Math.sin(t * 3 + i * 0.8);
+      ctx.beginPath();
+      roundRect(x + 7, y - 4, (BATT_W - 22) * lit, 8, 4);
+      ctx.fillStyle = 'rgba(120,235,180,0.75)';
+      ctx.fill();
+
+      // 正负极符号
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = '700 12px ' + FONT;
+      ctx.fillStyle = 'rgba(230,245,255,0.9)';
+      ctx.fillText('+', x + BATT_W - 12, y - 12);
+      ctx.fillText('−', x + 12, y - 12);
+    }
+
+    // 总电压文字
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = '500 13px ' + FONT;
+    ctx.fillStyle = 'rgba(150,190,230,0.9)';
+    ctx.fillText(n + ' 节电池串联', BATT_CX, BATT_CY + BATT_H / 2 + 26);
+
+    ctx.restore();
+  }
+
+  /* =========================================================
+     7. 绘制：回形针
+     ========================================================= */
+  function drawClipShape(alpha, highlight){
+    ctx.save();
+    ctx.globalAlpha = alpha;
+
+    ctx.strokeStyle = highlight ? '#ffe9a8' : '#c8d9ea';
+    ctx.lineWidth = 2.2;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    // 外框
+    ctx.beginPath();
+    ctx.moveTo(-3.6, -10);
+    ctx.lineTo(3.6, -10);
+    ctx.quadraticCurveTo(6, -10, 6, -7.6);
+    ctx.lineTo(6, 7.6);
+    ctx.quadraticCurveTo(6, 10, 3.6, 10);
+    ctx.lineTo(-3.6, 10);
+    ctx.quadraticCurveTo(-6, 10, -6, 7.6);
+    ctx.lineTo(-6, -7.6);
+    ctx.quadraticCurveTo(-6, -10, -3.6, -10);
+    ctx.closePath();
+    ctx.stroke();
+
+    // 内圈
+    ctx.beginPath();
+    ctx.moveTo(-2.2, 6.5);
+    ctx.lineTo(-2.2, -5.5);
+    ctx.quadraticCurveTo(-2.2, -7.6, 0, -7.6);
+    ctx.lineTo(2.2, -7.6);
+    ctx.quadraticCurveTo(4.2, -7.6, 4.2, -5.5);
+    ctx.lineTo(4.2, 6.5);
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  function drawClips(t){
+    const target = targetClips();
+
+    // 先画未吸附的（地面上）
+    clips.forEach(c => {
+      if (c.p > 0.98) return;
+      const ep = easeOut(clamp01(c.p));
+      const x = lerp(c.gx, c.ax, ep);
+      const y = lerp(c.gy, c.ay, ep);
+      const rot = lerp(c.grot, 0, ep);
+      const sc = lerp(1, 0.92, ep);
+
+      // 地面阴影
+      ctx.save();
+      ctx.globalAlpha = 0.28 * (1 - ep);
+      ctx.beginPath();
+      ctx.ellipse(c.gx + 2, c.gy + 13, 8, 3, 0, 0, Math.PI * 2);
+      ctx.fillStyle = '#000';
+      ctx.fill();
+      ctx.restore();
+
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(rot);
+      ctx.scale(sc, sc);
+      drawClipShape(1, false);
+      ctx.restore();
+    });
+
+    // 再画吸附的（盖在上层）
+    clips.forEach(c => {
+      if (c.p <= 0.98) return;
+      const isTop = c.i < target;
+
+      ctx.save();
+      ctx.translate(c.ax, c.ay);
+
+      // 吸附发光
+      if (isTop){
+        ctx.beginPath();
+        ctx.arc(0, 0, 13, 0, Math.PI * 2);
+        const g = ctx.createRadialGradient(0, 0, 2, 0, 0, 13);
+        g.addColorStop(0, 'rgba(255,240,180,0.30)');
+        g.addColorStop(1, 'rgba(255,240,180,0)');
+        ctx.fillStyle = g;
+        ctx.fill();
+      }
+
+      drawClipShape(1, isTop);
+      ctx.restore();
+    });
+  }
+
+  /* =========================================================
+     8. 标签文字
+     ========================================================= */
+  function drawSceneLabels(){
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    // 铁芯
+    ctx.font = '600 14px ' + FONT;
+    ctx.fillStyle = state.hasCore ? 'rgba(190,220,248,0.95)' : 'rgba(140,175,210,0.7)';
+    ctx.fillText(state.hasCore ? '铁芯' : '（无铁芯）', CORE_X, CORE_TOP - 26);
+
+    // 线圈
+    ctx.font = '600 14px ' + FONT;
+    ctx.fillStyle = 'rgba(255,200,140,0.95)';
+    ctx.fillText('线圈 ' + state.turns + ' 匝', CORE_X, COIL_TOP - 24);
+
+    // 回形针区域提示
+    if (targetClips() === 0){
+      ctx.font = '400 13px ' + FONT;
+      ctx.fillStyle = 'rgba(140,180,220,0.75)';
+      ctx.fillText('回形针没有被吸起来', 810, 330);
+    }
+
+    ctx.restore();
+  }
+
+  function drawFooter(){
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    ctx.font = '500 15px ' + FONT;
+    ctx.fillStyle = 'rgba(168,200,235,0.92)';
+    ctx.fillText('电池越多、线圈匝数越多、有铁芯 —— 电磁铁的磁力就越强', W / 2, 578);
+
+    ctx.font = '400 13px ' + FONT;
+    ctx.fillStyle = 'rgba(125,160,196,0.75)';
+    ctx.fillText('拖动左侧滑块，看看回形针会有什么变化', W / 2, 602);
+
+    ctx.restore();
+  }
+
+  /* =========================================================
+     9. 主循环
+     ========================================================= */
+  let startTime = performance.now();
+
+  function render(now){
+    const t = (now - startTime) / 1000;
+
+    ctx.clearRect(0, 0, W, H);
+
+    drawBackground(t);
+    drawHeader();
+
+    drawBench();
+    drawPanelBase();
+
+    drawClips(t);          // 回形针先画，会被装置盖住一点，更有层次
+    drawWires(t);
+    drawCore();
+    drawMagneticGlow(t);
+    drawCoil(t);
+    drawBatteries(t);
+
+    // 重新画一遍吸附中的回形针，保证在最上层
+    clips.forEach(c => {
+      if (c.p <= 0.98) return;
+      ctx.save();
+      ctx.translate(c.ax, c.ay);
+      ctx.beginPath();
+      ctx.arc(0, 0, 13, 0, Math.PI * 2);
+      const g = ctx.createRadialGradient(0, 0, 2, 0, 0, 13);
+      g.addColorStop(0, 'rgba(255,240,180,0.32)');
+      g.addColorStop(1, 'rgba(255,240,180,0)');
+      ctx.fillStyle = g;
+      ctx.fill();
+      drawClipShape(1, true);
+      ctx.restore();
+    });
+
+    drawSceneLabels();
+
+    drawSlider('batteries', t);
+    drawSlider('turns', t);
+    drawToggle();
+    drawPanelReadout();
+
+    drawFooter();
+
+    requestAnimationFrame(render);
+  }
+
+  // 初始进场：让回形针有被“吸上去”的仪式感
+  gsap.delayedCall(0.6, () => {
+    updateClips(false);
+  });
+
+  requestAnimationFrame(render);
+
+})();
+</script>
+</body>
+</html>

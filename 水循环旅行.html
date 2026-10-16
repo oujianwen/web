@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>水循环旅行 · 一滴水的自然旅程</title>
+<style>
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    margin:0;
+    background:radial-gradient(circle at 50% 0%, #16233c 0%, #080e1a 55%, #03060c 100%);
+    display:flex;align-items:center;justify-content:center;
+    padding:16px;
+    font-family:"PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif;
+  }
+  .stage{width:min(100%,1180px);}
+  canvas{
+    display:block;width:100%;height:auto;border-radius:22px;
+    box-shadow:0 26px 80px rgba(0,0,0,.72), 0 0 0 1px rgba(120,170,255,.10) inset;
+    touch-action:none;
+  }
+</style>
+</head>
+<body>
+<div class="stage">
+  <canvas id="cv"></canvas>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<script>
+(function(){
+  'use strict';
+
+  /* =========================================================
+     0. 基础常量与工具
+     ========================================================= */
+  const W = 960, H = 660;
+  const FONT = '"PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif';
+
+  const cv = document.getElementById('cv');
+  const ctx = cv.getContext('2d');
+
+  function resizeCanvas(){
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    cv.width  = Math.round(W * dpr);
+    cv.height = Math.round(H * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  resizeCanvas();
+  window.addEventListener('resize', resizeCanvas);
+
+  const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+  const lerp  = (a, b, t) => a + (b - a) * t;
+  const rand  = (a, b) => a + Math.random() * (b - a);
+
+  function roundRect(x, y, w, h, r){
+    r = Math.min(r, Math.abs(w) / 2, Math.abs(h) / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y,     x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x,     y + h, r);
+    ctx.arcTo(x,     y + h, x,     y,     r);
+    ctx.arcTo(x,     y,     x + w, y,     r);
+    ctx.closePath();
+  }
+
+  /* =========================================================
+     1. 场景常量
+     ========================================================= */
+  const SEA_Y    = 445;            // 海平面
+  const SUN_X    = 155;
+  const SUN_Y    = 108;
+  const CLOUD_Y  = 95;             // 云层高度参考
+
+  /* =========================================================
+     2. 可调状态（全部参数化）
+     ========================================================= */
+  const state = {
+    sunIntensity: 60,   // 0 ~ 100  %
+    temperature: 25,    // 0 ~ 40  °C
+    windSpeed: 40       // 0 ~ 100  %
+  };
+
+  const SLIDERS = [
+    {
+      key: 'sunIntensity', min: 0, max: 100,
+      x: 88, y: 618, w: 232,
+      label: '太阳强度', unit: '%',
+      accent: '#ffb765', accent2: '#e0762c'
+    },
+    {
+      key: 'temperature', min: 0, max: 40,
+      x: 368, y: 618, w: 232,
+      label: '气温', unit: '°C',
+      accent: '#ff8b4d', accent2: '#d94e1f'
+    },
+    {
+      key: 'windSpeed', min: 0, max: 100,
+      x: 648, y: 618, w: 232,
+      label: '风速', unit: '%',
+      accent: '#7fd6ff', accent2: '#3b8fd4'
+    }
+  ];
+
+  /* =========================================================
+     3. 云朵系统
+     ========================================================= */
+  const clouds = [
+    { x: 380, y: 128, r: 46, moisture: 0, puffs: null },
+    { x: 580, y: 100, r: 58, moisture: 0, puffs: null },
+    { x: 780, y: 142, r: 42, moisture: 0, puffs: null }
+  ];
+
+  // 每朵云用一圈“云团”拼出蓬松形状，位置固定
+  clouds.forEach((c, ci) => {
+    c.puffs = [];
+    const n = 7 + (ci % 2);
+    for (let i = 0; i < n; i++){
+      const ang = (i / n) * Math.PI * 2 + ci * 0.7;
+      const dr  = c.r * (0.45 + ((i * 37 + ci * 13) % 100) / 100 * 0.55);
+      c.puffs.push({
+        dx: Math.cos(ang) * dr * 0.92,
+        dy: Math.sin(ang) * dr * 0.52 - c.r * 0.12,
+        r : c.r * (0.44 + ((i * 29 + ci * 7) % 100) / 100 * 0.42)
+      });
+    }
+  });
+
+  /* =========================================================
+     4. 粒子系统
+     ========================================================= */
+  const vaporParticles = [];   // 上升的水蒸气
+  const rainDrops      = [];   // 落下的雨
+  const splashRings    = [];   // 海面溅起的水环
+
+  let vaporAccumulator = 0;
+  let rainAccumulator  = 0;
+
+  const MAX_VAPOR = 220;
+  const MAX_RAIN  = 320;
+
+  /* =========================================================
+     5. 交互：滑块
+     ========================================================= */
+  let dragging = null;
+
+  function getPos(e){
+    const r = cv.getBoundingClientRect();
+    return {
+      x: (e.clientX - r.left) * (W / r.width),
+      y: (e.clientY - r.top)  * (H / r.height)
+    };
+  }
+
+  function hitSlider(x, y){
+    for (const s of SLIDERS){
+      if (Math.abs(y - s.y) < 32 && x > s.x - 24 && x < s.x + s.w + 24) return s.key;
+    }
+    return null;
+  }
+
+  function applySlider(key, mx){
+    const s = SLIDERS.find(v => v.key === key);
+    const t = clamp((mx - s.x) / s.w, 0, 1);
+    state[key] = Math.round(s.min + t * (s.max - s.min));
+  }
+
+  cv.addEventListener('pointerdown', e => {
+    cv.setPointerCapture(e.pointerId);
+    const p = getPos(e);
+    const k = hitSlider(p.x, p.y);
+    if (k){ dragging = k; applySlider(k, p.x); }
+  });
+
+  cv.addEventListener('pointermove', e => {
+    if (!dragging) return;
+    applySlider(dragging, getPos(e).x);
+  });
+
+  cv.addEventListener('pointerup', () => { dragging = null; });
+  cv.addEventListener('pointercancel', () => { dragging = null; });
+
+  /* =========================================================
+     6. 物理更新
+     ========================================================= */
+  function update(dt){
+    /* ---------- 蒸发：水蒸气生成 ---------- */
+    const sunFactor  = state.sunIntensity / 100;
+    const tempFactor = 0.3 + (state.temperature / 40) * 0.7;
+    const evapRate   = sunFactor * tempFactor * 20;   // 每秒粒子数
+
+    vaporAccumulator += evapRate * dt;
+    while (vaporAccumulator >= 1 && vaporParticles.length < MAX_VAPOR){
+      vaporAccumulator -= 1;
+      spawnVapor();
+    }
+
+    /* ---------- 更新水蒸气 ---------- */
+    const windDrift = (state.windSpeed / 100) * 0.5;
+
+    for (let i = vaporParticles.length - 1; i >= 0; i--){
+      const p = vaporParticles[i];
+      p.x += (p.vx + windDrift) * dt * 60;
+      p.y += p.vy * dt * 60;
+      p.x += Math.sin(p.life * 5 + p.seed) * 0.18;
+      p.life += dt;
+
+      // 到达云层高度：被最近的云吸收
+      if (p.y < CLOUD_Y + 55){
+        let closest = null, minDist = Infinity;
+        for (const c of clouds){
+          const d = Math.abs(c.x - p.x);
+          if (d < minDist){ minDist = d; closest = c; }
+        }
+        if (closest && minDist < closest.r * 3.2){
+          closest.moisture = Math.min(1.2, closest.moisture + 0.016);
+        }
+        vaporParticles.splice(i, 1);
+        continue;
+      }
+
+      if (p.y < -40 || p.x < -60 || p.x > W + 60){
+        vaporParticles.splice(i, 1);
+      }
+    }
+
+    /* ---------- 更新云 ---------- */
+    for (const c of clouds){
+      // 随风漂移
+      c.x += (state.windSpeed / 100) * 0.9 * dt * 60;
+      if (c.x > W + 120) c.x = -120;
+
+      // 水分自然损耗
+      c.moisture = Math.max(0, c.moisture - dt * 0.012);
+
+      // 水分饱和 → 降雨
+      if (c.moisture > 0.68){
+        rainAccumulator += (c.moisture - 0.68) * 90 * dt;
+        while (rainAccumulator >= 1 && rainDrops.length < MAX_RAIN){
+          rainAccumulator -= 1;
+          spawnRain(c);
+          c.moisture = Math.max(0, c.moisture - 0.0045);
+        }
+      }
+    }
+
+    /* ---------- 更新雨滴 ---------- */
+    for (let i = rainDrops.length - 1; i >= 0; i--){
+      const r = rainDrops[i];
+      r.x += r.vx * dt * 60;
+      r.y += r.vy * dt * 60;
+      r.vy += 9 * dt;
+
+      if (r.y >= SEA_Y + 2){
+        splashRings.push({
+          x: r.x,
+          y: SEA_Y,
+          r: 2,
+          maxR: 10 + Math.random() * 12,
+          alpha: 0.75,
+          life: 0
+        });
+        rainDrops.splice(i, 1);
+      }
+    }
+
+    /* ---------- 更新水环 ---------- */
+    for (let i = splashRings.length - 1; i >= 0; i--){
+      const s = splashRings[i];
+      s.life += dt * 2.6;
+      s.r = lerp(2, s.maxR, Math.min(1, s.life));
+      s.alpha = Math.max(0, 0.75 * (1 - s.life));
+      if (s.life >= 1) splashRings.splice(i, 1);
+    }
+  }
+
+  function spawnVapor(){
+    let x;
+    if (Math.random() < 0.65){
+      const c = clouds[Math.floor(Math.random() * clouds.length)];
+      x = c.x + rand(-c.r * 2.2, c.r * 2.2);
+    } else {
+      x = rand(0, W);
+    }
+    x = clamp(x, 0, W);
+
+    vaporParticles.push({
+      x,
+      y: SEA_Y + rand(-3, 4),
+      vx: rand(-0.08, 0.08),
+      vy: -rand(1.2, 2.2) * (0.7 + state.temperature / 40 * 0.6),
+      r: rand(2, 4.5),
+      life: 0,
+      seed: Math.random() * 100,
+      alpha: rand(0.30, 0.55)
+    });
+  }
+
+  function spawnRain(c){
+    rainDrops.push({
+      x: c.x + rand(-c.r * 1.25, c.r * 1.25),
+      y: c.y + c.r * 0.55,
+      vy: rand(3, 5),
+      vx: (state.windSpeed / 100) * 0.9,
+      len: rand(6, 14),
+      alpha: rand(0.5, 0.85)
+    });
+  }
+
+  /* =========================================================
+     7. 渲染
+     ========================================================= */
+  function drawSky(){
+    const g = ctx.createLinearGradient(0, 0, 0, SEA_Y + 20);
+    g.addColorStop(0,    '#0a1428');
+    g.addColorStop(0.42, '#132a4a');
+    g.addColorStop(0.76, '#1e4270');
+    g.addColorStop(1,    '#2a5a8a');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, SEA_Y + 20);
+
+    // 天空中的微光星点
+    ctx.save();
+    ctx.globalAlpha = 0.5;
+    for (let i = 0; i < 40; i++){
+      const x = (i * 97) % W;
+      const y = (i * 53) % 260;
+      ctx.beginPath();
+      ctx.arc(x, y, 0.8, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(200,225,255,0.35)';
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function drawSun(t){
+    const intensity = state.sunIntensity / 100;
+    const temp      = state.temperature / 40;
+    const r         = 16 + intensity * 16;
+    const glowR     = 55 + intensity * 95;
+    const pulse     = 0.92 + 0.08 * Math.sin(t * 2.2);
+
+    // 外层光晕
+    const g = ctx.createRadialGradient(SUN_X, SUN_Y, 0, SUN_X, SUN_Y, glowR * pulse);
+    g.addColorStop(0,    `rgba(255,220,140,${0.45 * intensity + 0.12})`);
+    g.addColorStop(0.42, `rgba(255,170,80,${0.22 * intensity + 0.04})`);
+    g.addColorStop(1,    'rgba(255,150,60,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(SUN_X, SUN_Y, glowR * pulse, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 太阳核心
+    const coreG = ctx.createRadialGradient(
+      SUN_X - r * 0.28, SUN_Y - r * 0.28, 1,
+      SUN_X, SUN_Y, r
+    );
+    coreG.addColorStop(0,   '#fffbe8');
+    coreG.addColorStop(0.55, lerp(temp, 1, 0) > 0.7 ? '#ffcf70' : '#ffe09a');
+    coreG.addColorStop(1,   temp > 0.65 ? '#ff8830' : '#ffb040');
+    ctx.fillStyle = coreG;
+    ctx.beginPath();
+    ctx.arc(SUN_X, SUN_Y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  function drawCloud(c, t){
+    const m = Math.min(1, c.moisture);
+
+    // 颜色：干燥时亮白，潮湿时深灰蓝
+    const cr = lerp(242, 135, m);
+    const cg = lerp(248, 152, m);
+    const cb = lerp(255, 180, m);
+
+    ctx.save();
+    for (const p of c.puffs){
+      const x = c.x + p.dx;
+      const y = c.y + p.dy;
+      const grad = ctx.createRadialGradient(x, y - p.r * 0.15, p.r * 0.12, x, y, p.r);
+      grad.addColorStop(0,    `rgba(${cr},${cg},${cb},0.96)`);
+      grad.addColorStop(0.58, `rgba(${cr * 0.94},${cg * 0.95},${cb * 0.96},0.72)`);
+      grad.addColorStop(1,    `rgba(${cr * 0.78},${cg * 0.82},${cb * 0.88},0)`);
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(x, y, p.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // 即将下雨时，云底透出一点雨丝光
+    if (m > 0.55){
+      const rainGlow = (m - 0.55) / 0.45;
+      ctx.beginPath();
+      ctx.ellipse(c.x, c.y + c.r * 0.55, c.r * 1.5, c.r * 0.28, 0, 0, Math.PI * 2);
+      const rg = ctx.createRadialGradient(
+        c.x, c.y + c.r * 0.55, 0,
+        c.x, c.y + c.r * 0.55, c.r * 1.5
+      );
+      rg.addColorStop(0, `rgba(140,200,255,${0.22 * rainGlow})`);
+      rg.addColorStop(1, 'rgba(140,200,255,0)');
+      ctx.fillStyle = rg;
+      ctx.fill();
+    }
+
+    ctx.restore();
+  }
+
+  function drawSea(t){
+    // 海水渐变
+    const g = ctx.createLinearGradient(0, SEA_Y, 0, H);
+    g.addColorStop(0,    '#1e4e78');
+    g.addColorStop(0.45, '#0e3050');
+    g.addColorStop(1,    '#061a30');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, SEA_Y, W, H - SEA_Y);
+
+    // 波浪高光
+    ctx.save();
+    for (let i = 0; i < 46; i++){
+      const x = (i / 46) * W + Math.sin(t * 0.7 + i * 0.55) * 14;
+      const y = SEA_Y + Math.sin(t * 1.1 + i * 0.9) * 3.2;
+      ctx.beginPath();
+      ctx.ellipse(x, y, 14 + Math.sin(i) * 6, 1.6, 0, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(140,200,255,${0.05 + 0.045 * Math.sin(t * 2 + i)})`;
+      ctx.fill();
+    }
+    ctx.restore();
+
+    // 太阳在水面的倒影
+    const refW = 130 * (state.sunIntensity / 100) + 30;
+    const sunRef = ctx.createLinearGradient(SUN_X - refW / 2, SEA_Y, SUN_X + refW / 2, SEA_Y + 90);
+    sunRef.addColorStop(0,   'rgba(255,200,100,0)');
+    sunRef.addColorStop(0.5, `rgba(255,200,100,${0.13 * state.sunIntensity / 100})`);
+    sunRef.addColorStop(1,   'rgba(255,200,100,0)');
+    ctx.fillStyle = sunRef;
+    ctx.fillRect(SUN_X - refW / 2, SEA_Y, refW, 90);
+  }
+
+  function drawVapor(){
+    ctx.save();
+    for (const p of vaporParticles){
+      const a = p.alpha * Math.min(1, p.life * 4);
+      if (a <= 0.01) continue;
+
+      const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r * 2);
+      g.addColorStop(0, `rgba(210,235,255,${a})`);
+      g.addColorStop(1, 'rgba(210,235,255,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r * 2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function drawRain(){
+    ctx.save();
+    ctx.lineCap = 'round';
+    for (const r of rainDrops){
+      ctx.beginPath();
+      ctx.moveTo(r.x, r.y);
+      ctx.lineTo(r.x - r.vx * 0.8, r.y - r.len);
+      ctx.strokeStyle = `rgba(160,220,255,${r.alpha})`;
+      ctx.lineWidth = 1.8;
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawSplash(){
+    ctx.save();
+    for (const s of splashRings){
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(180,230,255,${s.alpha})`;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawHeader(){
+    ctx.save();
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+
+    ctx.font = '700 27px ' + FONT;
+    ctx.fillStyle = '#eaf4ff';
+    ctx.fillText('水循环旅行', 40, 46);
+
+    ctx.font = '400 15px ' + FONT;
+    ctx.fillStyle = 'rgba(150,188,230,0.85)';
+    ctx.fillText('一滴水，是怎么在大自然里旅行的？', 40, 76);
+
+    ctx.restore();
+  }
+
+  function drawStageLabels(){
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    // 蒸发
+    if (vaporParticles.length > 4){
+      ctx.font = '600 13px ' + FONT;
+      ctx.fillStyle = 'rgba(255,200,140,0.82)';
+      ctx.fillText('蒸发', 230, 400);
+    }
+
+    // 凝结
+    const totalMoist = clouds.reduce((s, c) => s + c.moisture, 0);
+    if (totalMoist > 0.3){
+      ctx.font = '600 13px ' + FONT;
+      ctx.fillStyle = 'rgba(170,210,255,0.85)';
+      ctx.fillText('凝结', 555, 56);
+    }
+
+    // 降水
+    if (rainDrops.length > 3){
+      ctx.font = '600 13px ' + FONT;
+      ctx.fillStyle = 'rgba(130,220,255,0.9)';
+      ctx.fillText('降水', 555, 300);
+    }
+
+    // 汇集
+    ctx.font = '600 13px ' + FONT;
+    ctx.fillStyle = 'rgba(120,200,255,0.8)';
+    ctx.fillText('汇集', 200, 510);
+
+    ctx.restore();
+  }
+
+  function drawPanel(){
+    ctx.save();
+    roundRect(36, 580, 888, 64, 18);
+    ctx.fillStyle = 'rgba(12,22,40,0.86)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(110,165,225,0.22)';
+    ctx.lineWidth = 1.3;
+    ctx.stroke();
+
+    // 顶部高光
+    roundRect(36, 580, 888, 64, 18);
+    ctx.clip();
+    const g = ctx.createLinearGradient(0, 580, 0, 620);
+    g.addColorStop(0, 'rgba(130,200,255,0.10)');
+    g.addColorStop(1, 'rgba(130,200,255,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(36, 580, 888, 40);
+    ctx.restore();
+  }
+
+  function drawSlider(s){
+    const v = state[s.key];
+    const p = (v - s.min) / (s.max - s.min);
+
+    ctx.save();
+    ctx.textBaseline = 'middle';
+
+    // 标签
+    ctx.textAlign = 'left';
+    ctx.font = '600 14px ' + FONT;
+    ctx.fillStyle = 'rgba(196,220,246,0.95)';
+    ctx.fillText(s.label, s.x, s.y - 24);
+
+    // 数值
+    ctx.textAlign = 'right';
+    ctx.font = '700 16px ' + FONT;
+    ctx.fillStyle = s.accent;
+    ctx.fillText(v + s.unit, s.x + s.w, s.y - 24);
+
+    // 轨道
+    roundRect(s.x, s.y - 5, s.w, 10, 5);
+    ctx.fillStyle = 'rgba(255,255,255,0.09)';
+    ctx.fill();
+
+    if (p > 0.001){
+      roundRect(s.x, s.y - 5, s.w * p, 10, 5);
+      const g = ctx.createLinearGradient(s.x, 0, s.x + s.w, 0);
+      g.addColorStop(0, s.accent2);
+      g.addColorStop(1, s.accent);
+      ctx.fillStyle = g;
+      ctx.fill();
+    }
+
+    // 手柄
+    const hx = s.x + s.w * p;
+    ctx.beginPath();
+    ctx.arc(hx, s.y, 12, 0, Math.PI * 2);
+    ctx.fillStyle = '#eaf7ff';
+    ctx.fill();
+    ctx.strokeStyle = s.accent;
+    ctx.lineWidth = 2.4;
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(hx, s.y, 5, 0, Math.PI * 2);
+    ctx.globalAlpha = 0.55;
+    ctx.fillStyle = s.accent;
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  /* =========================================================
+     8. 主循环
+     ========================================================= */
+  let lastTime = performance.now();
+  let elapsed  = 0;
+
+  function render(now){
+    const dt = Math.min(0.05, (now - lastTime) / 1000);
+    lastTime = now;
+    elapsed += dt;
+
+    update(dt);
+
+    ctx.clearRect(0, 0, W, H);
+
+    // 渲染顺序
+    drawSky();
+    drawSun(elapsed);
+
+    // 先画云，再画水蒸气（让蒸汽出现在云前）
+    for (const c of clouds) drawCloud(c, elapsed);
+
+    drawSea(elapsed);
+    drawVapor();
+    drawRain();
+    drawSplash();
+
+    drawStageLabels();
+    drawHeader();
+
+    drawPanel();
+    SLIDERS.forEach(drawSlider);
+
+    requestAnimationFrame(render);
+  }
+
+  // 初始给一点水蒸气，让画面一开始就“活”
+  for (let i = 0; i < 12; i++){
+    spawnVapor();
+    vaporParticles[i].y = SEA_Y - rand(10, 200);
+  }
+  // 初始云也有一点湿度，看起来更自然
+  clouds[1].moisture = 0.15;
+
+  requestAnimationFrame(render);
+
+})();
+</script>
+</body>
+</html>
