@@ -1,0 +1,926 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>彩虹实验室 —— 背对太阳喷水，就能看见彩虹</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    height: 100%; width: 100%; overflow: hidden; background: #0a1018;
+    touch-action: none;
+    font-family: system-ui, -apple-system, sans-serif;
+    color: #fff;
+  }
+  canvas { display: block; position: absolute; inset: 0; }
+
+  .status {
+    position: fixed;
+    top: 16px; left: 50%;
+    transform: translateX(-50%);
+    padding: 14px 28px;
+    background: rgba(16, 22, 38, 0.92);
+    border-radius: 30px;
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    font-size: 16px; font-weight: 700;
+    z-index: 10; white-space: nowrap; max-width: 94vw;
+    text-align: center; transition: all 0.3s;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+  }
+  .status.flash {
+    background: rgba(40, 130, 60, 0.95);
+    border-color: rgba(127, 221, 110, 0.7);
+    box-shadow: 0 8px 30px rgba(80, 200, 100, 0.5);
+  }
+
+  .panel {
+    position: fixed;
+    bottom: 14px; left: 50%;
+    transform: translateX(-50%);
+    width: min(680px, 94vw);
+    background: rgba(16, 22, 38, 0.94);
+    padding: 14px 22px;
+    border-radius: 20px;
+    backdrop-filter: blur(14px);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    z-index: 10;
+    display: flex; flex-direction: column; gap: 10px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+  }
+  .panel .btns {
+    display: grid;
+    grid-template-columns: 1.5fr 1fr;
+    gap: 10px;
+  }
+  .panel button {
+    padding: 14px 14px;
+    border-radius: 14px;
+    border: none;
+    font-weight: 800; font-size: 16px;
+    cursor: pointer; transition: transform 0.12s, box-shadow 0.2s;
+    letter-spacing: 0.5px;
+  }
+  .panel button:active:not(:disabled) { transform: translateY(1px); }
+  .panel .btn-spray {
+    background: linear-gradient(135deg, #5eb3ff, #a8e6ff);
+    color: #061020;
+    box-shadow: 0 4px 16px rgba(94, 179, 255, 0.5);
+  }
+  .panel .btn-spray.active {
+    background: linear-gradient(135deg, #ffd54f, #ff9eb5);
+    color: #1a0a00;
+  }
+  .panel .btn-reset {
+    background: rgba(255, 255, 255, 0.15);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div class="status" id="status">☀️ 太阳在身后 · 面向水雾喷水 · 彩虹就在前方</div>
+
+<div class="panel">
+  <div class="btns">
+    <button class="btn-spray" id="btnSpray">💧 按住喷水</button>
+    <button class="btn-reset" id="btnReset">🔄 重置</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+<script>
+/* ============================================================
+   彩虹实验室 —— 背对太阳喷水，就能看见彩虹
+   ------------------------------------------------------------
+   侧视剖面图：
+        [太阳]  →→→→→  [人物背影]  →→→→→  [水雾区]
+                                                    ↓
+                                              彩虹出现在这里
+
+   物理原理：
+   ① 阳光从左向右水平射来
+   ② 光穿过人背后的空气，射到前方水雾中的水滴上
+   ③ 光在水滴内发生：折射 → 内反射 → 折射（返回）
+   ④ 不同颜色折射角不同，所以分散开
+   ⑤ 返回的光以约 42° 角进入人的眼睛 → 看到彩虹
+   ⑥ 因为光要"返回"才能被人看到，所以彩虹只在太阳对面
+   ============================================================ */
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+const statusEl = document.getElementById('status');
+const btnSpray = document.getElementById('btnSpray');
+const btnReset = document.getElementById('btnReset');
+
+let W = 800, H = 600, DPR = 1, S = 1;
+let time = 0;
+
+/* ---------- 状态 ---------- */
+const state = {
+  mist: 0,
+  spraying: false,
+  rainbowVisible: 0,
+  droplets: [],
+  shown: false
+};
+
+/* ---------- 场景 ---------- */
+const scene = {
+  groundY: 0,
+  sun: { x: 0, y: 0, r: 0 },
+  person: { x: 0, y: 0 },
+  sprayOrigin: { x: 0, y: 0 },    // 喷壶嘴位置
+  mistCenter: { x: 0, y: 0, r: 0 },  // 水雾区中心
+  rainbow: { cx: 0, cy: 0, rInner: 0, rOuter: 0 }
+};
+
+/* ---------- 七色 ---------- */
+const RAINBOW_COLORS = [
+  { name: '红', color: '#ff3b30' },
+  { name: '橙', color: '#ff9500' },
+  { name: '黄', color: '#ffcc00' },
+  { name: '绿', color: '#34c759' },
+  { name: '青', color: '#5ac8fa' },
+  { name: '蓝', color: '#007aff' },
+  { name: '紫', color: '#af52de' }
+];
+
+/* ============================================================
+   尺寸
+============================================================ */
+function resize() {
+  let w = window.innerWidth || document.documentElement.clientWidth || 800;
+  let h = window.innerHeight || document.documentElement.clientHeight || 600;
+  if (w < 200) w = 800;
+  if (h < 200) h = 600;
+
+  W = w; H = h;
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width = Math.floor(W * DPR);
+  canvas.height = Math.floor(H * DPR);
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+  S = Math.max(0.55, Math.min(1.15, H / 800));
+
+  layoutScene();
+}
+
+function layoutScene() {
+  scene.groundY = H * 0.68;
+
+  // 太阳在最左边
+  scene.sun.x = W * 0.08;
+  scene.sun.y = H * 0.32;
+  scene.sun.r = 52 * S;
+
+  // 人物在左中偏中位置，面朝右
+  scene.person.x = W * 0.32;
+  scene.person.y = scene.groundY;
+
+  // 喷壶嘴位置（人物右前方）
+  scene.sprayOrigin.x = scene.person.x + 70 * S;
+  scene.sprayOrigin.y = scene.groundY - 180 * S;
+
+  // 水雾区中心在人物右前方
+  scene.mistCenter.x = W * 0.72;
+  scene.mistCenter.y = scene.groundY - 140 * S;
+  scene.mistCenter.r = 130 * S;
+
+  // 彩虹：圆心在水雾中心下方，拱向上方
+  scene.rainbow.cx = scene.mistCenter.x;
+  scene.rainbow.cy = scene.groundY + 20 * S;
+  scene.rainbow.rInner = Math.min(W * 0.28, H * 0.42);
+  scene.rainbow.rOuter = scene.rainbow.rInner + 46 * S;
+}
+
+/* ============================================================
+   音效
+============================================================ */
+let audioCtx = null;
+function initAudio() {
+  if (!audioCtx) {
+    try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
+  }
+}
+function beep(freq, dur, vol, type, delay) {
+  vol = vol == null ? 0.05 : vol;
+  type = type || 'sine';
+  delay = delay || 0;
+  if (!audioCtx) return;
+  const t0 = audioCtx.currentTime + delay;
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(freq, t0);
+  o.connect(g);
+  g.connect(audioCtx.destination);
+  g.gain.setValueAtTime(vol, t0);
+  g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+  o.start(t0);
+  o.stop(t0 + dur);
+}
+function sfxSpray() { beep(660, 0.04, 0.025, 'sine'); }
+function sfxRainbow() {
+  beep(523, 0.14, 0.09);
+  beep(659, 0.14, 0.09, 'sine', 0.12);
+  beep(784, 0.16, 0.09, 'sine', 0.24);
+  beep(1046, 0.30, 0.11, 'sine', 0.40);
+}
+function sfxClick() { beep(520, 0.06, 0.05, 'triangle'); }
+
+/* ============================================================
+   更新
+============================================================ */
+function update(dt) {
+  time += dt;
+
+  const target = state.spraying ? 1 : 0;
+  state.mist += (target - state.mist) * Math.min(1, dt * 2.5);
+
+  // 喷水粒子
+  if (state.spraying) {
+    const count = Math.ceil(6 * state.mist);
+    for (let i = 0; i < count; i++) spawnDroplet();
+    if (Math.random() < 0.2) sfxSpray();
+  }
+
+  for (const d of state.droplets) {
+    d.x += d.vx * dt;
+    d.y += d.vy * dt;
+    d.vy += 25 * dt;
+    d.vx *= 0.98;
+    d.life -= dt * 0.28;
+    d.r += dt * 4 * S;
+    if (d.y > scene.groundY) d.life = 0;
+  }
+  state.droplets = state.droplets.filter(function (d) { return d.life > 0; });
+
+  // 彩虹可见度
+  const rainbowTarget = state.mist * 1.4;
+  state.rainbowVisible += (Math.min(1, rainbowTarget) - state.rainbowVisible) * Math.min(1, dt * 3);
+
+  if (state.rainbowVisible > 0.55 && !state.shown) {
+    state.shown = true;
+    sfxRainbow();
+  }
+  if (state.rainbowVisible < 0.25) state.shown = false;
+
+  updateUI();
+}
+
+function spawnDroplet() {
+  // 从喷壶嘴向右侧喷出
+  const a = -Math.PI * 0.25 + (Math.random() - 0.5) * 1.2;
+  const speed = 140 + Math.random() * 160;
+  state.droplets.push({
+    x: scene.sprayOrigin.x + (Math.random() - 0.5) * 12 * S,
+    y: scene.sprayOrigin.y + (Math.random() - 0.5) * 12 * S,
+    vx: Math.cos(a) * speed + 90,
+    vy: Math.sin(a) * speed,
+    r: (2 + Math.random() * 4) * S,
+    life: 1,
+    alpha: 0.5 + Math.random() * 0.4
+  });
+}
+
+/* ============================================================
+   UI
+============================================================ */
+function updateUI() {
+  if (state.rainbowVisible > 0.5) {
+    statusEl.textContent = '🌈 彩虹出现了！阳光被水滴分解成七色';
+    statusEl.className = 'status flash';
+  } else if (state.rainbowVisible > 0.15) {
+    statusEl.textContent = '🌈 彩虹正在慢慢出现……';
+    statusEl.className = 'status';
+  } else if (state.mist > 0.1) {
+    statusEl.textContent = '💧 继续喷水，让水雾更浓一些';
+    statusEl.className = 'status';
+  } else {
+    statusEl.textContent = '☀️ 太阳在身后 · 面向水雾喷水 · 彩虹就在前方';
+    statusEl.className = 'status';
+  }
+}
+
+/* ============================================================
+   绘制：深色背景
+============================================================ */
+function drawBackground() {
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#1a2438');
+  g.addColorStop(0.6, '#0d1422');
+  g.addColorStop(1, '#050810');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+}
+
+/* ============================================================
+   绘制：地面
+============================================================ */
+function drawGround() {
+  const ty = scene.groundY;
+
+  const g = ctx.createLinearGradient(0, ty, 0, H);
+  g.addColorStop(0, '#4a3a2a');
+  g.addColorStop(1, '#1a1208');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, ty, W, H - ty);
+
+  ctx.strokeStyle = 'rgba(200, 170, 120, 0.4)';
+  ctx.lineWidth = 2 * S;
+  ctx.beginPath();
+  ctx.moveTo(0, ty);
+  ctx.lineTo(W, ty);
+  ctx.stroke();
+
+  // "背对太阳"的标注
+  ctx.font = 'bold ' + Math.round(14 * S) + 'px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillStyle = 'rgba(255, 213, 79, 0.85)';
+  ctx.fillText('← 太阳在这边（在背后）', scene.person.x, ty + 10 * S);
+  ctx.fillStyle = 'rgba(168, 230, 255, 0.85)';
+  ctx.fillText('人面朝这边 →', scene.person.x + 100 * S, ty + 10 * S);
+}
+
+/* ============================================================
+   绘制：太阳
+============================================================ */
+function drawSun() {
+  const sx = scene.sun.x;
+  const sy = scene.sun.y;
+  const r = scene.sun.r;
+
+  // 大光晕
+  const glowR = r * 4.5;
+  const gg = ctx.createRadialGradient(sx, sy, r * 0.3, sx, sy, glowR);
+  gg.addColorStop(0, 'rgba(255, 250, 200, 0.95)');
+  gg.addColorStop(0.35, 'rgba(255, 235, 140, 0.55)');
+  gg.addColorStop(0.7, 'rgba(255, 220, 100, 0.15)');
+  gg.addColorStop(1, 'rgba(255, 210, 80, 0)');
+  ctx.fillStyle = gg;
+  ctx.beginPath();
+  ctx.arc(sx, sy, glowR, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 光芒
+  ctx.save();
+  ctx.translate(sx, sy);
+  ctx.rotate(time * 0.3);
+  ctx.strokeStyle = 'rgba(255, 240, 160, 0.9)';
+  ctx.lineWidth = 4 * S;
+  ctx.lineCap = 'round';
+  for (let i = 0; i < 10; i++) {
+    const a = (Math.PI * 2 / 10) * i;
+    const r1 = r * 1.3;
+    const r2 = r * 1.75 + Math.sin(time * 3 + i) * 6 * S;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(a) * r1, Math.sin(a) * r1);
+    ctx.lineTo(Math.cos(a) * r2, Math.sin(a) * r2);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // 太阳本体
+  ctx.beginPath();
+  ctx.arc(sx, sy, r, 0, Math.PI * 2);
+  const sg = ctx.createRadialGradient(sx - r * 0.3, sy - r * 0.3, r * 0.1, sx, sy, r);
+  sg.addColorStop(0, '#fffde7');
+  sg.addColorStop(0.5, '#ffd54f');
+  sg.addColorStop(1, '#f59f00');
+  ctx.fillStyle = sg;
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.arc(sx - r * 0.28, sy - r * 0.28, r * 0.25, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+  ctx.fill();
+
+  // 标签
+  ctx.font = 'bold ' + Math.round(15 * S) + 'px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillStyle = 'rgba(255, 250, 200, 0.95)';
+  ctx.fillText('☀️ 太阳', sx, sy + r + 12 * S);
+}
+
+/* ============================================================
+   绘制：阳光（从左向右的黄色箭头）
+============================================================ */
+function drawSunRays() {
+  const startX = scene.sun.x + scene.sun.r + 10 * S;
+  const endX = scene.mistCenter.x + 40 * S;
+
+  // 在太阳右侧、垂直方向分布多条光线
+  const rayYs = [];
+  for (let i = 0; i < 5; i++) {
+    rayYs.push(scene.sun.y - 60 * S + i * 30 * S);
+  }
+
+  for (const y of rayYs) {
+    // 光线本身（亮黄色）
+    const g = ctx.createLinearGradient(startX, y, endX, y);
+    g.addColorStop(0, 'rgba(255, 240, 130, 0.9)');
+    g.addColorStop(0.5, 'rgba(255, 240, 130, 0.6)');
+    g.addColorStop(1, 'rgba(255, 240, 130, 0.2)');
+    ctx.strokeStyle = g;
+    ctx.lineWidth = 3 * S;
+    ctx.lineCap = 'round';
+
+    ctx.beginPath();
+    ctx.moveTo(startX, y);
+    ctx.lineTo(endX, y);
+    ctx.stroke();
+
+    // 光线上加小箭头，表示方向（向右）
+    const arrowCount = 4;
+    for (let i = 0; i < arrowCount; i++) {
+      const ax = startX + (endX - startX) * ((i + 0.5) / arrowCount);
+      ctx.beginPath();
+      ctx.moveTo(ax, y);
+      ctx.lineTo(ax - 10 * S, y - 5 * S);
+      ctx.lineTo(ax - 10 * S, y + 5 * S);
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(255, 240, 130, 0.9)';
+      ctx.fill();
+    }
+  }
+
+  // "阳光"标注
+  ctx.font = 'bold ' + Math.round(14 * S) + 'px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'bottom';
+  ctx.fillStyle = 'rgba(255, 240, 130, 0.95)';
+  ctx.fillText('阳光（水平射来）→', (startX + endX) / 2, scene.sun.y - 80 * S);
+}
+
+/* ============================================================
+   绘制：人物（侧视剪影，面朝右）
+============================================================ */
+function drawPerson() {
+  const px = scene.person.x;
+  const py = scene.person.y;
+
+  ctx.save();
+  ctx.translate(px, py);
+
+  // 影子
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 28 * S, 6 * S, 0, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+  ctx.fill();
+
+  // 腿
+  ctx.fillStyle = '#2a3a5a';
+  ctx.beginPath();
+  roundRect(-14 * S, -60 * S, 12 * S, 60 * S, 5 * S);
+  ctx.fill();
+  ctx.beginPath();
+  roundRect(2 * S, -60 * S, 12 * S, 60 * S, 5 * S);
+  ctx.fill();
+
+  // 身体
+  ctx.beginPath();
+  roundRect(-20 * S, -140 * S, 40 * S, 82 * S, 8 * S);
+  const bodyGrad = ctx.createLinearGradient(-20 * S, -140 * S, 20 * S, -58 * S);
+  bodyGrad.addColorStop(0, '#5eb3ff');
+  bodyGrad.addColorStop(1, '#2a6ba8');
+  ctx.fillStyle = bodyGrad;
+  ctx.fill();
+
+  // 左臂（自然下垂，在身后）
+  ctx.strokeStyle = '#f0c29b';
+  ctx.lineWidth = 11 * S;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(-14 * S, -125 * S);
+  ctx.lineTo(-24 * S, -70 * S);
+  ctx.stroke();
+
+  // 右臂（向前伸出，拿喷壶）
+  ctx.beginPath();
+  ctx.moveTo(14 * S, -125 * S);
+  ctx.lineTo(40 * S, -160 * S);
+  ctx.lineTo(60 * S, -175 * S);
+  ctx.stroke();
+
+  // 头（侧面剪影）
+  ctx.beginPath();
+  ctx.arc(0, -170 * S, 26 * S, 0, Math.PI * 2);
+  const hg = ctx.createRadialGradient(-8 * S, -180 * S, 4 * S, 0, -170 * S, 28 * S);
+  hg.addColorStop(0, '#ffd9b3');
+  hg.addColorStop(1, '#e0a878');
+  ctx.fillStyle = hg;
+  ctx.fill();
+
+  // 头发（朝向左后方，表示背对太阳）
+  ctx.beginPath();
+  ctx.arc(0, -170 * S, 26 * S, Math.PI * 0.85, Math.PI * 1.9);
+  ctx.lineTo(-24 * S, -155 * S);
+  ctx.lineTo(-16 * S, -158 * S);
+  ctx.closePath();
+  ctx.fillStyle = '#3e2723';
+  ctx.fill();
+
+  // 后脑勺
+  ctx.beginPath();
+  ctx.arc(0, -170 * S, 26 * S, Math.PI * 0.5, Math.PI * 1.5);
+  ctx.fillStyle = '#3e2723';
+  ctx.fill();
+
+  // 侧面脸
+  ctx.beginPath();
+  ctx.arc(0, -170 * S, 26 * S, Math.PI * 1.5, Math.PI * 0.5);
+  ctx.fillStyle = '#f0c29b';
+  ctx.fill();
+
+  // 眼睛（看向右侧）
+  ctx.fillStyle = '#1a1a1a';
+  ctx.beginPath();
+  ctx.arc(12 * S, -173 * S, 3 * S, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(13 * S, -174 * S, 1.2 * S, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 鼻子（侧面轮廓）
+  ctx.beginPath();
+  ctx.arc(24 * S, -166 * S, 3 * S, 0, Math.PI * 2);
+  ctx.fillStyle = '#e0a878';
+  ctx.fill();
+
+  // 嘴巴（微笑）
+  ctx.beginPath();
+  ctx.arc(14 * S, -158 * S, 5 * S, 0, Math.PI * 0.7);
+  ctx.strokeStyle = '#8b5a3c';
+  ctx.lineWidth = 2 * S;
+  ctx.stroke();
+
+  // ---- 喷壶 ----
+  const sprayX = 60 * S;
+  const sprayY = -175 * S;
+
+  // 壶身
+  ctx.beginPath();
+  roundRect(sprayX - 6 * S, sprayY - 10 * S, 34 * S, 22 * S, 4 * S);
+  const pg = ctx.createLinearGradient(sprayX, sprayY - 10 * S, sprayX, sprayY + 12 * S);
+  pg.addColorStop(0, '#7a9ec8');
+  pg.addColorStop(1, '#3a5a88');
+  ctx.fillStyle = pg;
+  ctx.fill();
+  ctx.strokeStyle = '#1e3a5e';
+  ctx.lineWidth = 1.8 * S;
+  ctx.stroke();
+
+  // 壶嘴（指向右）
+  ctx.beginPath();
+  ctx.moveTo(sprayX + 28 * S, sprayY - 5 * S);
+  ctx.lineTo(sprayX + 42 * S, sprayY - 12 * S);
+  ctx.lineTo(sprayX + 42 * S, sprayY - 2 * S);
+  ctx.closePath();
+  ctx.fillStyle = '#5a8ec8';
+  ctx.fill();
+  ctx.strokeStyle = '#1e3a5e';
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+/* ============================================================
+   绘制：水雾区（圆形的雾团）
+============================================================ */
+function drawMist() {
+  if (state.mist < 0.05) return;
+
+  const cx = scene.mistCenter.x;
+  const cy = scene.mistCenter.y;
+  const r = scene.mistCenter.r;
+
+  // 水雾的柔和光晕（一层淡白雾）
+  ctx.save();
+  ctx.globalAlpha = state.mist * 0.4;
+  const g = ctx.createRadialGradient(cx, cy, r * 0.1, cx, cy, r * 1.2);
+  g.addColorStop(0, 'rgba(220, 240, 255, 0.7)');
+  g.addColorStop(0.5, 'rgba(200, 230, 255, 0.3)');
+  g.addColorStop(1, 'rgba(200, 230, 255, 0)');
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r * 1.2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  // 水雾的标签
+  ctx.font = 'bold ' + Math.round(14 * S) + 'px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'bottom';
+  ctx.fillStyle = 'rgba(168, 230, 255, ' + (state.mist * 0.9) + ')';
+  ctx.fillText('水雾', cx, cy - r - 10 * S);
+}
+
+/* ============================================================
+   绘制：水雾中的水滴粒子
+============================================================ */
+function drawDroplets() {
+  for (const d of state.droplets) {
+    // 柔光
+    const glowR = d.r * 3;
+    const g = ctx.createRadialGradient(d.x, d.y, 0, d.x, d.y, glowR);
+    g.addColorStop(0, 'rgba(255, 255, 255, ' + (d.life * d.alpha * 0.9) + ')');
+    g.addColorStop(0.5, 'rgba(200, 235, 255, ' + (d.life * d.alpha * 0.35) + ')');
+    g.addColorStop(1, 'rgba(200, 235, 255, 0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(d.x, d.y, glowR, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 水珠核心
+    ctx.beginPath();
+    ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(230, 245, 255, ' + (d.life * d.alpha * 0.95) + ')';
+    ctx.fill();
+  }
+}
+
+/* ============================================================
+   绘制：彩虹
+============================================================ */
+function drawRainbow() {
+  const v = state.rainbowVisible;
+  if (v < 0.02) return;
+
+  const cx = scene.rainbow.cx;
+  const cy = scene.rainbow.cy;
+  const rIn = scene.rainbow.rInner;
+  const rOut = scene.rainbow.rOuter;
+  const bands = 7;
+  const bandWidth = (rOut - rIn) / bands;
+
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+
+  // 主虹
+  for (let i = 0; i < bands; i++) {
+    const radius = rOut - bandWidth * (i + 0.5);
+    ctx.globalAlpha = v * 0.75;
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, Math.PI * 1.0, Math.PI * 1.75);
+    ctx.strokeStyle = RAINBOW_COLORS[i].color;
+    ctx.lineWidth = bandWidth * 1.1;
+    ctx.stroke();
+
+    ctx.globalAlpha = v * 0.45;
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, Math.PI * 1.0, Math.PI * 1.75);
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = bandWidth * 0.3;
+    ctx.stroke();
+  }
+
+  ctx.restore();
+
+  // 彩虹标签
+  if (v > 0.35) {
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, (v - 0.35) * 3);
+    ctx.font = 'bold ' + Math.round(16 * S) + 'px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const label = '🌈 彩虹出现在前方';
+    const lx = cx + 60 * S;
+    const ly = cy - rOut - 20 * S;
+    ctx.fillStyle = 'rgba(16, 22, 38, 0.85)';
+    const tw = ctx.measureText(label).width;
+    roundRect(lx - tw / 2 - 12 * S, ly - 16 * S, tw + 24 * S, 32 * S, 16 * S);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 213, 79, 0.6)';
+    ctx.lineWidth = 1.5 * S;
+    roundRect(lx - tw / 2 - 12 * S, ly - 16 * S, tw + 24 * S, 32 * S, 16 * S);
+    ctx.stroke();
+    ctx.fillStyle = '#ffd54f';
+    ctx.fillText(label, lx, ly + 1);
+    ctx.restore();
+  }
+}
+
+/* ============================================================
+   绘制：右下角的水滴放大原理图
+============================================================ */
+function drawPrincipleDiagram() {
+  const px = W - 220 * S;
+  const py = H - 170 * S;
+  const w = 200 * S;
+  const h = 130 * S;
+
+  // 面板
+  ctx.fillStyle = 'rgba(16, 22, 38, 0.9)';
+  roundRect(px, py, w, h, 12 * S);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+  ctx.lineWidth = 1.2 * S;
+  roundRect(px, py, w, h, 12 * S);
+  ctx.stroke();
+
+  // 标题
+  ctx.font = 'bold ' + Math.round(11 * S) + 'px system-ui, sans-serif';
+  ctx.fillStyle = 'rgba(168, 200, 232, 0.9)';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillText('光在水滴里发生什么', px + 12 * S, py + 8 * S);
+
+  // ---- 水滴 ----
+  const dcx = px + w * 0.42;
+  const dcy = py + h * 0.62;
+  const dr = 26 * S;
+
+  // 水滴轮廓
+  ctx.beginPath();
+  ctx.arc(dcx, dcy, dr, 0, Math.PI * 2);
+  const dg = ctx.createRadialGradient(dcx - dr * 0.3, dcy - dr * 0.3, dr * 0.1, dcx, dcy, dr);
+  dg.addColorStop(0, 'rgba(180, 220, 255, 0.55)');
+  dg.addColorStop(1, 'rgba(80, 140, 200, 0.4)');
+  ctx.fillStyle = dg;
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(200, 230, 255, 0.85)';
+  ctx.lineWidth = 1.8 * S;
+  ctx.stroke();
+
+  // ---- 入射白光 ----
+  const inStartX = px + 20 * S;
+  const inStartY = dcy;
+  const inEndX = dcx - dr + 2 * S;
+  const inEndY = dcy;
+
+  ctx.beginPath();
+  ctx.moveTo(inStartX, inStartY);
+  ctx.lineTo(inEndX, inEndY);
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 2.5 * S;
+  ctx.stroke();
+
+  // 白色箭头
+  const ax = inEndX - 8 * S;
+  ctx.beginPath();
+  ctx.moveTo(ax + 8 * S, inEndY);
+  ctx.lineTo(ax, inEndY - 4 * S);
+  ctx.lineTo(ax, inEndY + 4 * S);
+  ctx.closePath();
+  ctx.fillStyle = '#ffffff';
+  ctx.fill();
+
+  // "白光"标注
+  ctx.font = Math.round(9 * S) + 'px system-ui, sans-serif';
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'bottom';
+  ctx.fillText('白光', (inStartX + inEndX) / 2, inStartY - 5 * S);
+
+  // ---- 折射 ----
+  // 光进入水滴后稍微向下折
+  ctx.beginPath();
+  ctx.moveTo(dcx - dr + 2 * S, dcy);
+  ctx.lineTo(dcx + dr * 0.4, dcy + dr * 0.55);
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+  ctx.lineWidth = 2.2 * S;
+  ctx.stroke();
+
+  // ---- 内反射 ----
+  ctx.beginPath();
+  ctx.moveTo(dcx + dr * 0.4, dcy + dr * 0.55);
+  ctx.lineTo(dcx - dr * 0.5, dcy + dr * 0.55);
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+  ctx.lineWidth = 2.2 * S;
+  ctx.stroke();
+
+  // ---- 七色折射出来（向上偏左返回） ----
+  for (let i = 0; i < 7; i++) {
+    const a = -0.9 + i * 0.08;   // 角度分散
+    const ex = dcx - dr * 0.5 + Math.cos(a) * 50 * S;
+    const ey = dcy + dr * 0.55 + Math.sin(a) * 50 * S;
+
+    ctx.beginPath();
+    ctx.moveTo(dcx - dr * 0.5, dcy + dr * 0.55);
+    ctx.lineTo(ex, ey);
+    ctx.strokeStyle = RAINBOW_COLORS[i].color;
+    ctx.lineWidth = 1.8 * S;
+    ctx.stroke();
+  }
+
+  // "七色光"标注
+  ctx.font = Math.round(9 * S) + 'px system-ui, sans-serif';
+  ctx.fillStyle = 'rgba(255, 213, 79, 0.95)';
+  ctx.textAlign = 'right';
+  ctx.fillText('七色返回 →', px + w - 8 * S, dcy + dr * 0.55 + 3 * S);
+}
+
+/* ============================================================
+   工具
+============================================================ */
+function roundRect(x, y, w, h, r) {
+  const rr = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.lineTo(x + w - rr, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+  ctx.lineTo(x + w, y + h - rr);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+  ctx.lineTo(x + rr, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+  ctx.lineTo(x, y + rr);
+  ctx.quadraticCurveTo(x, y, x + rr, y);
+  ctx.closePath();
+}
+
+/* ============================================================
+   渲染
+============================================================ */
+function render() {
+  ctx.clearRect(0, 0, W, H);
+
+  drawBackground();
+  drawGround();
+  drawSun();
+  drawSunRays();
+  drawPerson();
+  drawMist();
+  drawDroplets();
+  drawRainbow();
+  drawPrincipleDiagram();
+}
+
+/* ============================================================
+   交互
+============================================================ */
+btnSpray.addEventListener('pointerdown', function (e) {
+  e.preventDefault();
+  initAudio();
+  state.spraying = true;
+  btnSpray.classList.add('active');
+  btnSpray.textContent = '💧 正在喷水……';
+});
+
+['pointerup', 'pointerleave', 'pointercancel'].forEach(function (ev) {
+  btnSpray.addEventListener(ev, function () {
+    state.spraying = false;
+    btnSpray.classList.remove('active');
+    btnSpray.textContent = '💧 按住喷水';
+  });
+});
+
+btnReset.addEventListener('click', function () {
+  initAudio();
+  sfxClick();
+  state.mist = 0;
+  state.spraying = false;
+  state.rainbowVisible = 0;
+  state.shown = false;
+  state.droplets = [];
+  btnSpray.classList.remove('active');
+  btnSpray.textContent = '💧 按住喷水';
+  updateUI();
+});
+
+canvas.addEventListener('dblclick', function (e) { e.preventDefault(); });
+
+/* ============================================================
+   启动
+============================================================ */
+resize();
+updateUI();
+
+window.addEventListener('resize', function () {
+  resize();
+  render();
+});
+
+if (window.ResizeObserver) {
+  new ResizeObserver(function () {
+    const cw = canvas.clientWidth, ch = canvas.clientHeight;
+    if (cw > 0 && ch > 0 && (Math.abs(cw - W) > 1 || Math.abs(ch - H) > 1)) {
+      resize();
+      render();
+    }
+  }).observe(canvas);
+}
+
+render();
+requestAnimationFrame(function () {
+  resize();
+  updateUI();
+  render();
+});
+
+gsap.ticker.add(function (t, dt) {
+  const d = Math.min(dt || 16, 50) / 1000;
+  update(d);
+  render();
+});
+</script>
+</body>
+</html>
