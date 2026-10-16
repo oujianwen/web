@@ -1,0 +1,838 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>镜子送光 —— 光 · 镜子 · 小熊</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; background: #0b0e18; touch-action: none; }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+<script>
+/* ============================================================
+   镜子送光 —— 光的反射
+   ------------------------------------------------------------
+   教材依据：
+   第五章第三节「光」—— 光是直线前进的；反射
+   第六章「如何用镜子把光送出？」—— 手电筒固定，用镜子接力送光
+   第六章「什么物品可反光？」—— 镜子、锡箔、光碟片
+
+   核心概念：
+   ① 光是直线前进的
+   ② 镜子可以改变光的行进方向（反射）
+   ③ 光射到镜子的角度 = 光离开镜子的角度（入射角=反射角）
+   ④ 镜子角度不对，光就到不了小熊那里
+   ============================================================ */
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+let W, H, DPR, S = 1;
+let time = 0;
+
+/* ---------- 场景对象 ---------- */
+const light = { x: 0, y: 0, r: 28, scale: 1 };
+const mirror = {
+  x: 0, y: 0,
+  angle: -0.20,          // 镜面与水平线的夹角（弧度）
+  length: 100,           // 镜面半长
+  thick: 9,
+  scale: 1,
+  rotateScale: 1
+};
+const bear = { x: 0, y: 0, r: 34, glow: 0, happy: 0, wiggle: 0 };
+
+/* ---------- 交互状态 ---------- */
+let dragging = null;      // 'light' | 'mirror' | 'rotateA' | 'rotateB'
+let dragOffset = { x: 0, y: 0 };
+let downPos = null;
+let activePointer = null;
+let hintAlpha = 1;
+let hintTimer = 0;
+let beamHit = false;      // 当前是否命中
+let lastHit = false;      // 上一帧是否命中，用于检测进入
+let hitFlash = 0;
+
+/* ---------- 粒子（小熊被照到时飞出的星星） ---------- */
+let sparks = [];
+
+/* ============================================================
+   尺寸与初始化
+============================================================ */
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width = W * DPR;
+  canvas.height = H * DPR;
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+  S = Math.max(0.55, Math.min(1.15, H / 780));
+
+  if (!light.x) {
+    light.x = W * 0.13;
+    light.y = H * 0.52;
+    mirror.x = W * 0.50;
+    mirror.y = H * 0.52;
+    bear.x = W * 0.82;
+    bear.y = H * 0.30;
+  } else {
+    // 尺寸变化时按比例还原
+    light.x = Math.min(light.x, W - 80);
+    mirror.x = Math.min(mirror.x, W - 100);
+    bear.x = Math.min(bear.x, W - 60);
+  }
+
+  light.r = 28 * S;
+  mirror.length = 100 * S;
+  mirror.thick = 9 * S;
+  bear.r = 34 * S;
+
+  clampAll();
+}
+
+function clampAll() {
+  light.x = Math.max(50 * S, Math.min(W - 50 * S, light.x));
+  light.y = Math.max(60 * S, Math.min(H - 60 * S, light.y));
+  mirror.x = Math.max(70 * S, Math.min(W - 70 * S, mirror.x));
+  mirror.y = Math.max(70 * S, Math.min(H - 70 * S, mirror.y));
+}
+
+/* ============================================================
+   核心几何：光的反射
+   ============================================================ */
+function getMirrorEnds() {
+  const c = Math.cos(mirror.angle);
+  const s = Math.sin(mirror.angle);
+  const L = mirror.length;
+  return {
+    A: { x: mirror.x - c * L, y: mirror.y - s * L },
+    B: { x: mirror.x + c * L, y: mirror.y + s * L },
+    d: { x: c, y: s }   // 镜面方向（单位向量）
+  };
+}
+
+function computeBeam() {
+  // 1. 光源 → 镜子中心（入射方向）
+  const dx = mirror.x - light.x;
+  const dy = mirror.y - light.y;
+  const dist = Math.hypot(dx, dy);
+  if (dist < 8 * S) return null;
+
+  const I = { x: dx / dist, y: dy / dist };  // 单位入射方向
+
+  // 2. 镜面法线（垂直于镜面，单位向量）
+  const n = { x: -Math.sin(mirror.angle), y: Math.cos(mirror.angle) };
+
+  // 3. 反射公式：R = I - 2(I·n)n
+  const dot = I.x * n.x + I.y * n.y;
+  const R = {
+    x: I.x - 2 * dot * n.x,
+    y: I.y - 2 * dot * n.y
+  };
+
+  // 4. 反射光线的终点（延伸到画面外足够远处）
+  const FAR = Math.max(W, H) * 2;
+  const hitPoint = { x: mirror.x, y: mirror.y };
+  const endPoint = {
+    x: hitPoint.x + R.x * FAR,
+    y: hitPoint.y + R.y * FAR
+  };
+
+  return {
+    hitPoint,
+    R,
+    endPoint,
+    mirrorNormal: n,
+    mirrorDir: { x: Math.cos(mirror.angle), y: Math.sin(mirror.angle) }
+  };
+}
+
+/* 反射光线是否命中目标（射线–圆相交） */
+function rayHitsTarget(P, R, C, r) {
+  const dx = C.x - P.x;
+  const dy = C.y - P.y;
+  const t = dx * R.x + dy * R.y;
+  if (t < 0) return false;
+  const px = P.x + t * R.x;
+  const py = P.y + t * R.y;
+  return Math.hypot(C.x - px, C.y - py) < r;
+}
+
+/* ============================================================
+   绘制：房间背景
+   ============================================================ */
+function drawRoom() {
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#0e1220');
+  g.addColorStop(1, '#07090f');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+
+  // 微弱的网格
+  ctx.strokeStyle = 'rgba(120, 150, 220, 0.04)';
+  ctx.lineWidth = 1;
+  const step = 60 * S;
+  for (let x = 0; x < W; x += step) {
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, H);
+    ctx.stroke();
+  }
+  for (let y = 0; y < H; y += step) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(W, y);
+    ctx.stroke();
+  }
+}
+
+/* ============================================================
+   绘制：光束
+   ============================================================ */
+function strokeBeam(x1, y1, x2, y2, baseWidth, alpha) {
+  // 三层叠加：外辉光 / 中层 / 内芯
+  const passes = [
+    { w: baseWidth * 4.0, a: alpha * 0.10, c: 'rgba(255, 235, 140, 1)' },
+    { w: baseWidth * 2.0, a: alpha * 0.22, c: 'rgba(255, 240, 160, 1)' },
+    { w: baseWidth * 1.0, a: alpha * 0.85, c: 'rgba(255, 255, 210, 1)' }
+  ];
+  ctx.save();
+  ctx.lineCap = 'round';
+  for (const p of passes) {
+    ctx.strokeStyle = p.c;
+    ctx.globalAlpha = p.a;
+    ctx.lineWidth = p.w;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawBeams(beam) {
+  if (!beam) return;
+
+  // 入射光束：光源 → 镜子
+  strokeBeam(
+    light.x, light.y,
+    beam.hitPoint.x, beam.hitPoint.y,
+    2.4 * S, 1
+  );
+
+  // 反射光束：镜子 → 终点
+  // 若命中，只画到小熊；否则画到画面外
+  let rx = beam.endPoint.x;
+  let ry = beam.endPoint.y;
+  if (beamHit) {
+    rx = bear.x;
+    ry = bear.y;
+  }
+  strokeBeam(
+    beam.hitPoint.x, beam.hitPoint.y,
+    rx, ry,
+    2.4 * S, beamHit ? 1 : 0.75
+  );
+
+  // 镜子上的撞击亮点
+  const pulse = 1 + Math.sin(time * 12) * 0.15;
+  const hitGlow = ctx.createRadialGradient(
+    beam.hitPoint.x, beam.hitPoint.y, 1,
+    beam.hitPoint.x, beam.hitPoint.y, 22 * S * pulse
+  );
+  hitGlow.addColorStop(0, 'rgba(255, 255, 220, 0.95)');
+  hitGlow.addColorStop(0.4, 'rgba(255, 235, 140, 0.45)');
+  hitGlow.addColorStop(1, 'rgba(255, 220, 100, 0)');
+  ctx.fillStyle = hitGlow;
+  ctx.beginPath();
+  ctx.arc(beam.hitPoint.x, beam.hitPoint.y, 22 * S * pulse, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+/* ============================================================
+   绘制：光源（手电筒）
+   ============================================================ */
+function drawLight() {
+  const r = light.r * light.scale;
+
+  // 光晕
+  const glowR = 90 * S;
+  const g = ctx.createRadialGradient(light.x, light.y, r * 0.3, light.x, light.y, glowR);
+  g.addColorStop(0, 'rgba(255, 250, 200, 0.55)');
+  g.addColorStop(0.5, 'rgba(255, 230, 130, 0.16)');
+  g.addColorStop(1, 'rgba(255, 220, 100, 0)');
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.arc(light.x, light.y, glowR, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.save();
+  ctx.translate(light.x, light.y);
+  ctx.scale(light.scale, light.scale);
+
+  // 灯泡
+  const bg = ctx.createRadialGradient(-r * 0.3, -r * 0.3, r * 0.05, 0, 0, r);
+  bg.addColorStop(0, '#fffde7');
+  bg.addColorStop(0.6, '#ffd54f');
+  bg.addColorStop(1, '#f59f00');
+  ctx.beginPath();
+  ctx.arc(0, 0, r, 0, Math.PI * 2);
+  ctx.fillStyle = bg;
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
+  ctx.lineWidth = 2.2 * S;
+  ctx.stroke();
+
+  // 眼睛
+  const eyeR = r * 0.14;
+  const eyeY = -r * 0.10;
+  const eyeOff = r * 0.28;
+  for (const sign of [-1, 1]) {
+    ctx.beginPath();
+    ctx.arc(sign * eyeOff, eyeY, eyeR, 0, Math.PI * 2);
+    ctx.fillStyle = '#3a2a00';
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(sign * eyeOff + eyeR * 0.35, eyeY - eyeR * 0.35, eyeR * 0.35, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
+  }
+
+  // 微笑
+  ctx.beginPath();
+  ctx.arc(0, r * 0.14, r * 0.28, 0.25, Math.PI - 0.25);
+  ctx.strokeStyle = '#3a2a00';
+  ctx.lineWidth = 2.2 * S;
+  ctx.lineCap = 'round';
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+/* ============================================================
+   绘制：镜子
+   ============================================================ */
+function drawMirror() {
+  const ends = getMirrorEnds();
+  const { A, B } = ends;
+
+  ctx.save();
+
+  // 镜子的柔光（让它看起来"很亮"）
+  ctx.save();
+  ctx.shadowBlur = 22 * S;
+  ctx.shadowColor = 'rgba(140, 200, 255, 0.55)';
+
+  // 镜面主体（圆头矩形）
+  ctx.beginPath();
+  ctx.moveTo(A.x, A.y);
+  ctx.lineTo(B.x, B.y);
+  ctx.lineCap = 'round';
+  ctx.lineWidth = mirror.thick * mirror.scale * 2;
+  const mg = ctx.createLinearGradient(A.x, A.y, B.x, B.y);
+  mg.addColorStop(0, '#5a7aa8');
+  mg.addColorStop(0.5, '#c8e4ff');
+  mg.addColorStop(1, '#5a7aa8');
+  ctx.strokeStyle = mg;
+  ctx.stroke();
+  ctx.restore();
+
+  // 镜面高光条
+  ctx.beginPath();
+  ctx.moveTo(A.x, A.y);
+  ctx.lineTo(B.x, B.y);
+  ctx.lineCap = 'round';
+  ctx.lineWidth = mirror.thick * mirror.scale * 0.5;
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.75)';
+  ctx.stroke();
+
+  // 两端旋转手柄
+  const handleR = 13 * S * mirror.rotateScale;
+  for (const P of [A, B]) {
+    // 外圈
+    ctx.beginPath();
+    ctx.arc(P.x, P.y, handleR, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(120, 190, 255, 0.9)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+    ctx.lineWidth = 2 * S;
+    ctx.stroke();
+
+    // 内圈小圆点
+    ctx.beginPath();
+    ctx.arc(P.x, P.y, handleR * 0.36, 0, Math.PI * 2);
+    ctx.fillStyle = '#0d1220';
+    ctx.fill();
+  }
+
+  // 镜子中心的小点（拖动提示）
+  ctx.beginPath();
+  ctx.arc(mirror.x, mirror.y, 3.5 * S, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+  ctx.fill();
+
+  ctx.restore();
+}
+
+/* ============================================================
+   绘制：小熊
+   ============================================================ */
+function drawBear() {
+  const r = bear.r;
+  const isLit = bear.glow > 0.05;
+
+  ctx.save();
+
+  // 被照亮时的光晕
+  if (isLit) {
+    const gg = ctx.createRadialGradient(bear.x, bear.y, r * 0.4, bear.x, bear.y, r * 5);
+    gg.addColorStop(0, `rgba(255, 240, 160, ${bear.glow * 0.55})`);
+    gg.addColorStop(1, 'rgba(255, 240, 160, 0)');
+    ctx.fillStyle = gg;
+    ctx.beginPath();
+    ctx.arc(bear.x, bear.y, r * 5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.translate(bear.x, bear.y);
+  // 开心时轻轻晃动
+  const wig = Math.sin(time * 9) * 0.06 * bear.happy;
+  ctx.rotate(wig);
+
+  // 影子
+  ctx.beginPath();
+  ctx.ellipse(0, r * 1.05, r * 0.9, r * 0.22, 0, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+  ctx.fill();
+
+  // 亮度：未照亮时是暗色，照亮时是暖棕色
+  const bright = bear.glow;
+  const bodyCol = lerpColor([70, 78, 95], [200, 150, 100], bright);
+  const darkCol = lerpColor([35, 40, 52], [120, 80, 50], bright);
+  const innerCol = lerpColor([50, 56, 70], [235, 205, 170], bright);
+
+  // 耳朵（先画，在后层）
+  for (const sign of [-1, 1]) {
+    ctx.beginPath();
+    ctx.arc(sign * r * 0.68, -r * 0.72, r * 0.32, 0, Math.PI * 2);
+    ctx.fillStyle = bodyCol;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(sign * r * 0.68, -r * 0.72, r * 0.16, 0, Math.PI * 2);
+    ctx.fillStyle = innerCol;
+    ctx.fill();
+  }
+
+  // 头
+  ctx.beginPath();
+  ctx.arc(0, 0, r, 0, Math.PI * 2);
+  const hg = ctx.createRadialGradient(-r * 0.3, -r * 0.35, r * 0.1, 0, 0, r);
+  hg.addColorStop(0, `rgba(${bodyCol[0] + 30}, ${bodyCol[1] + 30}, ${bodyCol[2] + 30}, 1)`);
+  hg.addColorStop(1, `rgb(${bodyCol[0]}, ${bodyCol[1]}, ${bodyCol[2]})`);
+  ctx.fillStyle = hg;
+  ctx.fill();
+
+  // 嘴巴周围浅色区
+  ctx.beginPath();
+  ctx.ellipse(0, r * 0.32, r * 0.52, r * 0.42, 0, 0, Math.PI * 2);
+  ctx.fillStyle = innerCol;
+  ctx.fill();
+
+  // 眼睛
+  const eyeOff = r * 0.36;
+  const eyeY = -r * 0.14;
+  const eyeR = r * 0.13;
+  const blink = (Math.sin(time * 1.3) > 0.965) ? 0.12 : 1;
+
+  for (const sign of [-1, 1]) {
+    ctx.beginPath();
+    ctx.ellipse(sign * eyeOff, eyeY, eyeR, eyeR * blink, 0, 0, Math.PI * 2);
+    ctx.fillStyle = '#0f1218';
+    ctx.fill();
+    if (blink > 0.5) {
+      ctx.beginPath();
+      ctx.arc(sign * eyeOff + eyeR * 0.35, eyeY - eyeR * 0.35, eyeR * 0.38, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255, 255, 255, ${0.6 + bright * 0.4})`;
+      ctx.fill();
+    }
+  }
+
+  // 鼻子
+  ctx.beginPath();
+  ctx.ellipse(0, r * 0.16, r * 0.16, r * 0.12, 0, 0, Math.PI * 2);
+  ctx.fillStyle = darkCol;
+  ctx.fill();
+
+  // 嘴巴：未照亮时是失望的（向下弧），照亮后是笑的（向上弧）
+  const mouthCurve = -1 + bright * 2;  // -1 → 1
+  ctx.beginPath();
+  if (mouthCurve > 0.1) {
+    // 笑
+    ctx.arc(0, r * 0.30, r * 0.28, 0.18, Math.PI - 0.18);
+  } else {
+    // 难过/平静
+    ctx.arc(0, r * 0.56, r * 0.28, Math.PI + 0.25, -0.25);
+  }
+  ctx.strokeStyle = '#0f1218';
+  ctx.lineWidth = 2.4 * S;
+  ctx.lineCap = 'round';
+  ctx.stroke();
+
+  // 被照亮时的腮红
+  if (bright > 0.2) {
+    ctx.globalAlpha = bright * 0.6;
+    for (const sign of [-1, 1]) {
+      ctx.beginPath();
+      ctx.arc(sign * r * 0.62, r * 0.18, r * 0.15, 0, Math.PI * 2);
+      ctx.fillStyle = '#ff8fa3';
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  ctx.restore();
+}
+
+function lerpColor(a, b, t) {
+  return [
+    Math.round(a[0] + (b[0] - a[0]) * t),
+    Math.round(a[1] + (b[1] - a[1]) * t),
+    Math.round(a[2] + (b[2] - a[2]) * t)
+  ];
+}
+
+/* ============================================================
+   粒子：被照亮时飞出的星星
+   ============================================================ */
+function spawnSparks(x, y) {
+  for (let i = 0; i < 8; i++) {
+    const a = Math.random() * Math.PI * 2;
+    sparks.push({
+      x, y,
+      vx: Math.cos(a) * (60 + Math.random() * 100),
+      vy: Math.sin(a) * (60 + Math.random() * 100),
+      life: 1,
+      size: 3 + Math.random() * 5,
+      rot: Math.random() * Math.PI * 2,
+      rotSpeed: (Math.random() - 0.5) * 8
+    });
+  }
+}
+
+function drawSparks() {
+  for (const s of sparks) {
+    ctx.save();
+    ctx.translate(s.x, s.y);
+    ctx.rotate(s.rot);
+    ctx.globalAlpha = s.life;
+    drawStar(0, 0, s.size, s.size * 0.42, 5);
+    ctx.fillStyle = '#ffe066';
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+function drawStar(cx, cy, outer, inner, points) {
+  ctx.beginPath();
+  for (let i = 0; i < points * 2; i++) {
+    const r = i % 2 === 0 ? outer : inner;
+    const a = (Math.PI / points) * i - Math.PI / 2;
+    const x = cx + Math.cos(a) * r;
+    const y = cy + Math.sin(a) * r;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+}
+
+/* ============================================================
+   绘制：底部提示
+   ============================================================ */
+function drawHint() {
+  if (hintAlpha <= 0.01) return;
+
+  const text = '👆 拖动镜子，让光照到小熊';
+  ctx.save();
+  ctx.globalAlpha = hintAlpha;
+  ctx.font = `bold ${15 * S}px system-ui, sans-serif`;
+  const tw = ctx.measureText(text).width;
+  const padX = 22 * S;
+  const bh = 46 * S;
+  const bw = tw + padX * 2;
+  const bx = W / 2 - bw / 2;
+  const by = H - bh - 30 * S;
+
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+  roundRect(bx, by, bw, bh, bh / 2);
+  ctx.fill();
+
+  ctx.fillStyle = '#ffffff';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, W / 2, by + bh / 2 + 1);
+  ctx.restore();
+}
+
+function roundRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+/* ============================================================
+   音效（Web Audio 合成）
+   ============================================================ */
+let audioCtx = null;
+function initAudio() {
+  if (!audioCtx) {
+    try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
+  }
+}
+function beep(freq, dur, vol = 0.08, type = 'sine', delay = 0) {
+  if (!audioCtx) return;
+  const t0 = audioCtx.currentTime + delay;
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(freq, t0);
+  o.connect(g);
+  g.connect(audioCtx.destination);
+  g.gain.setValueAtTime(vol, t0);
+  g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+  o.start(t0);
+  o.stop(t0 + dur);
+}
+function sfxClick() { beep(500, 0.05, 0.06, 'triangle'); }
+function sfxRotate() { beep(700, 0.04, 0.03, 'sine'); }
+function sfxSuccess() {
+  beep(523, 0.12, 0.11);
+  beep(659, 0.12, 0.11, 'sine', 0.10);
+  beep(784, 0.20, 0.11, 'sine', 0.20);
+}
+function sfxLost() {
+  beep(360, 0.12, 0.05);
+}
+
+/* ============================================================
+   交互
+   ============================================================ */
+function getPos(e) {
+  const rect = canvas.getBoundingClientRect();
+  return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+}
+function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+
+function onDown(e) {
+  initAudio();
+  if (activePointer !== null) return;
+  activePointer = e.pointerId;
+  const p = getPos(e);
+  downPos = p;
+
+  const ends = getMirrorEnds();
+
+  // 1. 先判断是否按在镜子的旋转手柄上（优先，因为手柄要够大）
+  const handleR = 28 * S;
+  if (dist(p, ends.A) < handleR) {
+    dragging = 'rotateA';
+    return;
+  }
+  if (dist(p, ends.B) < handleR) {
+    dragging = 'rotateB';
+    return;
+  }
+
+  // 2. 判断是否按在光源上
+  if (dist(p, light) < light.r + 26 * S) {
+    dragging = 'light';
+    dragOffset.x = light.x - p.x;
+    dragOffset.y = light.y - p.y;
+    light.scale = 1.12;
+    return;
+  }
+
+  // 3. 判断是否按在镜子主体上（到线段的距离）
+  const d = pointToSegmentDist(p, ends.A, ends.B);
+  if (d < mirror.thick * 2.2 + 18 * S) {
+    dragging = 'mirror';
+    dragOffset.x = mirror.x - p.x;
+    dragOffset.y = mirror.y - p.y;
+    mirror.scale = 1.1;
+    return;
+  }
+}
+
+function onMove(e) {
+  if (activePointer !== e.pointerId || !dragging) return;
+  const p = getPos(e);
+
+  if (dragging === 'light') {
+    light.x = p.x + dragOffset.x;
+    light.y = p.y + dragOffset.y;
+    clampAll();
+  } else if (dragging === 'mirror') {
+    mirror.x = p.x + dragOffset.x;
+    mirror.y = p.y + dragOffset.y;
+    clampAll();
+  } else if (dragging === 'rotateA' || dragging === 'rotateB') {
+    // 旋转：以镜子中心为轴，指针位置决定角度
+    const dx = p.x - mirror.x;
+    const dy = p.y - mirror.y;
+    if (Math.hypot(dx, dy) < 12 * S) return;
+
+    let a = Math.atan2(dy, dx);
+    // 因为 A 在角度对面，按 B 端旋转时直接取 a；按 A 端旋转时角度加 π
+    if (dragging === 'rotateA') a += Math.PI;
+
+    // 归一化到 -π/2 ~ π/2
+    while (a > Math.PI / 2) a -= Math.PI;
+    while (a < -Math.PI / 2) a += Math.PI;
+
+    const prev = mirror.angle;
+    mirror.angle = a;
+    if (Math.abs(prev - a) > 0.02) sfxRotate();
+  }
+}
+
+function onUp(e) {
+  if (activePointer !== e.pointerId) return;
+  light.scale = 1;
+  mirror.scale = 1;
+  dragging = null;
+  activePointer = null;
+  downPos = null;
+}
+
+function pointToSegmentDist(p, a, b) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len2 = dx * dx + dy * dy;
+  if (len2 === 0) return Math.hypot(p.x - a.x, p.y - a.y);
+  let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2;
+  t = Math.max(0, Math.min(1, t));
+  const px = a.x + t * dx;
+  const py = a.y + t * dy;
+  return Math.hypot(p.x - px, p.y - py);
+}
+
+/* ============================================================
+   更新
+   ============================================================ */
+function update(dt) {
+  time += dt;
+
+  // 计算当前光束
+  const beam = computeBeam();
+  if (beam) {
+    beamHit = rayHitsTarget(beam.hitPoint, beam.R, bear, bear.r * 1.3);
+  } else {
+    beamHit = false;
+  }
+
+  // 小熊亮度：命中时逐渐亮起，否则逐渐暗下
+  const targetGlow = beamHit ? 1 : 0;
+  bear.glow += (targetGlow - bear.glow) * Math.min(1, dt * 6);
+
+  // 刚刚被照亮时：触发庆祝
+  if (beamHit && !lastHit) {
+    bear.happy = 1;
+    spawnSparks(bear.x, bear.y);
+    sfxSuccess();
+    hintAlpha = 0;
+  }
+
+  // 刚刚失去光照时
+  if (!beamHit && lastHit) {
+    sfxLost();
+  }
+
+  lastHit = beamHit;
+
+  // 小熊开心值衰减
+  bear.happy = Math.max(0, bear.happy - dt * 0.4);
+
+  // 小熊被照亮时持续冒出小星星（稀疏）
+  if (beamHit && Math.random() < 0.04) {
+    spawnSparks(bear.x + (Math.random() - 0.5) * 30, bear.y + (Math.random() - 0.5) * 30);
+  }
+
+  // 粒子更新
+  for (const s of sparks) {
+    s.x += s.vx * dt;
+    s.y += s.vy * dt;
+    s.vy += 140 * dt;
+    s.vx *= 0.96;
+    s.vy *= 0.96;
+    s.rot += s.rotSpeed * dt;
+    s.life -= dt * 1.1;
+  }
+  sparks = sparks.filter(s => s.life > 0);
+
+  // 提示 7 秒后淡出
+  hintTimer += dt;
+  if (hintTimer > 7 && hintAlpha > 0) {
+    hintAlpha = Math.max(0, hintAlpha - dt * 0.7);
+  }
+
+  // 触摸提示渐隐
+  if (dragging) hintAlpha = Math.max(0, hintAlpha - dt * 2);
+}
+
+/* ============================================================
+   渲染
+   ============================================================ */
+function render() {
+  ctx.clearRect(0, 0, W, H);
+
+  drawRoom();
+
+  const beam = computeBeam();
+
+  // 画顺序：先光束（在小熊下面），再镜子、光源、小熊
+  if (beam) drawBeams(beam);
+
+  drawMirror();
+  drawLight();
+  drawBear();
+
+  drawSparks();
+  drawHint();
+}
+
+/* ============================================================
+   启动
+   ============================================================ */
+resize();
+window.addEventListener('resize', resize);
+
+canvas.addEventListener('pointerdown', onDown);
+canvas.addEventListener('pointermove', onMove);
+canvas.addEventListener('pointerup', onUp);
+canvas.addEventListener('pointercancel', onUp);
+canvas.addEventListener('dblclick', e => e.preventDefault());
+
+render();
+
+gsap.ticker.add((t, deltaTime) => {
+  const dt = Math.min(deltaTime, 50) / 1000;
+  update(dt);
+  render();
+});
+</script>
+</body>
+</html>
