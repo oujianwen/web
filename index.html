@@ -2,620 +2,755 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>影子怎么来？—— 光 · 物体 · 屏幕</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>科学实验室 · 互动课件合集</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  html, body { height: 100%; overflow: hidden; background: #0f1220; touch-action: none; }
-  canvas { display: block; }
+
+  html, body {
+    height: 100%;
+    overflow: hidden;
+    background: #080c14;
+    color: #fff;
+    font-family: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .app { display: flex; height: 100%; }
+
+  /* ============ 侧边栏 ============ */
+  .sidebar {
+    width: 290px;
+    flex: 0 0 290px;
+    display: flex;
+    flex-direction: column;
+    background: linear-gradient(180deg, #0e1524 0%, #0a1018 100%);
+    border-right: 1px solid rgba(255, 255, 255, 0.07);
+    position: relative;
+    z-index: 30;
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 18px 18px 14px;
+  }
+  .brand-icon {
+    width: 42px; height: 42px;
+    flex: 0 0 42px;
+    border-radius: 13px;
+    background: linear-gradient(135deg, #5eb3ff, #7fdd6e);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px;
+    box-shadow: 0 6px 20px rgba(94, 179, 255, 0.35);
+  }
+  .brand-text h1 { font-size: 16px; letter-spacing: 0.5px; font-weight: 800; }
+  .brand-text p { font-size: 11.5px; color: #7a8ca6; margin-top: 3px; }
+
+  .search-wrap { padding: 0 16px 12px; position: relative; }
+  .search-wrap::before {
+    content: "🔍";
+    position: absolute;
+    left: 27px; top: 9px;
+    font-size: 13px;
+    opacity: 0.45;
+    pointer-events: none;
+  }
+  .search-wrap input {
+    width: 100%;
+    padding: 10px 12px 10px 36px;
+    border-radius: 11px;
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    background: rgba(255, 255, 255, 0.045);
+    color: #fff;
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.18s, background 0.18s;
+  }
+  .search-wrap input::placeholder { color: #5f7290; }
+  .search-wrap input:focus {
+    border-color: rgba(94, 179, 255, 0.6);
+    background: rgba(94, 179, 255, 0.08);
+  }
+
+  .list {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 0 10px 20px;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255,255,255,.14) transparent;
+  }
+  .list::-webkit-scrollbar { width: 6px; }
+  .list::-webkit-scrollbar-track { background: transparent; }
+  .list::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.12);
+    border-radius: 3px;
+  }
+  .list::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.22); }
+
+  .group-title {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 1.4px;
+    color: #5f7290;
+    padding: 15px 10px 7px;
+  }
+
+  .item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 10px;
+    border-radius: 10px;
+    cursor: pointer;
+    font-size: 13.5px;
+    color: #a8c0e0;
+    user-select: none;
+    transition: background 0.15s, color 0.15s;
+  }
+  .item .ic { font-size: 16px; width: 20px; flex: 0 0 20px; text-align: center; }
+  .item .nm {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .item:hover { background: rgba(94, 179, 255, 0.09); color: #e6f0ff; }
+  .item.active {
+    background: linear-gradient(135deg, rgba(94, 179, 255, 0.26), rgba(127, 221, 110, 0.15));
+    color: #fff;
+    font-weight: 700;
+    box-shadow: inset 0 0 0 1px rgba(94, 179, 255, 0.32);
+  }
+
+  .empty-tip {
+    padding: 30px 16px;
+    text-align: center;
+    font-size: 13px;
+    color: #5f7290;
+    line-height: 1.7;
+  }
+
+  .foot {
+    padding: 10px 18px 14px;
+    font-size: 11px;
+    color: #46566e;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    text-align: center;
+    letter-spacing: 0.3px;
+  }
+  .foot kbd {
+    display: inline-block;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    font-family: inherit;
+    font-size: 10.5px;
+    color: #8fa5c0;
+  }
+
+  /* ============ 右侧展示区 ============ */
+  .viewer {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+  }
+
+  .toolbar {
+    height: 52px;
+    flex: 0 0 52px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 0 14px;
+    background: rgba(14, 21, 36, 0.92);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    backdrop-filter: blur(10px);
+    z-index: 10;
+  }
+
+  .tb-btn {
+    width: 34px; height: 34px;
+    flex: 0 0 34px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    background: rgba(255, 255, 255, 0.05);
+    color: #c8d8ea;
+    cursor: pointer;
+    font-size: 15px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s, color 0.15s, transform 0.1s;
+  }
+  .tb-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.13); color: #fff; }
+  .tb-btn:active:not(:disabled) { transform: translateY(1px); }
+  .tb-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+  #toggle { display: none; }
+
+  .crumb {
+    flex: 1;
+    min-width: 0;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: #7d92ad;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .crumb b { color: #ffffff; }
+  .crumb .dot { color: #46566e; margin: 0 8px; }
+
+  .frame-wrap {
+    flex: 1;
+    position: relative;
+    background: #050810;
+    overflow: hidden;
+  }
+
+  iframe {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    display: block;
+    background: #050810;
+  }
+
+  /* ============ 欢迎页 ============ */
+  .welcome {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    padding: 30px 24px;
+    text-align: center;
+    background:
+      radial-gradient(circle at 50% 32%, rgba(94, 179, 255, 0.12), transparent 62%),
+      radial-gradient(circle at 78% 72%, rgba(127, 221, 110, 0.08), transparent 55%);
+    z-index: 4;
+    transition: opacity 0.25s;
+  }
+  .welcome-logo {
+    width: 78px; height: 78px;
+    border-radius: 24px;
+    background: linear-gradient(135deg, #5eb3ff, #7fdd6e);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 40px;
+    box-shadow: 0 14px 44px rgba(94, 179, 255, 0.35);
+    margin-bottom: 4px;
+  }
+  .welcome h2 {
+    font-size: 24px;
+    font-weight: 800;
+    letter-spacing: 1px;
+  }
+  .welcome p {
+    font-size: 14px;
+    color: #7d92ad;
+    line-height: 1.7;
+    max-width: 440px;
+  }
+  .welcome-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 9px;
+    justify-content: center;
+    margin-top: 12px;
+    max-width: 560px;
+  }
+  .chip {
+    padding: 9px 16px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.05);
+    color: #c8d8ea;
+    font-size: 13px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    transition: all 0.16s;
+  }
+  .chip:hover {
+    background: rgba(94, 179, 255, 0.16);
+    border-color: rgba(94, 179, 255, 0.45);
+    color: #fff;
+    transform: translateY(-1px);
+  }
+
+  /* ============ 加载中 ============ */
+  .loading {
+    position: absolute;
+    inset: 0;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    background: rgba(5, 8, 16, 0.92);
+    color: #7d92ad;
+    font-size: 13.5px;
+    z-index: 6;
+  }
+  .loading.show { display: flex; }
+  .spinner {
+    width: 34px; height: 34px;
+    border-radius: 50%;
+    border: 3px solid rgba(94, 179, 255, 0.18);
+    border-top-color: #5eb3ff;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ============ 移动端 ============ */
+  .backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    z-index: 25;
+    backdrop-filter: blur(2px);
+  }
+  .backdrop.show { display: block; }
+
+  @media (max-width: 860px) {
+    .sidebar {
+      position: fixed;
+      top: 0; left: 0; bottom: 0;
+      width: 280px;
+      flex-basis: 280px;
+      transform: translateX(-100%);
+      transition: transform 0.26s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: 0 0 50px rgba(0, 0, 0, 0.7);
+    }
+    .sidebar.open { transform: translateX(0); }
+    #toggle { display: flex; }
+    .welcome-logo { width: 64px; height: 64px; font-size: 32px; border-radius: 20px; }
+    .welcome h2 { font-size: 20px; }
+  }
 </style>
 </head>
 <body>
-<canvas id="c"></canvas>
-<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+
+<div class="app">
+  <!-- ============ 左侧：实验目录 ============ -->
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <div class="brand-icon">🔬</div>
+      <div class="brand-text">
+        <h1>科学实验室</h1>
+        <p>34 个互动小实验</p>
+      </div>
+    </div>
+
+    <div class="search-wrap">
+      <input id="search" type="text" placeholder="搜索实验…" autocomplete="off">
+    </div>
+
+    <nav class="list" id="list"></nav>
+
+    <div class="foot">
+      <kbd>↑</kbd> <kbd>↓</kbd> 切换实验
+    </div>
+  </aside>
+
+  <!-- ============ 右侧：展示区 ============ -->
+  <main class="viewer">
+    <div class="toolbar">
+      <button class="tb-btn" id="toggle" title="展开目录">☰</button>
+      <div class="crumb" id="crumb">选择一个实验开始 👈</div>
+      <button class="tb-btn" id="reload" title="重新加载" disabled>🔄</button>
+      <button class="tb-btn" id="open" title="在新窗口打开" disabled>↗</button>
+    </div>
+
+    <div class="frame-wrap">
+      <!-- 欢迎页 -->
+      <div class="welcome" id="welcome">
+        <div class="welcome-logo">🔬</div>
+        <h2>科学实验室</h2>
+        <p>从左边目录里挑一个实验，右边就会打开它。<br>每个实验都可以用手拖、用按钮试，边玩边发现规律。</p>
+        <div class="welcome-chips" id="chips"></div>
+      </div>
+
+      <iframe id="frame" src="about:blank" allow="fullscreen; autoplay" title="实验展示区"></iframe>
+
+      <div class="loading" id="loading">
+        <div class="spinner"></div>
+        <div>正在打开实验…</div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div class="backdrop" id="backdrop"></div>
+
 <script>
 /* ============================================================
-   影子怎么来？ —— 光 + 物体 + 屏幕 = 影子
-   ------------------------------------------------------------
-   教材依据：
-   第五章第三节「光」—— 光是直线前进的；影子形成
-   第六章「光影好朋友」—— 哪些东西会有影子？同物不同影？
-   第六章「如何显现大亮眼？」—— 必须挡住光才有影子
-   第一章「迷思概念」—— 幼儿以为「有光就有影子」
-
-   认知冲突设计：
-   ① 只有光，没有物体 → 没有影子
-   ② 只有物体，没有光 → 没有影子
-   ③ 光 + 物体 → 影子出现
-   ④ 光离物体越近，影子越大
-   ⑤ 光移动，影子跟着移动
+   实验数据
    ============================================================ */
-
-const canvas = document.getElementById('c');
-const ctx = canvas.getContext('2d');
-
-let W, H, DPR, S = 1;
-let time = 0;
-
-/* ---------- 场景对象 ---------- */
-const light = { x: 0, y: 0, r: 30, on: true, scale: 1 };
-const ball  = { x: 0, y: 0, r: 36, visible: true, scale: 1 };
-const world = { wallX: 0 };
-
-/* ---------- 交互状态 ---------- */
-let dragging = null;
-let dragOffset = { x: 0, y: 0 };
-let downPos = null;
-let activePointer = null;
-let shadowWasVisible = false;
-let hintAlpha = 1;
-let hintTimer = 0;
+const DATA = [
+  {
+    group: "🌈 光",
+    items: [
+      { file: "彩虹实验室.html",       icon: "🌈", title: "彩虹实验室",       desc: "背对太阳喷水，就能看见彩虹" },
+      { file: "光的颜色实验室.html",   icon: "🎨", title: "光的颜色实验室",   desc: "红绿蓝能混出什么颜色" },
+      { file: "光的折射.html",         icon: "🥢", title: "光的折射",         desc: "筷子在水里怎么断了" },
+      { file: "光和影子.html",         icon: "🌑", title: "光和影子",         desc: "光 · 物体 · 屏幕" },
+      { file: "光线传播.html",         icon: "🪞", title: "镜子送光",         desc: "用镜子把光送到小熊那里" }
+    ]
+  },
+  {
+    group: "🔊 声音",
+    items: [
+      { file: "传声筒.html",           icon: "📞", title: "传声筒",           desc: "绳子绷紧了才听得见" },
+      { file: "声音怎么来.html",       icon: "🥁", title: "声音怎么来",       desc: "鼓面上的小颗粒" },
+      { file: "声音的高低与大小.html", icon: "📊", title: "声音的高低与大小", desc: "看得见的声波" },
+      { file: "水瓶排笛.html",         icon: "🍶", title: "水瓶排笛",         desc: "水多水少，声音怎么会变" }
+    ]
+  },
+  {
+    group: "⚙️ 力与机械",
+    items: [
+      { file: "齿轮.html",             icon: "⚙️", title: "齿轮转啊转",       desc: "齿数 · 方向 · 速度" },
+      { file: "神奇的滑轮.html",       icon: "🎡", title: "神奇的滑轮",       desc: "怎样拉起大石头" },
+      { file: "跷跷板平衡.html",       icon: "⚖️", title: "跷跷板平衡",       desc: "怎样让两边一样重" },
+      { file: "斜坡滚弹珠.html",       icon: "🎯", title: "斜坡滚弹珠",       desc: "怎样滚得远" },
+      { file: "自制陀螺.html",         icon: "🌀", title: "自制陀螺",         desc: "转得稳又久" },
+      { file: "造桥承重赛.html",       icon: "🌉", title: "造桥承重赛",       desc: "什么形状的桥最结实" },
+      { file: "纸的力量.html",         icon: "📄", title: "纸的力量",         desc: "薄薄一张纸，能撑起多少本书" }
+    ]
+  },
+  {
+    group: "⚡ 电与磁",
+    items: [
+      { file: "电路迷宫.html",         icon: "💡", title: "电路迷宫",         desc: "怎样让灯泡亮起来" },
+      { file: "磁铁的两极.html",       icon: "🧲", title: "磁铁的两极",       desc: "推开还是吸住" },
+      { file: "磁铁好朋友.html",       icon: "🔗", title: "磁铁好朋友",       desc: "什么会被吸住" },
+      { file: "静电实验室.html",       icon: "⚡", title: "静电实验室",       desc: "摩擦能让气球吸起纸片吗" },
+      { file: "风车与风力发电.html",   icon: "🌬️", title: "风车与风力发电",   desc: "怎样让灯泡亮起来" }
+    ]
+  },
+  {
+    group: "💧 水",
+    items: [
+      { file: "沉与浮.html",           icon: "🫧", title: "沉与浮",           desc: "什么会浮起来" },
+      { file: "毛细现象.html",         icon: "💧", title: "毛细现象",         desc: "水自己会往上爬" },
+      { file: "毛细现象2.html",        icon: "🌿", title: "毛细自动浇水装置", desc: "棉绳把水送上花盆" },
+      { file: "溶解实验室.html",       icon: "🧂", title: "溶解实验室",       desc: "糖和盐去哪儿了" },
+      { file: "水的三态变化.html",     icon: "❄️", title: "水的三态变化",     desc: "冰 · 水 · 水蒸气" },
+      { file: "太阳照着大海.html",     icon: "☀️", title: "水循环",           desc: "太阳 · 蒸发 · 云 · 雨" }
+    ]
+  },
+  {
+    group: "🌬️ 空气",
+    items: [
+      { file: "空气在哪里.html",       icon: "🫙", title: "空气在哪里",       desc: "杯子里的秘密" },
+      { file: "空气阻力.html",         icon: "🪶", title: "空气阻力",         desc: "物体为什么不是同时落地" },
+      { file: "气球火箭.html",         icon: "🎈", title: "气球火箭",         desc: "空气往后跑，气球往前飞" }
+    ]
+  },
+  {
+    group: "🌱 生命",
+    items: [
+      { file: "毛毛虫变蝴蝶.html",     icon: "🦋", title: "毛毛虫变蝴蝶",     desc: "蝴蝶的一生" },
+      { file: "种子的一生.html",       icon: "🌱", title: "种子的一生",       desc: "水 · 阳光 · 空气" }
+    ]
+  },
+  {
+    group: "🌍 地球",
+    items: [
+      { file: "岩石一家人.html",       icon: "🪨", title: "岩石一家人",       desc: "石头 · 沙子 · 泥土" },
+      { file: "月相变化.html",         icon: "🌙", title: "月相变化",         desc: "月亮为什么会变形状" }
+    ]
+  }
+];
 
 /* ============================================================
-   尺寸与初始化
-============================================================ */
-function resize() {
-  DPR = Math.min(window.devicePixelRatio || 1, 2);
-  W = window.innerWidth;
-  H = window.innerHeight;
-  canvas.width = W * DPR;
-  canvas.height = H * DPR;
-  canvas.style.width = W + 'px';
-  canvas.style.height = H + 'px';
-  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+   元素引用
+   ============================================================ */
+const listEl    = document.getElementById("list");
+const searchEl  = document.getElementById("search");
+const frameEl   = document.getElementById("frame");
+const welcomeEl = document.getElementById("welcome");
+const loadingEl = document.getElementById("loading");
+const crumbEl   = document.getElementById("crumb");
+const reloadBtn = document.getElementById("reload");
+const openBtn   = document.getElementById("open");
+const toggleBtn = document.getElementById("toggle");
+const sidebarEl = document.getElementById("sidebar");
+const backdrop  = document.getElementById("backdrop");
+const chipsEl   = document.getElementById("chips");
 
-  S = Math.max(0.6, Math.min(1.2, H / 780));
-
-  world.wallX = W * 0.80;
-
-  if (!light.x) {
-    light.x = W * 0.20;
-    light.y = H * 0.36;
-    ball.x = W * 0.52;
-    ball.y = H * 0.55;
-  }
-
-  light.r = 30 * S;
-  ball.r = 36 * S;
-
-  clampPositions();
-}
-
-function clampPositions() {
-  light.x = Math.max(60 * S, Math.min(world.wallX - 60 * S, light.x));
-  light.y = Math.max(60 * S, Math.min(H - 60 * S, light.y));
-  ball.x = Math.max(60 * S, Math.min(world.wallX - ball.r - 4, ball.x));
-  ball.y = Math.max(60 * S, Math.min(H - 60 * S, ball.y));
-}
+let currentItem = null;
+let pendingLoad = false;
+let loadTimer = null;
 
 /* ============================================================
-   影子几何计算
-   从光源出发，作圆的两条切线，延伸到屏幕，得到影子区间
-============================================================ */
-function computeShadow() {
-  if (!light.on || !ball.visible) return null;
-
-  const dx = ball.x - light.x;
-  const dy = ball.y - light.y;
-  const d = Math.hypot(dx, dy);
-  if (d <= ball.r + 2) return null;
-
-  const base = Math.atan2(dy, dx);
-  const alpha = Math.asin(Math.min(1, ball.r / d));
-
-  const ys = [];
-  for (const sign of [-1, 1]) {
-    const a = base + sign * alpha;
-    const c = Math.cos(a);
-    const s = Math.sin(a);
-    if (Math.abs(c) < 0.02) continue;
-    const t = (world.wallX - light.x) / c;
-    if (t <= 0) continue;
-    ys.push(light.y + t * s);
-  }
-
-  if (ys.length < 2) return null;
-  return { y1: Math.min(...ys), y2: Math.max(...ys) };
-}
-
-/* ============================================================
-   绘制：房间背景
-============================================================ */
-function drawRoom() {
-  const g = ctx.createLinearGradient(0, 0, 0, H);
-  g.addColorStop(0, '#141829');
-  g.addColorStop(1, '#0b0d18');
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, W, H);
-}
-
-/* ============================================================
-   绘制：光源的柔和辉光（在墙面之下）
-============================================================ */
-function drawGlow() {
-  if (!light.on) return;
-  const pulse = 1 + Math.sin(time * 2.6) * 0.06;
-  const glowR = 170 * S * pulse;
-
-  const g = ctx.createRadialGradient(light.x, light.y, light.r * 0.4, light.x, light.y, glowR);
-  g.addColorStop(0, 'rgba(255, 240, 160, 0.45)');
-  g.addColorStop(0.45, 'rgba(255, 210, 90, 0.16)');
-  g.addColorStop(1, 'rgba(255, 200, 60, 0)');
-  ctx.fillStyle = g;
-  ctx.beginPath();
-  ctx.arc(light.x, light.y, glowR, 0, Math.PI * 2);
-  ctx.fill();
-}
-
-/* ============================================================
-   绘制：屏幕（墙）
-============================================================ */
-function drawWall() {
-  const x = world.wallX;
-  const w = W - x;
-
-  // 墙面本体（开灯时亮，关灯时暗）
-  const g = ctx.createLinearGradient(x, 0, W, 0);
-  if (light.on) {
-    g.addColorStop(0, '#5a6280');
-    g.addColorStop(0.5, '#474e68');
-    g.addColorStop(1, '#363b50');
-  } else {
-    g.addColorStop(0, '#22263a');
-    g.addColorStop(1, '#181b28');
-  }
-  ctx.fillStyle = g;
-  ctx.fillRect(x, 0, w, H);
-
-  // 墙面细微纹理
-  ctx.strokeStyle = 'rgba(255,255,255,0.035)';
-  ctx.lineWidth = 1;
-  for (let i = x + 18; i < W; i += 26) {
-    ctx.beginPath();
-    ctx.moveTo(i, 0);
-    ctx.lineTo(i, H);
-    ctx.stroke();
-  }
-
-  // 左边缘高光（立体感）
-  const eg = ctx.createLinearGradient(x, 0, x + 18, 0);
-  eg.addColorStop(0, 'rgba(255,255,255,0.18)');
-  eg.addColorStop(1, 'rgba(255,255,255,0)');
-  ctx.fillStyle = eg;
-  ctx.fillRect(x, 0, 18, H);
-
-  // 屏幕标注：顶部小图钉
-  ctx.fillStyle = 'rgba(255,255,255,0.25)';
-  ctx.font = `bold ${11 * S}px system-ui, sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.fillText('屏 幕', x + w / 2, 24 * S);
-  ctx.textAlign = 'left';
-}
-
-/* ============================================================
-   绘制：影子（画在屏幕上）
-============================================================ */
-function drawShadow(sh) {
-  const x = world.wallX;
-  const w = W - x;
-  const { y1, y2 } = sh;
-  const fade = 7 * S;
-
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(x, 0, w, H);
-  ctx.clip();
-
-  // 影子主体
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.82)';
-  ctx.fillRect(x, y1, w, Math.max(0, y2 - y1));
-
-  // 上下边缘柔化
-  const g1 = ctx.createLinearGradient(0, y1 - fade, 0, y1 + fade);
-  g1.addColorStop(0, 'rgba(0,0,0,0)');
-  g1.addColorStop(0.5, 'rgba(0,0,0,0.82)');
-  g1.addColorStop(1, 'rgba(0,0,0,0.82)');
-  ctx.fillStyle = g1;
-  ctx.fillRect(x, y1 - fade, w, fade * 2);
-
-  const g2 = ctx.createLinearGradient(0, y2 - fade, 0, y2 + fade);
-  g2.addColorStop(0, 'rgba(0,0,0,0.82)');
-  g2.addColorStop(0.5, 'rgba(0,0,0,0.82)');
-  g2.addColorStop(1, 'rgba(0,0,0,0)');
-  ctx.fillStyle = g2;
-  ctx.fillRect(x, y2 - fade, w, fade * 2);
-
-  // 影子边缘的高亮轮廓（让影子更有存在感）
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.moveTo(x, y1);
-  ctx.lineTo(W, y1);
-  ctx.moveTo(x, y2);
-  ctx.lineTo(W, y2);
-  ctx.stroke();
-
-  ctx.restore();
-}
-
-/* ============================================================
-   绘制：两条切线光线
-============================================================ */
-function drawLightRays() {
-  if (!light.on || !ball.visible) return;
-
-  const dx = ball.x - light.x;
-  const dy = ball.y - light.y;
-  const d = Math.hypot(dx, dy);
-  if (d <= ball.r + 2) return;
-
-  const base = Math.atan2(dy, dx);
-  const alpha = Math.asin(Math.min(1, ball.r / d));
-
-  ctx.save();
-  ctx.strokeStyle = 'rgba(255, 235, 160, 0.28)';
-  ctx.lineWidth = 1.6 * S;
-  ctx.lineCap = 'round';
-
-  for (const sign of [-1, 1]) {
-    const a = base + sign * alpha;
-    const c = Math.cos(a);
-    const s = Math.sin(a);
-    if (Math.abs(c) < 0.02) continue;
-    const t = (world.wallX - light.x) / c;
-    if (t <= 0) continue;
-    ctx.beginPath();
-    ctx.moveTo(light.x, light.y);
-    ctx.lineTo(world.wallX, light.y + t * s);
-    ctx.stroke();
-  }
-  ctx.restore();
-}
-
-/* ============================================================
-   绘制：球（物体）
-============================================================ */
-function drawBall() {
-  const scale = ball.scale;
-
-  if (!ball.visible) {
-    // 隐藏时留一个虚线幽灵轮廓，方便点击恢复
-    ctx.save();
-    ctx.globalAlpha = 0.22;
-    ctx.strokeStyle = '#7fb8ff';
-    ctx.lineWidth = 2.5 * S;
-    ctx.setLineDash([7 * S, 7 * S]);
-    ctx.beginPath();
-    ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.restore();
-    return;
-  }
-
-  ctx.save();
-  ctx.translate(ball.x, ball.y);
-  ctx.scale(scale, scale);
-
-  const r = ball.r;
-
-  // 球体渐变
-  const g = ctx.createRadialGradient(-r * 0.35, -r * 0.35, r * 0.08, 0, 0, r);
-  g.addColorStop(0, '#a8dcff');
-  g.addColorStop(0.55, '#4a9fe8');
-  g.addColorStop(1, '#1e5490');
-
-  ctx.beginPath();
-  ctx.arc(0, 0, r, 0, Math.PI * 2);
-  ctx.fillStyle = g;
-  ctx.fill();
-
-  // 边缘光（被灯照到的感觉）
-  ctx.strokeStyle = 'rgba(255, 240, 180, 0.5)';
-  ctx.lineWidth = 2 * S;
-  ctx.beginPath();
-  ctx.arc(0, 0, r - 1, Math.PI * 0.85, Math.PI * 1.65);
-  ctx.stroke();
-
-  // 高光
-  ctx.beginPath();
-  ctx.arc(-r * 0.32, -r * 0.36, r * 0.24, 0, Math.PI * 2);
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.72)';
-  ctx.fill();
-
-  // 眼睛
-  const eyeOff = r * 0.30;
-  const eyeY = -r * 0.06;
-  const eyeR = r * 0.135;
-
-  for (const sign of [-1, 1]) {
-    ctx.beginPath();
-    ctx.arc(sign * eyeOff, eyeY, eyeR, 0, Math.PI * 2);
-    ctx.fillStyle = '#101828';
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(sign * eyeOff + eyeR * 0.35, eyeY - eyeR * 0.35, eyeR * 0.35, 0, Math.PI * 2);
-    ctx.fillStyle = '#ffffff';
-    ctx.fill();
-  }
-
-  // 微笑
-  ctx.beginPath();
-  ctx.arc(0, r * 0.14, r * 0.27, 0.22, Math.PI - 0.22);
-  ctx.strokeStyle = '#101828';
-  ctx.lineWidth = 2.6 * S;
-  ctx.lineCap = 'round';
-  ctx.stroke();
-
-  ctx.restore();
-}
-
-/* ============================================================
-   绘制：灯泡
-============================================================ */
-function drawLight() {
-  const scale = light.scale;
-  const r = light.r;
-  const isOn = light.on;
-
-  ctx.save();
-  ctx.translate(light.x, light.y);
-  ctx.scale(scale, scale);
-
-  // 灯泡主体
-  const bg = ctx.createRadialGradient(-r * 0.3, -r * 0.3, r * 0.08, 0, 0, r);
-  if (isOn) {
-    bg.addColorStop(0, '#fffde7');
-    bg.addColorStop(0.65, '#ffd54f');
-    bg.addColorStop(1, '#f59f00');
-  } else {
-    bg.addColorStop(0, '#5a6076');
-    bg.addColorStop(1, '#2b2f40');
-  }
-
-  ctx.beginPath();
-  ctx.arc(0, 0, r, 0, Math.PI * 2);
-  ctx.fillStyle = bg;
-  ctx.fill();
-
-  // 外圈
-  ctx.strokeStyle = isOn ? 'rgba(255,255,255,0.75)' : 'rgba(255,255,255,0.18)';
-  ctx.lineWidth = 2.2 * S;
-  ctx.stroke();
-
-  // 眼睛
-  const eyeR = r * 0.15;
-  const eyeY = -r * 0.08;
-  const eyeOff = r * 0.30;
-
-  for (const sign of [-1, 1]) {
-    ctx.beginPath();
-    ctx.arc(sign * eyeOff, eyeY, eyeR, 0, Math.PI * 2);
-    ctx.fillStyle = isOn ? '#3a2a00' : '#151824';
-    ctx.fill();
-    if (isOn) {
-      ctx.beginPath();
-      ctx.arc(sign * eyeOff + eyeR * 0.35, eyeY - eyeR * 0.35, eyeR * 0.35, 0, Math.PI * 2);
-      ctx.fillStyle = '#ffffff';
-      ctx.fill();
-    }
-  }
-
-  // 微笑
-  ctx.beginPath();
-  ctx.arc(0, r * 0.16, r * 0.28, 0.25, Math.PI - 0.25);
-  ctx.strokeStyle = isOn ? '#3a2a00' : '#151824';
-  ctx.lineWidth = 2.2 * S;
-  ctx.lineCap = 'round';
-  ctx.stroke();
-
-  ctx.restore();
-}
-
-/* ============================================================
-   绘制：底部操作提示（几秒后淡出）
-============================================================ */
-function drawHint() {
-  if (hintAlpha <= 0.01) return;
-
-  const text = '👆 拖动灯泡和球试试看';
-  ctx.save();
-  ctx.globalAlpha = hintAlpha;
-
-  ctx.font = `bold ${16 * S}px system-ui, sans-serif`;
-  const tw = ctx.measureText(text).width;
-  const padX = 22 * S;
-  const bh = 46 * S;
-  const bw = tw + padX * 2;
-  const bx = W / 2 - bw / 2;
-  const by = H - bh - 34 * S;
-
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
-  roundRect(bx, by, bw, bh, bh / 2);
-  ctx.fill();
-
-  ctx.fillStyle = '#ffffff';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(text, W / 2, by + bh / 2 + 1);
-  ctx.restore();
-}
-
-function roundRect(x, y, w, h, r) {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.lineTo(x + w - r, y);
-  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-  ctx.lineTo(x + w, y + h - r);
-  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-  ctx.lineTo(x + r, y + h);
-  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-  ctx.lineTo(x, y + r);
-  ctx.quadraticCurveTo(x, y, x + r, y);
-  ctx.closePath();
-}
-
-/* ============================================================
-   音效（Web Audio 合成，无需外部文件）
-============================================================ */
-let audioCtx = null;
-function initAudio() {
-  if (!audioCtx) {
-    try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
-  }
-}
-function beep(freq, dur, vol = 0.08, type = 'sine') {
-  if (!audioCtx) return;
-  const o = audioCtx.createOscillator();
-  const g = audioCtx.createGain();
-  o.type = type;
-  o.frequency.setValueAtTime(freq, audioCtx.currentTime);
-  o.connect(g);
-  g.connect(audioCtx.destination);
-  g.gain.setValueAtTime(vol, audioCtx.currentTime);
-  g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
-  o.start();
-  o.stop(audioCtx.currentTime + dur);
-}
-function sfxOn()  { beep(660, 0.09, 0.09); setTimeout(() => beep(880, 0.13, 0.09), 80); }
-function sfxOff() { beep(440, 0.09, 0.07); setTimeout(() => beep(330, 0.14, 0.07), 80); }
-function sfxPop() { beep(520, 0.06, 0.06, 'triangle'); }
-
-/* ============================================================
-   交互
-============================================================ */
-function getPos(e) {
-  const rect = canvas.getBoundingClientRect();
-  return { x: e.clientX - rect.left, y: e.clientY - rect.top };
-}
-function dist(a, b) {
-  return Math.hypot(a.x - b.x, a.y - b.y);
-}
-
-function onDown(e) {
-  initAudio();
-  if (activePointer !== null) return;
-  activePointer = e.pointerId;
-  const p = getPos(e);
-  downPos = p;
-
-  const dl = dist(p, light);
-  const db = dist(p, ball);
-
-  // 命中检测：优先灯泡，其次球（触摸目标都放大）
-  if (dl < light.r + 34 * S) {
-    dragging = 'light';
-    dragOffset.x = light.x - p.x;
-    dragOffset.y = light.y - p.y;
-    light.scale = 1.14;
-  } else if (db < ball.r + 34 * S) {
-    dragging = 'ball';
-    dragOffset.x = ball.x - p.x;
-    dragOffset.y = ball.y - p.y;
-    ball.scale = 1.14;
-  }
-
-  if (dragging) hintAlpha = Math.max(0, hintAlpha - 0.4);
-}
-
-function onMove(e) {
-  if (activePointer !== e.pointerId || !dragging) return;
-  const p = getPos(e);
-
-  if (dragging === 'light') {
-    light.x = p.x + dragOffset.x;
-    light.y = p.y + dragOffset.y;
-  } else {
-    ball.x = p.x + dragOffset.x;
-    ball.y = p.y + dragOffset.y;
-  }
-  clampPositions();
-}
-
-function onUp(e) {
-  if (activePointer !== e.pointerId) return;
-  const p = getPos(e);
-
-  if (dragging && downPos && dist(p, downPos) < 12 * S) {
-    // 判定为「点击」而不是「拖动」
-    if (dragging === 'light') {
-      light.on = !light.on;
-      light.on ? sfxOn() : sfxOff();
-    } else {
-      ball.visible = !ball.visible;
-      sfxPop();
-    }
-  }
-
-  light.scale = 1;
-  ball.scale = 1;
-  dragging = null;
-  activePointer = null;
-  downPos = null;
-}
-
-/* ============================================================
-   主循环
-============================================================ */
-function update(dt) {
-  time += dt;
-
-  // 灯泡轻微呼吸
-  light.r = 30 * S * (1 + Math.sin(time * 2.4) * 0.02);
-
-  // 提示 6 秒后淡出
-  hintTimer += dt;
-  if (hintTimer > 6 && hintAlpha > 0) {
-    hintAlpha = Math.max(0, hintAlpha - dt * 0.8);
-  }
-
-  // 影子「从无到有」时，给一个愉悦的弹跳反馈
-  const sh = computeShadow();
-  const hasShadow = !!sh;
-  if (hasShadow && !shadowWasVisible) {
-    gsap.killTweensOf(ball);
-    gsap.fromTo(ball, { scale: 1.18 }, {
-      scale: 1, duration: 0.5, ease: 'elastic.out(1, 0.45)'
+   渲染目录
+   ============================================================ */
+function buildList(filter) {
+  const q = (filter || "").trim().toLowerCase();
+  listEl.innerHTML = "";
+
+  let shown = 0;
+
+  DATA.forEach(function (group) {
+    const matched = group.items.filter(function (it) {
+      if (!q) return true;
+      return it.title.toLowerCase().indexOf(q) > -1 ||
+             (it.desc || "").toLowerCase().indexOf(q) > -1 ||
+             it.file.toLowerCase().indexOf(q) > -1;
     });
+
+    if (!matched.length) return;
+
+    const title = document.createElement("div");
+    title.className = "group-title";
+    title.textContent = group.group;
+    listEl.appendChild(title);
+
+    matched.forEach(function (it) {
+      shown++;
+      const el = document.createElement("div");
+      el.className = "item";
+      el.dataset.file = it.file;
+      if (currentItem && currentItem.file === it.file) el.classList.add("active");
+      el.title = it.desc || it.title;
+
+      const ic = document.createElement("span");
+      ic.className = "ic";
+      ic.textContent = it.icon;
+
+      const nm = document.createElement("span");
+      nm.className = "nm";
+      nm.textContent = it.title;
+
+      el.appendChild(ic);
+      el.appendChild(nm);
+      el.addEventListener("click", function () { selectItem(it); });
+      listEl.appendChild(el);
+    });
+  });
+
+  if (shown === 0) {
+    const tip = document.createElement("div");
+    tip.className = "empty-tip";
+    tip.textContent = "没有找到相关实验 🤔\n换个关键词试试吧";
+    tip.style.whiteSpace = "pre-line";
+    listEl.appendChild(tip);
   }
-  shadowWasVisible = hasShadow;
 }
 
-function render() {
-  ctx.clearRect(0, 0, W, H);
+/* ============================================================
+   选中实验
+   ============================================================ */
+function selectItem(item) {
+  currentItem = item;
 
-  drawRoom();       // 房间背景
-  drawGlow();       // 灯泡的光晕
-  drawWall();       // 屏幕
+  // 高亮
+  const items = listEl.querySelectorAll(".item");
+  for (let i = 0; i < items.length; i++) {
+    items[i].classList.toggle("active", items[i].dataset.file === item.file);
+  }
 
-  const sh = computeShadow();
-  if (sh) drawShadow(sh);   // 影子（在屏幕上）
+  // 顶部面包屑
+  crumbEl.innerHTML = "";
+  const span = document.createElement("span");
+  span.textContent = item.icon + " ";
+  const b = document.createElement("b");
+  b.textContent = item.title;
+  crumbEl.appendChild(span);
+  crumbEl.appendChild(b);
+  if (item.desc) {
+    const dot = document.createElement("span");
+    dot.className = "dot";
+    dot.textContent = "·";
+    crumbEl.appendChild(dot);
+    const d = document.createElement("span");
+    d.textContent = item.desc;
+    crumbEl.appendChild(d);
+  }
 
-  drawLightRays();  // 两条切线光线
-  drawBall();       // 物体
-  drawLight();      // 灯泡
+  // 按钮可用
+  reloadBtn.disabled = false;
+  openBtn.disabled = false;
 
-  drawHint();       // 底部提示
+  // 隐藏欢迎页，显示加载
+  welcomeEl.style.opacity = "0";
+  setTimeout(function () { welcomeEl.style.display = "none"; }, 200);
+
+  loadingEl.classList.add("show");
+
+  // 加载 iframe
+  pendingLoad = true;
+  frameEl.src = item.file;
+
+  // 安全兜底：8 秒后无论如何都隐藏 loading
+  clearTimeout(loadTimer);
+  loadTimer = setTimeout(function () {
+    if (pendingLoad) {
+      pendingLoad = false;
+      loadingEl.classList.remove("show");
+    }
+  }, 8000);
+
+  // 记忆
+  try { localStorage.setItem("sci-lab-current", item.file); } catch (e) {}
+
+  // 移动端自动收起侧栏
+  if (window.innerWidth <= 860) closeSidebar();
+
+  // 让选中项滚动到可见区域
+  const activeEl = listEl.querySelector(".item.active");
+  if (activeEl && activeEl.scrollIntoView) {
+    activeEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }
+}
+
+/* iframe 加载完成 */
+frameEl.addEventListener("load", function () {
+  if (!pendingLoad) return;
+  pendingLoad = false;
+  clearTimeout(loadTimer);
+  loadingEl.classList.remove("show");
+});
+
+/* ============================================================
+   搜索
+   ============================================================ */
+let searchTimer = null;
+searchEl.addEventListener("input", function () {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(function () {
+    buildList(searchEl.value);
+  }, 120);
+});
+
+/* ============================================================
+   工具栏按钮
+   ============================================================ */
+reloadBtn.addEventListener("click", function () {
+  if (!currentItem) return;
+  pendingLoad = true;
+  loadingEl.classList.add("show");
+  // 加时间戳强制刷新
+  frameEl.src = currentItem.file + "?t=" + Date.now();
+  clearTimeout(loadTimer);
+  loadTimer = setTimeout(function () {
+    if (pendingLoad) { pendingLoad = false; loadingEl.classList.remove("show"); }
+  }, 8000);
+});
+
+openBtn.addEventListener("click", function () {
+  if (!currentItem) return;
+  window.open(currentItem.file, "_blank");
+});
+
+toggleBtn.addEventListener("click", function () {
+  sidebarEl.classList.toggle("open");
+  backdrop.classList.toggle("show", sidebarEl.classList.contains("open"));
+});
+
+backdrop.addEventListener("click", closeSidebar);
+
+function closeSidebar() {
+  sidebarEl.classList.remove("open");
+  backdrop.classList.remove("show");
+}
+
+/* ============================================================
+   键盘上下切换
+   ============================================================ */
+let keyLock = false;
+document.addEventListener("keydown", function (e) {
+  if (e.target && e.target.tagName === "INPUT") return;
+  if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+  if (keyLock) return;
+
+  const items = listEl.querySelectorAll(".item");
+  if (!items.length) return;
+
+  e.preventDefault();
+
+  let idx = -1;
+  for (let i = 0; i < items.length; i++) {
+    if (items[i].classList.contains("active")) { idx = i; break; }
+  }
+
+  if (e.key === "ArrowDown") idx = (idx + 1) % items.length;
+  else idx = (idx - 1 + items.length) % items.length;
+
+  items[idx].click();
+
+  // 防止长按刷屏
+  keyLock = true;
+  setTimeout(function () { keyLock = false; }, 180);
+});
+
+/* ============================================================
+   欢迎页推荐 chips
+   ============================================================ */
+const RECOMMEND = [
+  "彩虹实验室.html",
+  "齿轮.html",
+  "电路迷宫.html",
+  "气球火箭.html",
+  "毛细现象.html",
+  "种子的一生.html"
+];
+
+function buildChips() {
+  chipsEl.innerHTML = "";
+  RECOMMEND.forEach(function (file) {
+    let found = null;
+    DATA.forEach(function (g) {
+      g.items.forEach(function (it) {
+        if (it.file === file) found = it;
+      });
+    });
+    if (!found) return;
+
+    const btn = document.createElement("button");
+    btn.className = "chip";
+    btn.type = "button";
+    btn.textContent = found.icon + " " + found.title;
+    btn.addEventListener("click", function () { selectItem(found); });
+    chipsEl.appendChild(btn);
+  });
 }
 
 /* ============================================================
    启动
-============================================================ */
-resize();
-window.addEventListener('resize', () => { resize(); });
+   ============================================================ */
+buildChips();
+buildList("");
 
-canvas.addEventListener('pointerdown', onDown);
-canvas.addEventListener('pointermove', onMove);
-canvas.addEventListener('pointerup', onUp);
-canvas.addEventListener('pointercancel', onUp);
-canvas.addEventListener('dblclick', e => e.preventDefault());
+// 恢复上次打开的实验
+(function restore() {
+  let last = null;
+  try { last = localStorage.getItem("sci-lab-current"); } catch (e) {}
+  if (!last) return;
 
-render();
-
-gsap.ticker.add((t, deltaTime) => {
-  const dt = Math.min(deltaTime, 50) / 1000;
-  update(dt);
-  render();
-});
+  let found = null;
+  DATA.forEach(function (g) {
+    g.items.forEach(function (it) {
+      if (it.file === last) found = it;
+    });
+  });
+  if (found) selectItem(found);
+})();
 </script>
 </body>
 </html>
