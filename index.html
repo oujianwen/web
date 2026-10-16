@@ -134,6 +134,24 @@
     line-height: 1.7;
   }
 
+  .list-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 40px 16px;
+    font-size: 12.5px;
+    color: #5f7290;
+  }
+  .list-loading .spinner {
+    width: 24px; height: 24px;
+    border-radius: 50%;
+    border: 2.5px solid rgba(94, 179, 255, 0.18);
+    border-top-color: #5eb3ff;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
   .foot {
     padding: 10px 18px 14px;
     font-size: 11px;
@@ -305,14 +323,13 @@
     z-index: 6;
   }
   .loading.show { display: flex; }
-  .spinner {
+  .loading .spinner {
     width: 34px; height: 34px;
     border-radius: 50%;
     border: 3px solid rgba(94, 179, 255, 0.18);
     border-top-color: #5eb3ff;
     animation: spin 0.8s linear infinite;
   }
-  @keyframes spin { to { transform: rotate(360deg); } }
 
   /* ============ 移动端 ============ */
   .backdrop {
@@ -351,7 +368,7 @@
       <div class="brand-icon">🔬</div>
       <div class="brand-text">
         <h1>科学实验室</h1>
-        <p>34 个互动小实验</p>
+        <p id="count">正在扫描目录…</p>
       </div>
     </div>
 
@@ -398,9 +415,30 @@
 
 <script>
 /* ============================================================
-   实验数据
+   实验列表 —— 从 index.html 所在目录动态获取
+   ------------------------------------------------------------
+   发现顺序：
+     ① 目录列表（服务器返回的目录索引页面 → 抓取所有 .html 链接）
+     ② experiments.json（可选，手动清单，用于不支持目录列表的服务器）
+     ③ 内置清单（离线 / file:// 兜底）
+
+   每个实验文件的元数据（可选，写在 <head> 里）：
+     <meta name="exp:group" content="🌈 光">
+     <meta name="exp:icon"  content="🌈">
+     <meta name="exp:title" content="彩虹实验室">
+     <meta name="exp:desc"  content="背对太阳喷水，就能看见彩虹">
+     <meta name="exp:order" content="1">
+     <meta name="exp:hidden" content="true">   <!-- 不想出现在目录里 -->
+
+   没有 meta 时：title 取 <title>（按 “——” / “-” / “·” 拆成 标题 + 描述），
+   group / icon / desc 用下面的内置清单补全，仍无则归入「📁 其他」。
    ============================================================ */
-const DATA = [
+
+const MANIFEST_FILE = "experiments.json";   // 可选清单文件名
+const CONCURRENCY   = 6;                    // 并发抓取上限
+
+/* ---------- 内置清单：兜底 + 提供分组/图标默认值 ---------- */
+const FALLBACK = [
   {
     group: "🌈 光",
     items: [
@@ -447,7 +485,7 @@ const DATA = [
     items: [
       { file: "沉与浮.html",           icon: "🫧", title: "沉与浮",           desc: "什么会浮起来" },
       { file: "毛细现象.html",         icon: "💧", title: "毛细现象",         desc: "水自己会往上爬" },
-      { file: "毛细现象2.html",        icon: "🌿", title: "毛细自动浇水装置", desc: "棉绳把水送上花盆" },
+      { file: "毛细现象2.html",        icon: "🌿", title: "毛细自动浇水装置", desc: "棉绳把水送进花盆" },
       { file: "溶解实验室.html",       icon: "🧂", title: "溶解实验室",       desc: "糖和盐去哪儿了" },
       { file: "水的三态变化.html",     icon: "❄️", title: "水的三态变化",     desc: "冰 · 水 · 水蒸气" },
       { file: "太阳照着大海.html",     icon: "☀️", title: "水循环",           desc: "太阳 · 蒸发 · 云 · 雨" }
@@ -477,6 +515,25 @@ const DATA = [
   }
 ];
 
+/* ---------- 内置清单索引 ---------- */
+const FALLBACK_INFO = {};
+const FALLBACK_GROUP_ORDER = [];
+
+(function buildFallbackIndex() {
+  FALLBACK.forEach(function (g, gi) {
+    if (FALLBACK_GROUP_ORDER.indexOf(g.group) === -1) FALLBACK_GROUP_ORDER.push(g.group);
+    g.items.forEach(function (it, ii) {
+      FALLBACK_INFO[it.file] = {
+        icon: it.icon,
+        title: it.title,
+        desc: it.desc,
+        group: g.group,
+        order: gi * 100 + ii
+      };
+    });
+  });
+})();
+
 /* ============================================================
    元素引用
    ============================================================ */
@@ -492,21 +549,315 @@ const toggleBtn = document.getElementById("toggle");
 const sidebarEl = document.getElementById("sidebar");
 const backdrop  = document.getElementById("backdrop");
 const chipsEl   = document.getElementById("chips");
+const countEl   = document.getElementById("count");
 
+let EXPERIMENTS = [];      // 分组后的实验数据
 let currentItem = null;
 let pendingLoad = false;
 let loadTimer = null;
 
 /* ============================================================
+   小工具：网络 / 并发 / 元数据
+   ============================================================ */
+async function fetchText(url, timeout) {
+  timeout = timeout || 6000;
+  if (typeof fetch !== "function") return null;
+
+  const ctrl = (typeof AbortController !== "undefined") ? new AbortController() : null;
+  const timer = setTimeout(function () { if (ctrl) ctrl.abort(); }, timeout);
+
+  try {
+    const res = await fetch(url, {
+      cache: "no-cache",
+      signal: ctrl ? ctrl.signal : undefined
+    });
+    if (!res.ok) return null;
+    return await res.text();
+  } catch (e) {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function mapLimit(items, limit, fn) {
+  const out = new Array(items.length);
+  let cursor = 0;
+  const n = Math.max(1, Math.min(limit, items.length));
+
+  const workers = [];
+  for (let i = 0; i < n; i++) {
+    workers.push((async function () {
+      while (cursor < items.length) {
+        const idx = cursor++;
+        out[idx] = await fn(items[idx], idx);
+      }
+    })());
+  }
+  await Promise.all(workers);
+  return out;
+}
+
+const META_KEYS = {
+  group:  "exp:group",
+  icon:   "exp:icon",
+  title:  "exp:title",
+  desc:   "exp:desc",
+  order:  "exp:order",
+  hidden: "exp:hidden"
+};
+
+function readMeta(doc) {
+  const out = {};
+  Object.keys(META_KEYS).forEach(function (k) {
+    const el = doc.querySelector('meta[name="' + META_KEYS[k] + '"]');
+    if (!el) return;
+    const v = (el.getAttribute("content") || "").trim();
+    if (v) out[k] = v;
+  });
+  return out;
+}
+
+/* <title>彩虹实验室 —— 背对太阳喷水，就能看见彩虹</title>
+   → { title: "彩虹实验室", desc: "背对太阳喷水，就能看见彩虹" } */
+function splitTitleTag(raw) {
+  const t = (raw || "").replace(/\s+/g, " ").trim();
+  if (!t) return { title: "", desc: "" };
+
+  const parts = t.split(/\s*[—–\-·|｜]+\s*/).filter(Boolean);
+  if (!parts.length) return { title: t, desc: "" };
+
+  return { title: parts[0], desc: parts.slice(1).join(" · ") };
+}
+
+function fileToTitle(file) {
+  let n = file.replace(/\.html?$/i, "");
+  try { n = decodeURIComponent(n); } catch (e) {}
+  return n;
+}
+
+/* ============================================================
+   ① 目录列表发现
+   ============================================================ */
+function getDirUrl() {
+  try {
+    const u = new URL(location.href);
+    u.search = "";
+    u.hash = "";
+    u.pathname = u.pathname.replace(/[^\/]*$/, "");   // 去掉文件名
+    return u;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function listFromDirectory() {
+  const dirUrl = getDirUrl();
+  if (!dirUrl) return null;
+  if (dirUrl.protocol === "file:") return null;      // file:// 无法列目录
+
+  const html = await fetchText(dirUrl.href);
+  if (!html) return null;
+
+  let doc;
+  try { doc = new DOMParser().parseFromString(html, "text/html"); }
+  catch (e) { return null; }
+
+  const anchors = doc.querySelectorAll("a[href]");
+  const files = [];
+  const basePath = dirUrl.pathname;
+
+  for (let i = 0; i < anchors.length; i++) {
+    const href = anchors[i].getAttribute("href");
+    if (!href) continue;
+    if (href.charAt(0) === "#" || href.charAt(0) === "?") continue;
+
+    const clean = href.split("#")[0].split("?")[0];
+    if (!/\.html?$/i.test(clean)) continue;
+
+    let name = null;
+    try {
+      const u = new URL(href, dirUrl.href);
+      if (u.protocol !== dirUrl.protocol) continue;
+      if (u.host !== dirUrl.host) continue;
+      if (u.pathname.indexOf(basePath) !== 0) continue;
+      name = decodeURIComponent(u.pathname.slice(basePath.length));
+    } catch (e) {
+      name = clean.split("/").pop();
+    }
+
+    if (!name || name.indexOf("/") > -1) continue;
+    if (/^index\.html?$/i.test(name)) continue;      // 排除 index.html 自己
+    if (files.indexOf(name) === -1) files.push(name);
+  }
+
+  return files.length ? files : null;
+}
+
+/* ============================================================
+   ② 可选清单 experiments.json
+   ============================================================ */
+async function listFromManifest() {
+  const dirUrl = getDirUrl();
+  if (dirUrl && dirUrl.protocol === "file:") return null;
+
+  const text = await fetchText(MANIFEST_FILE);
+  if (!text) return null;
+
+  let data;
+  try { data = JSON.parse(text); } catch (e) { return null; }
+
+  const arr = Array.isArray(data)
+    ? data
+    : (Array.isArray(data.experiments) ? data.experiments
+      : (Array.isArray(data.files) ? data.files : null));
+  if (!Array.isArray(arr)) return null;
+
+  const files = arr.map(function (x) {
+    if (typeof x === "string") return x;
+    return x && x.file;
+  }).filter(Boolean);
+
+  return files.length ? files : null;
+}
+
+/* ============================================================
+   ③ 内置清单兜底
+   ============================================================ */
+function listFromBuiltin() {
+  const files = [];
+  FALLBACK.forEach(function (g) {
+    g.items.forEach(function (it) { files.push(it.file); });
+  });
+  return files;
+}
+
+async function discoverFileList() {
+  const fromDir = await listFromDirectory();
+  if (fromDir && fromDir.length) return { files: fromDir, source: "目录" };
+
+  const fromManifest = await listFromManifest();
+  if (fromManifest && fromManifest.length) return { files: fromManifest, source: "清单" };
+
+  return { files: listFromBuiltin(), source: "内置" };
+}
+
+/* ============================================================
+   抓取单个实验的元数据
+   ============================================================ */
+async function loadItemMeta(file) {
+  const fb = FALLBACK_INFO[file] || {};
+  let meta = {};
+  let parsed = { title: "", desc: "" };
+
+  const dirUrl = getDirUrl();
+  const canFetch = !(dirUrl && dirUrl.protocol === "file:");
+
+  if (canFetch) {
+    const html = await fetchText(file);
+    if (html) {
+      try {
+        const doc = new DOMParser().parseFromString(html, "text/html");
+        meta = readMeta(doc);
+        if (meta.hidden === "true") return null;     // 被标记隐藏，跳过
+        const tt = doc.querySelector("title");
+        parsed = splitTitleTag(tt ? tt.textContent : "");
+      } catch (e) {}
+    }
+  } else {
+    if (fb.hidden === true) return null;
+  }
+
+  const title = meta.title || parsed.title || fb.title || fileToTitle(file);
+  const desc  = meta.desc  || parsed.desc  || fb.desc  || "";
+  const icon  = meta.icon  || fb.icon      || "🧪";
+  const group = meta.group || fb.group     || "📁 其他";
+
+  let order = (fb.order != null) ? fb.order : 9999;
+  if (meta.order != null) {
+    const n = parseFloat(meta.order);
+    if (!isNaN(n)) order = n;
+  }
+
+  return {
+    file: file,
+    icon: icon,
+    title: title,
+    desc: desc,
+    group: group,
+    order: order
+  };
+}
+
+/* ============================================================
+   汇总 + 分组
+   ============================================================ */
+async function collectExperiments() {
+  const found = await discoverFileList();
+  const list = await mapLimit(found.files, CONCURRENCY, loadItemMeta);
+  return {
+    items: list.filter(Boolean),
+    source: found.source
+  };
+}
+
+function groupRank(name) {
+  const i = FALLBACK_GROUP_ORDER.indexOf(name);
+  return i === -1 ? 900 : i;
+}
+
+function groupExperiments(items) {
+  const map = new Map();
+  items.forEach(function (it) {
+    if (!map.has(it.group)) map.set(it.group, []);
+    map.get(it.group).push(it);
+  });
+
+  const groups = [];
+  map.forEach(function (list, name) {
+    list.sort(function (a, b) {
+      return a.order - b.order || a.title.localeCompare(b.title, "zh-Hans-CN");
+    });
+    groups.push({ group: name, items: list });
+  });
+
+  groups.sort(function (a, b) {
+    return groupRank(a.group) - groupRank(b.group) ||
+           a.group.localeCompare(b.group, "zh-Hans-CN");
+  });
+
+  return groups;
+}
+
+/* ============================================================
    渲染目录
    ============================================================ */
+function setListPlaceholder(text, spinning) {
+  listEl.innerHTML = "";
+  const box = document.createElement("div");
+  box.className = spinning ? "list-loading" : "empty-tip";
+
+  if (spinning) {
+    const sp = document.createElement("div");
+    sp.className = "spinner";
+    box.appendChild(sp);
+  }
+
+  const txt = document.createElement("div");
+  txt.textContent = text;
+  txt.style.whiteSpace = "pre-line";
+  box.appendChild(txt);
+
+  listEl.appendChild(box);
+}
+
 function buildList(filter) {
   const q = (filter || "").trim().toLowerCase();
   listEl.innerHTML = "";
 
   let shown = 0;
 
-  DATA.forEach(function (group) {
+  EXPERIMENTS.forEach(function (group) {
     const matched = group.items.filter(function (it) {
       if (!q) return true;
       return it.title.toLowerCase().indexOf(q) > -1 ||
@@ -545,12 +896,14 @@ function buildList(filter) {
   });
 
   if (shown === 0) {
-    const tip = document.createElement("div");
-    tip.className = "empty-tip";
-    tip.textContent = "没有找到相关实验 🤔\n换个关键词试试吧";
-    tip.style.whiteSpace = "pre-line";
-    listEl.appendChild(tip);
+    setListPlaceholder("没有找到相关实验 🤔\n换个关键词试试吧", false);
   }
+}
+
+function countTotal() {
+  let n = 0;
+  EXPERIMENTS.forEach(function (g) { n += g.items.length; });
+  return n;
 }
 
 /* ============================================================
@@ -559,13 +912,11 @@ function buildList(filter) {
 function selectItem(item) {
   currentItem = item;
 
-  // 高亮
   const items = listEl.querySelectorAll(".item");
   for (let i = 0; i < items.length; i++) {
     items[i].classList.toggle("active", items[i].dataset.file === item.file);
   }
 
-  // 顶部面包屑
   crumbEl.innerHTML = "";
   const span = document.createElement("span");
   span.textContent = item.icon + " ";
@@ -583,21 +934,17 @@ function selectItem(item) {
     crumbEl.appendChild(d);
   }
 
-  // 按钮可用
   reloadBtn.disabled = false;
   openBtn.disabled = false;
 
-  // 隐藏欢迎页，显示加载
   welcomeEl.style.opacity = "0";
   setTimeout(function () { welcomeEl.style.display = "none"; }, 200);
 
   loadingEl.classList.add("show");
 
-  // 加载 iframe
   pendingLoad = true;
   frameEl.src = item.file;
 
-  // 安全兜底：8 秒后无论如何都隐藏 loading
   clearTimeout(loadTimer);
   loadTimer = setTimeout(function () {
     if (pendingLoad) {
@@ -606,20 +953,16 @@ function selectItem(item) {
     }
   }, 8000);
 
-  // 记忆
   try { localStorage.setItem("sci-lab-current", item.file); } catch (e) {}
 
-  // 移动端自动收起侧栏
   if (window.innerWidth <= 860) closeSidebar();
 
-  // 让选中项滚动到可见区域
   const activeEl = listEl.querySelector(".item.active");
   if (activeEl && activeEl.scrollIntoView) {
     activeEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }
 }
 
-/* iframe 加载完成 */
 frameEl.addEventListener("load", function () {
   if (!pendingLoad) return;
   pendingLoad = false;
@@ -645,7 +988,6 @@ reloadBtn.addEventListener("click", function () {
   if (!currentItem) return;
   pendingLoad = true;
   loadingEl.classList.add("show");
-  // 加时间戳强制刷新
   frameEl.src = currentItem.file + "?t=" + Date.now();
   clearTimeout(loadTimer);
   loadTimer = setTimeout(function () {
@@ -694,7 +1036,6 @@ document.addEventListener("keydown", function (e) {
 
   items[idx].click();
 
-  // 防止长按刷屏
   keyLock = true;
   setTimeout(function () { keyLock = false; }, 180);
 });
@@ -711,22 +1052,41 @@ const RECOMMEND = [
   "种子的一生.html"
 ];
 
+function findItem(file) {
+  let found = null;
+  EXPERIMENTS.forEach(function (g) {
+    g.items.forEach(function (it) {
+      if (it.file === file) found = it;
+    });
+  });
+  return found;
+}
+
 function buildChips() {
   chipsEl.innerHTML = "";
-  RECOMMEND.forEach(function (file) {
-    let found = null;
-    DATA.forEach(function (g) {
+
+  // 推荐列表里的实验，取前若干个；不足时用目录前几个补齐
+  const picked = [];
+  RECOMMEND.forEach(function (f) {
+    const it = findItem(f);
+    if (it) picked.push(it);
+  });
+
+  if (picked.length < 4) {
+    EXPERIMENTS.forEach(function (g) {
       g.items.forEach(function (it) {
-        if (it.file === file) found = it;
+        if (picked.length >= 6) return;
+        if (picked.indexOf(it) === -1) picked.push(it);
       });
     });
-    if (!found) return;
+  }
 
+  picked.slice(0, 6).forEach(function (it) {
     const btn = document.createElement("button");
     btn.className = "chip";
     btn.type = "button";
-    btn.textContent = found.icon + " " + found.title;
-    btn.addEventListener("click", function () { selectItem(found); });
+    btn.textContent = it.icon + " " + it.title;
+    btn.addEventListener("click", function () { selectItem(it); });
     chipsEl.appendChild(btn);
   });
 }
@@ -734,23 +1094,55 @@ function buildChips() {
 /* ============================================================
    启动
    ============================================================ */
-buildChips();
-buildList("");
-
-// 恢复上次打开的实验
-(function restore() {
+function restore() {
   let last = null;
   try { last = localStorage.getItem("sci-lab-current"); } catch (e) {}
   if (!last) return;
 
-  let found = null;
-  DATA.forEach(function (g) {
-    g.items.forEach(function (it) {
-      if (it.file === last) found = it;
-    });
-  });
+  const found = findItem(last);
   if (found) selectItem(found);
-})();
+}
+
+async function boot() {
+  setListPlaceholder("正在读取实验目录…", true);
+  countEl.textContent = "正在扫描目录…";
+
+  let result = { items: [], source: "内置" };
+  try {
+    result = await collectExperiments();
+  } catch (e) {
+    result = { items: [], source: "内置" };
+  }
+
+  // 全部抓取失败 → 用内置清单重建
+  if (!result.items.length) {
+    const list = [];
+    FALLBACK.forEach(function (g) {
+      g.items.forEach(function (it) {
+        list.push({
+          file: it.file, icon: it.icon, title: it.title,
+          desc: it.desc, group: g.group,
+          order: (FALLBACK_INFO[it.file] || {}).order || 0
+        });
+      });
+    });
+    result.items = list;
+  }
+
+  EXPERIMENTS = groupExperiments(result.items);
+
+  const total = countTotal();
+  countEl.textContent = total + " 个互动小实验";
+
+  buildList("");
+  buildChips();
+  restore();
+
+  // 目录被搜索框清空时不会触发 input，这里保证初始状态正确
+  searchEl.value = "";
+}
+
+boot();
 </script>
 </body>
 </html>
