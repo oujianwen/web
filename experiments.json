@@ -1,0 +1,282 @@
+[
+  {
+    "file": "彩虹实验室.html",
+    "group": "🌈 光",
+    "icon": "🌈",
+    "title": "彩虹实验室",
+    "desc": "背对太阳喷水，就能看见彩虹",
+    "order": 1
+  },
+  {
+    "file": "光的颜色实验室.html",
+    "group": "🌈 光",
+    "icon": "🎨",
+    "title": "光的颜色实验室",
+    "desc": "红绿蓝能混出什么颜色",
+    "order": 2
+  },
+  {
+    "file": "光的折射.html",
+    "group": "🌈 光",
+    "icon": "🥢",
+    "title": "光的折射",
+    "desc": "筷子在水里怎么断了",
+    "order": 3
+  },
+  {
+    "file": "光和影子.html",
+    "group": "🌈 光",
+    "icon": "🌑",
+    "title": "光和影子",
+    "desc": "光 · 物体 · 屏幕",
+    "order": 4
+  },
+  {
+    "file": "光线传播.html",
+    "group": "🌈 光",
+    "icon": "🪞",
+    "title": "镜子送光",
+    "desc": "用镜子把光送到小熊那里",
+    "order": 5
+  },
+  {
+    "file": "传声筒.html",
+    "group": "🔊 声音",
+    "icon": "📞",
+    "title": "传声筒",
+    "desc": "绳子绷紧了才听得见",
+    "order": 6
+  },
+  {
+    "file": "声音怎么来.html",
+    "group": "🔊 声音",
+    "icon": "🥁",
+    "title": "声音怎么来",
+    "desc": "鼓面上的小颗粒",
+    "order": 7
+  },
+  {
+    "file": "声音的高低与大小.html",
+    "group": "🔊 声音",
+    "icon": "📊",
+    "title": "声音的高低与大小",
+    "desc": "看得见的声波",
+    "order": 8
+  },
+  {
+    "file": "水瓶排笛.html",
+    "group": "🔊 声音",
+    "icon": "🍶",
+    "title": "水瓶排笛",
+    "desc": "水多水少，声音怎么会变",
+    "order": 9
+  },
+  {
+    "file": "齿轮.html",
+    "group": "⚙️ 力与机械",
+    "icon": "⚙️",
+    "title": "齿轮转啊转",
+    "desc": "齿数 · 方向 · 速度",
+    "order": 10
+  },
+  {
+    "file": "神奇的滑轮.html",
+    "group": "⚙️ 力与机械",
+    "icon": "🎡",
+    "title": "神奇的滑轮",
+    "desc": "怎样拉起大石头",
+    "order": 11
+  },
+  {
+    "file": "跷跷板平衡.html",
+    "group": "⚙️ 力与机械",
+    "icon": "⚖️",
+    "title": "跷跷板平衡",
+    "desc": "怎样让两边一样重",
+    "order": 12
+  },
+  {
+    "file": "斜坡滚弹珠.html",
+    "group": "⚙️ 力与机械",
+    "icon": "🎯",
+    "title": "斜坡滚弹珠",
+    "desc": "怎样滚得远",
+    "order": 13
+  },
+  {
+    "file": "自制陀螺.html",
+    "group": "⚙️ 力与机械",
+    "icon": "🌀",
+    "title": "自制陀螺",
+    "desc": "转得稳又久",
+    "order": 14
+  },
+  {
+    "file": "造桥承重赛.html",
+    "group": "⚙️ 力与机械",
+    "icon": "🌉",
+    "title": "造桥承重赛",
+    "desc": "什么形状的桥最结实",
+    "order": 15
+  },
+  {
+    "file": "纸的力量.html",
+    "group": "⚙️ 力与机械",
+    "icon": "📄",
+    "title": "纸的力量",
+    "desc": "薄薄一张纸，能撑起多少本书",
+    "order": 16
+  },
+  {
+    "file": "电路迷宫.html",
+    "group": "⚡ 电与磁",
+    "icon": "💡",
+    "title": "电路迷宫",
+    "desc": "怎样让灯泡亮起来",
+    "order": 17
+  },
+  {
+    "file": "磁铁的两极.html",
+    "group": "⚡ 电与磁",
+    "icon": "🧲",
+    "title": "磁铁的两极",
+    "desc": "推开还是吸住",
+    "order": 18
+  },
+  {
+    "file": "磁铁好朋友.html",
+    "group": "⚡ 电与磁",
+    "icon": "🔗",
+    "title": "磁铁好朋友",
+    "desc": "什么会被吸住",
+    "order": 19
+  },
+  {
+    "file": "静电实验室.html",
+    "group": "⚡ 电与磁",
+    "icon": "⚡",
+    "title": "静电实验室",
+    "desc": "摩擦能让气球吸起纸片吗",
+    "order": 20
+  },
+  {
+    "file": "风车与风力发电.html",
+    "group": "⚡ 电与磁",
+    "icon": "🌬️",
+    "title": "风车与风力发电",
+    "desc": "怎样让灯泡亮起来",
+    "order": 21
+  },
+  {
+    "file": "沉与浮.html",
+    "group": "💧 水",
+    "icon": "🫧",
+    "title": "沉与浮",
+    "desc": "什么会浮起来",
+    "order": 22
+  },
+  {
+    "file": "毛细现象.html",
+    "group": "💧 水",
+    "icon": "💧",
+    "title": "毛细现象",
+    "desc": "水自己会往上爬",
+    "order": 23
+  },
+  {
+    "file": "毛细现象2.html",
+    "group": "💧 水",
+    "icon": "🌿",
+    "title": "毛细自动浇水装置",
+    "desc": "棉绳把水送上花盆",
+    "order": 24
+  },
+  {
+    "file": "溶解实验室.html",
+    "group": "💧 水",
+    "icon": "🧂",
+    "title": "溶解实验室",
+    "desc": "糖和盐去哪儿了",
+    "order": 25
+  },
+  {
+    "file": "水的三态变化.html",
+    "group": "💧 水",
+    "icon": "❄️",
+    "title": "水的三态变化",
+    "desc": "冰 · 水 · 水蒸气",
+    "order": 26
+  },
+  {
+    "file": "太阳照着大海.html",
+    "group": "💧 水",
+    "icon": "☀️",
+    "title": "水循环",
+    "desc": "太阳 · 蒸发 · 云 · 雨",
+    "order": 27
+  },
+  {
+    "file": "空气在哪里.html",
+    "group": "🌬️ 空气",
+    "icon": "🫙",
+    "title": "空气在哪里",
+    "desc": "杯子里的秘密",
+    "order": 28
+  },
+  {
+    "file": "空气阻力.html",
+    "group": "🌬️ 空气",
+    "icon": "🪶",
+    "title": "空气阻力",
+    "desc": "物体为什么不是同时落地",
+    "order": 29
+  },
+  {
+    "file": "气球火箭.html",
+    "group": "🌬️ 空气",
+    "icon": "🎈",
+    "title": "气球火箭",
+    "desc": "空气往后跑，气球往前飞",
+    "order": 30
+  },
+  {
+    "file": "毛毛虫变蝴蝶.html",
+    "group": "🌱 生命",
+    "icon": "🦋",
+    "title": "毛毛虫变蝴蝶",
+    "desc": "蝴蝶的一生",
+    "order": 31
+  },
+  {
+    "file": "种子的一生.html",
+    "group": "🌱 生命",
+    "icon": "🌱",
+    "title": "种子的一生",
+    "desc": "水 · 阳光 · 空气",
+    "order": 32
+  },
+  {
+    "file": "岩石一家人.html",
+    "group": "🌍 地球",
+    "icon": "🪨",
+    "title": "岩石一家人",
+    "desc": "石头 · 沙子 · 泥土",
+    "order": 33
+  },
+  {
+    "file": "月相变化.html",
+    "group": "🌍 地球",
+    "icon": "🌙",
+    "title": "月相变化",
+    "desc": "月亮为什么会变形状",
+    "order": 34
+  },
+  {
+    "file": "动物分类大挑战.html",
+    "group": "🌍 地球",
+    "icon": "🌙",
+    "title": "动物分类",
+    "desc": "动物分类有哪些",
+    "order": 35
+  }
+]
